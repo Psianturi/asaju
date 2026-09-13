@@ -68,7 +68,7 @@ def _market_context_status(market_context: dict | None) -> Literal["available", 
     return "available"
 
 
-def _write_audit_event(
+async def _write_audit_event(
     db,
     actor_wallet: str,
     agent_id: str,
@@ -100,7 +100,7 @@ def _write_audit_event(
     if extra is not None:
         event.update(extra)
     try:
-        db.collection(AUDIT_COLLECTION).add(event)
+        await db.collection(AUDIT_COLLECTION).add(event)
     except Exception as exc:
         logger.warning("Failed to write audit event %s for agent %s: %s", action, agent_id, exc)
 
@@ -184,8 +184,7 @@ def _approval_message(
         f"Nonce: {nonce}\n"
         f"Expires at: {int(expires_at)}\n"
         f"This signature approves the proposal and records +5 heritage score on-chain.\n"
-        f"Note: This action may trigger a 0.1 MNT autonomous transfer from the agent wallet "
-        f"({agent_wallet}) as part of DeFi execution. The transfer is not from your wallet."
+        f"Note: For DeFi proposals, a separate execution approval is required before any fund transfer occurs."
     )
 
 
@@ -477,7 +476,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         "Proposal generated for agent %s: '%s' (hash: %s)",
         agent_id, proposal_data["title"], proposal_hash[:12],
     )
-    _write_audit_event(
+    await _write_audit_event(
         db,
         actor_wallet=agent_data.get("user_wallet", ""),
         agent_id=agent_id,
@@ -674,7 +673,7 @@ async def approve_proposal(
         "Proposal %s approved on-chain: tx=%s heritage=%s",
         proposal_id, result.get("tx_hash"), result.get("heritage_score_after"),
     )
-    _write_audit_event(
+    await _write_audit_event(
         db,
         actor_wallet=authorization.signer_wallet,
         agent_id=agent_id,
@@ -686,7 +685,7 @@ async def approve_proposal(
         extra={
             "category": data.get("category"),
             "heritage_score_after": result.get("heritage_score_after"),
-            "autonomous_execution_triggered": data.get("category") == "defi",
+            "autonomous_execution_triggered": False,
         },
     )
 
@@ -731,7 +730,7 @@ async def reject_proposal(
 
     data["status"] = "rejected"
     logger.info("Proposal %s rejected by owner", proposal_id)
-    _write_audit_event(
+    await _write_audit_event(
         db,
         actor_wallet=authorization.signer_wallet,
         agent_id=data.get("agent_id", ""),
@@ -893,39 +892,74 @@ async def execute_proposal_transfer(
     _enforce_execution_rate_limit(request, proposal_id)
     db = get_db()
 
-    try:
-        challenge_ref = db.collection(EXECUTION_CHALLENGES_COLLECTION).document(authorization.nonce)
-        challenge_doc = await challenge_ref.get()
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail="Execution authorization could not be verified") from exc
+    challenge_ref = db.collection(EXECUTION_CHALLENGES_COLLECTION).document(authorization.nonce)
 
-    challenge_data = (challenge_doc.to_dict() or {}) if challenge_doc.exists else {}
-    if not challenge_doc.exists or challenge_data.get("proposal_id") != proposal_id:
-        raise HTTPException(status_code=401, detail="Execution authorization is invalid")
+    if not hasattr(db, "transaction"):
+        try:
+            challenge_doc = await challenge_ref.get()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Execution authorization could not be verified") from exc
+        challenge_data = (challenge_doc.to_dict() or {}) if challenge_doc.exists else {}
+        if not challenge_doc.exists or challenge_data.get("proposal_id") != proposal_id:
+            raise HTTPException(status_code=401, detail="Execution authorization is invalid")
+        now = time.time()
+        if challenge_data.get("used_at"):
+            raise HTTPException(status_code=401, detail="Execution authorization has already been used")
+        if challenge_data.get("expires_at", 0) < now:
+            raise HTTPException(status_code=401, detail="Execution authorization has expired")
+        try:
+            recovered_wallet = Web3.to_checksum_address(
+                Account.recover_message(
+                    encode_defunct(text=challenge_data.get("message", "")),
+                    signature=authorization.signature,
+                )
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=401, detail="Execution signature is invalid") from exc
+        owner_wallet = challenge_data.get("owner_wallet", "")
+        if recovered_wallet != authorization.signer_wallet:
+            raise HTTPException(status_code=401, detail="Signature does not match the claimed wallet")
+        if not Web3.is_address(owner_wallet) or recovered_wallet != Web3.to_checksum_address(owner_wallet):
+            raise HTTPException(status_code=403, detail="Only the agent owner can authorize execution")
+        await challenge_ref.update({"used_at": now})
+    else:
+        transaction = db.transaction()
 
-    now = time.time()
-    if challenge_data.get("used_at"):
-        raise HTTPException(status_code=401, detail="Execution authorization has already been used")
-    if challenge_data.get("expires_at", 0) < now:
-        raise HTTPException(status_code=401, detail="Execution authorization has expired")
+        @firestore.async_transactional
+        async def consume_execution_challenge(transaction):
+            challenge_doc = await challenge_ref.get(transaction=transaction)
+            challenge_data = (challenge_doc.to_dict() or {}) if challenge_doc.exists else {}
+            if not challenge_doc.exists or challenge_data.get("proposal_id") != proposal_id:
+                raise HTTPException(status_code=401, detail="Execution authorization is invalid")
+            now = time.time()
+            if challenge_data.get("used_at"):
+                raise HTTPException(status_code=401, detail="Execution authorization has already been used")
+            if challenge_data.get("expires_at", 0) < now:
+                raise HTTPException(status_code=401, detail="Execution authorization has expired")
+            try:
+                recovered_wallet = Web3.to_checksum_address(
+                    Account.recover_message(
+                        encode_defunct(text=challenge_data.get("message", "")),
+                        signature=authorization.signature,
+                    )
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=401, detail="Execution signature is invalid") from exc
+            owner_wallet = challenge_data.get("owner_wallet", "")
+            if recovered_wallet != authorization.signer_wallet:
+                raise HTTPException(status_code=401, detail="Signature does not match the claimed wallet")
+            if not Web3.is_address(owner_wallet) or recovered_wallet != Web3.to_checksum_address(owner_wallet):
+                raise HTTPException(status_code=403, detail="Only the agent owner can authorize execution")
+            transaction.update(challenge_ref, {"used_at": now})
+            return challenge_data, now
 
-    try:
+        challenge_data, now = await consume_execution_challenge(transaction)
         recovered_wallet = Web3.to_checksum_address(
             Account.recover_message(
                 encode_defunct(text=challenge_data.get("message", "")),
                 signature=authorization.signature,
             )
         )
-    except Exception as exc:
-        raise HTTPException(status_code=401, detail="Execution signature is invalid") from exc
-
-    owner_wallet = challenge_data.get("owner_wallet", "")
-    if recovered_wallet != authorization.signer_wallet:
-        raise HTTPException(status_code=401, detail="Signature does not match the claimed wallet")
-    if not Web3.is_address(owner_wallet) or recovered_wallet != Web3.to_checksum_address(owner_wallet):
-        raise HTTPException(status_code=403, detail="Only the agent owner can authorize execution")
-
-    await challenge_ref.update({"used_at": now})
 
     doc = await db.collection(PROPOSALS_COLLECTION).document(proposal_id).get()
     if not doc.exists:
@@ -937,7 +971,7 @@ async def execute_proposal_transfer(
     agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
     stored_key = agent_data.get("private_key_enc") or agent_data.get("private_key")
     if not stored_key:
-        _write_audit_event(
+        await _write_audit_event(
             db,
             actor_wallet=recovered_wallet,
             agent_id=agent_id,
@@ -967,7 +1001,7 @@ async def execute_proposal_transfer(
             "autonomous_transfer_amount_mnt": result.get("amount_mnt"),
             "autonomous_executed_at": time.time(),
         })
-        _write_audit_event(
+        await _write_audit_event(
             db,
             actor_wallet=recovered_wallet,
             agent_id=agent_id,
@@ -982,7 +1016,7 @@ async def execute_proposal_transfer(
             proposal_id, result.get("tx_hash"), result.get("status"),
         )
     except Exception as exc:
-        _write_audit_event(
+        await _write_audit_event(
             db,
             actor_wallet=recovered_wallet,
             agent_id=agent_id,
