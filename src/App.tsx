@@ -1650,6 +1650,7 @@ function App() {
                 agent={agent}
                 events={displayedEvents}
                 nfts={displayedNFTs}
+                allAgents={displayedAgents}
                 onBack={() => setAgentDetailId(null)}
                 onConfigure={handleConfigureAgent}
                 onChat={handleChatWithAgent}

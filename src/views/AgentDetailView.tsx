@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, TreeStructure, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -8,11 +8,14 @@ import { Agent, Event, NFT } from '@/lib/types'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { getChain } from '@/lib/blockchain/chains'
+import { AgentLineageTree } from '@/components/AgentLineageTree'
 
 interface AgentDetailViewProps {
   agent: Agent
   events: Event[]
   nfts: NFT[]
+  /** All agents — needed for lineage tree to resolve parent agents by id. */
+  allAgents?: Agent[]
   onBack: () => void
   onConfigure?: (agent: Agent) => void
   onChat?: (agent: Agent) => void
@@ -36,6 +39,7 @@ export function AgentDetailView({
   agent,
   events,
   nfts,
+  allAgents = [],
   onBack,
   onConfigure,
   onChat,
@@ -303,22 +307,9 @@ export function AgentDetailView({
         )}
       </Card>
 
-      {/* Heritage / Lineage placeholder */}
-      {agent.parentIds && agent.parentIds.length > 0 && (
-        <Card className="glass-card-hover p-6 border border-violet-500/20">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-violet-500/20 border border-violet-500/40 flex items-center justify-center">
-              <TreeStructure className="text-violet-400" weight="duotone" size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold">Heritage</h3>
-              <p className="text-xs text-muted-foreground">{agent.parentIds.length} parent agent(s)</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground/80 leading-relaxed">
-            This agent was bred from {agent.parentIds.length} parent(s). Full heritage tree visualization coming soon.
-          </p>
-        </Card>
+      {/* Heritage / Lineage */}
+      {allAgents.length > 0 && (
+        <AgentLineageTree agent={agent} allAgents={allAgents} />
       )}
     </motion.div>
   )
