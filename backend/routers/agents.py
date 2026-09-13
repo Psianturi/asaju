@@ -1168,6 +1168,31 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
         except Exception as exc:
             logger.warning("Chat topic recall failed for agent %s: %s", agent_id, exc.__class__.__name__)
 
+    # Fetch pending proposals so the agent can answer "explain that DeFi proposal"
+    # and similar follow-ups instead of hallucinating.
+    pending_proposals: list[dict] = []
+    try:
+        from routers.proposals import PROPOSALS_COLLECTION
+
+        async for prop_doc in (
+            db.collection(PROPOSALS_COLLECTION)
+            .where(filter=FieldFilter("agent_id", "==", agent_id))
+            .where(filter=FieldFilter("status", "in", ["pending", "approved"]))
+            .limit(5)
+            .stream()
+        ):
+            pd = prop_doc.to_dict() or {}
+            pending_proposals.append(
+                {
+                    "title": pd.get("title", ""),
+                    "description": pd.get("description", ""),
+                    "category": pd.get("category", "general"),
+                    "status": pd.get("status", "pending"),
+                }
+            )
+    except Exception as exc:
+        logger.warning("Pending proposals fetch failed for agent %s: %s", agent_id, exc.__class__.__name__)
+
     # For offspring with Superior Knowledge Base / Legendary Wisdom Heritage,
     # also pull parent agents' event summaries as inherited context
     genetic_traits: list[str] = data.get("genetic_traits") or []
@@ -1238,6 +1263,7 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
         user_intent=intent,
         tool_result=tool_result,
         chat_topics=chat_topics,
+        pending_proposals=pending_proposals,
     )
 
     # Persist this chat turn as a learnable topic for future sessions.

@@ -426,6 +426,23 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
 
     market_context_status = _market_context_status(market_context)
 
+    # Pull owner's standing instructions + recent chat topics so the proposal
+    # reflects the owner's actual agenda, not just the agent's preset niche.
+    custom_instructions = (data.get("custom_instructions") or "").strip() or None
+    custom_agenda = (data.get("custom_agenda") or "").strip() or None
+    owner_chat_topics: list[dict] = []
+    if user_wallet:
+        try:
+            from services.wisdom_cache import recall_chat_topics
+
+            owner_chat_topics = await recall_chat_topics(
+                agent_id=agent_id,
+                user_wallet=user_wallet,
+                limit=3,
+            )
+        except Exception:
+            pass
+
     # Generate proposal via Gemini
     try:
         proposal_data = await generate_agent_proposal(
@@ -436,6 +453,9 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
             genetic_traits=genetic_traits,
             event_summaries=event_summaries[:6],
             market_context=market_context,
+            custom_instructions=custom_instructions,
+            custom_agenda=custom_agenda,
+            chat_topics=owner_chat_topics,
         )
     except Exception as exc:
         logger.error("Gemini proposal generation failed for agent %s: %s", agent_id, exc)

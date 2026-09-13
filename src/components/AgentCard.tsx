@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check } from '@phosphor-icons/react'
+import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { GasStatusBadge } from './GasStatusBadge'
@@ -371,6 +371,61 @@ export function AgentCard({ agent, onClick, onConfigure, onChat, onViewEvolution
                       </div>
                     </motion.div>
                   )}
+
+                  {agent.autoScoutEnabled === false && agent.autoScoutDisabledReason && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-2 pt-2 border-t border-border/30"
+                          >
+                            <div className="flex items-center gap-2 text-[10px] text-amber-400 cursor-help">
+                              <ShieldWarning size={12} weight="fill" />
+                              <span className="font-semibold uppercase tracking-wide">Auto Scout paused</span>
+                            </div>
+                          </motion.div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs bg-card border-amber-500/30">
+                          <p className="text-xs text-foreground">{agent.autoScoutDisabledReason}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+
+                  {(() => {
+                    const cap = agent.dailyMintCap ?? 3
+                    const used = agent.mintCount24h ?? 0
+                    const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 0
+                    const remaining = Math.max(0, cap - used)
+                    if (!agent.autoScoutEnabled) return null
+                    return (
+                      <div className="mt-2 pt-2 border-t border-border/30">
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                          <div className="flex items-center gap-1">
+                            <Gauge size={11} />
+                            <span className="font-semibold uppercase tracking-wide">Daily mints</span>
+                          </div>
+                          <span className={remaining === 0 ? 'text-amber-400 font-bold' : 'text-foreground'}>
+                            {used}/{cap}
+                          </span>
+                        </div>
+                        <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all ${
+                              remaining === 0
+                                ? 'bg-amber-500'
+                                : pct >= 66
+                                ? 'bg-amber-400'
+                                : 'bg-green-500'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
               

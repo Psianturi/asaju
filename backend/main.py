@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from routers import agents, events, feedback, health, market, monitoring, operator, proposals, public, scheduler
+from routers import agents, events, feedback, health, market, monitoring, operator, owner_inbox, proposals, public, scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +56,7 @@ app.include_router(monitoring.router)
 app.include_router(market.router)
 app.include_router(operator.router)
 app.include_router(feedback.router)
+app.include_router(owner_inbox.router)
 
 logger.info(
     "MAEF backend started | env=%s chain=%s contract=%s",

@@ -1158,4 +1158,49 @@ export const cloudRunService = {
     return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
   },
 
+  async getOwnerInbox(wallet: string): Promise<{
+    user_wallet: string
+    generated_at: number
+    counts: {
+      pending_proposals: number
+      low_gas_agents: number
+      paused_agents: number
+      recent_mints: number
+      total: number
+    }
+    pending_proposals: Array<{
+      proposal_id: string
+      agent_id: string
+      title: string
+      category: string
+      created_at: number | null
+    }>
+    low_gas_agents: Array<{
+      agent_id: string
+      agent_name: string
+      agent_gas_balance: number
+    }>
+    paused_agents: Array<{
+      agent_id: string
+      agent_name: string
+      reason: string
+      paused_at: number | null
+    }>
+    recent_mints: Array<{
+      agent_id: string
+      log_id: string
+      candidate_title: string | null
+      candidate_url: string | null
+      run_at: number | null
+      score: number | null
+    }>
+  }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/owner/inbox?user_wallet=${encodeURIComponent(wallet)}`,
+      { method: 'GET' },
+      15000,
+    )
+    return handleAPIResponse(response)
+  },
+
 }

@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Toaster } from '@/components/ui/sonner'
+import { NotificationBell } from '@/components/NotificationBell'
 import { Agent, NFT, TerminalLog, Event, SubAgentType, MarketplaceAgent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { buildScoutedOpportunities } from '@/lib/scoutUtils'
@@ -1760,6 +1761,7 @@ function App() {
 
       <TerminalConsole logs={logs} />
       <Toaster />
+      <NotificationBell />
     </div>
   )
 }

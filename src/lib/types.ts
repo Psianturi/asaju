@@ -44,6 +44,14 @@ export interface Agent {
   breedingCooldownHours?: number
   rarityTier?: RarityTier
   autoScoutEnabled?: boolean
+  autoScoutDisabledReason?: string
+  autoScoutDisabledAt?: number
+  dailyMintCap?: number
+  weeklyMintCap?: number
+  mintCount24h?: number
+  mintCount7d?: number
+  lastScoutAt?: number
+  lastScoutReason?: string
   customAgenda?: string
   scoutedOpportunities?: ScoutedEvent[]
   autonomousSignatures?: number

@@ -364,6 +364,7 @@ async def chat_with_agent(
     user_intent: str | None = None,
     tool_result: dict | None = None,
     chat_topics: list[dict] | None = None,
+    pending_proposals: list[dict] | None = None,
 ) -> str:
     """
     Generate a contextual chat reply from the agent using Gemini.
@@ -425,6 +426,24 @@ async def chat_with_agent(
                 + "\n\nReference prior topics when the owner follows up — continuity matters.\n"
             )
 
+    # ── Pending proposals (so chat can explain "that DeFi proposal" etc.) ──
+    proposal_block = ""
+    if pending_proposals:
+        proposal_lines: list[str] = []
+        for p in pending_proposals[:5]:
+            title = (p.get("title") or "").strip()
+            category = (p.get("category") or "general").strip()
+            status = (p.get("status") or "pending").strip()
+            desc = (p.get("description") or "").strip()[:160]
+            if title:
+                proposal_lines.append(f"  - [{status}] ({category}) {title}: {desc}")
+        if proposal_lines:
+            proposal_block = (
+                "\nYour pending proposals (the owner may ask about these):\n"
+                + "\n".join(proposal_lines)
+                + "\n\nReference these when the owner says 'that proposal' or asks what to approve.\n"
+            )
+
     # ── Owner personalization signals ──────────────────────────────────────────
     personalization = ""
     if user_context:
@@ -479,6 +498,7 @@ async def chat_with_agent(
         + (lineage_intro if lineage_intro else "")
         + event_knowledge
         + topic_block
+        + proposal_block
         + personalization
         + market_block
         + tool_block
@@ -780,6 +800,9 @@ async def generate_agent_proposal(
     genetic_traits: list[str],
     event_summaries: list[str],
     market_context: dict | None = None,
+    custom_instructions: str | None = None,
+    custom_agenda: str | None = None,
+    chat_topics: list[dict] | None = None,
 ) -> dict:
     """
     Gemini generates a strategic proposal for the agent based on its history.
@@ -796,6 +819,21 @@ async def generate_agent_proposal(
     events_text = "\n".join(f"  - {s}" for s in event_summaries) if event_summaries else "  - (no events attended yet)"
     market_text = _format_market_context(market_context)
 
+    # Honor owner's standing instructions + current agenda + recent chat topics.
+    owner_block = ""
+    if custom_instructions:
+        owner_block += f"\nOwner's standing instructions (always honor):\n  - {custom_instructions}\n"
+    if custom_agenda:
+        owner_block += f"\nOwner's current agenda:\n  - {custom_agenda}\n"
+    if chat_topics:
+        topic_lines = []
+        for t in chat_topics[:3]:
+            q = (t.get("user_message") or "").strip()[:140]
+            if q:
+                topic_lines.append(f"  - Owner recently asked: {q}")
+        if topic_lines:
+            owner_block += "\nOwner's recent conversation topics:\n" + "\n".join(topic_lines) + "\n"
+
     prompt = f"""You are a strategic advisor for an autonomous AI agent on the Mantle blockchain.
 
 Agent Profile:
@@ -808,6 +846,7 @@ Agent Profile:
 Recent Wisdom (events attended):
 {events_text}
 {market_text}
+{owner_block}
 Generate ONE strategic proposal this agent should present to its human owner for approval.
 The proposal must be actionable, specific to the agent's niche, and executable within 7 days.
 This is a recommendation for human review, not autonomous execution — do not propose
