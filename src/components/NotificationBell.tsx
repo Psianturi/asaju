@@ -12,7 +12,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { cloudRunService } from '@/services/cloudRunService'
-import { useMantleWallet } from '@/lib/wallet'
+import { useBlockchain } from '@/hooks/useBlockchain'
 
 const STORAGE_KEY_PREFIX = 'asaju:inbox:dismissed:'
 const POLL_INTERVAL_MS = 30_000
@@ -54,7 +54,7 @@ interface OwnerInbox {
 }
 
 export function NotificationBell() {
-  const { isConnected, address } = useMantleWallet()
+  const { isConnected, address } = useBlockchain()
   const [inbox, setInbox] = useState<OwnerInbox | null>(null)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [open, setOpen] = useState(false)
