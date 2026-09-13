@@ -116,27 +116,6 @@ export interface BackendProposal {
   market_context_status?: 'available' | 'stale' | 'unavailable'
 }
 
-export interface AgentProposal {
-  id: string
-  agentId: string
-  agentName: string
-  agentLevel: number
-  title: string
-  description: string
-  reasoning: string
-  eventsSources: string[]
-  estimatedValue?: string
-  riskLevel: 'low' | 'medium' | 'high'
-  status: 'pending' | 'approved' | 'rejected' | 'executed'
-  createdAt: number
-  expiresAt?: number
-  executionDetails?: {
-    transactionHash?: string
-    result?: string
-    executedAt?: number
-  }
-}
-
 export interface Event {
   id: string
   agentId: string

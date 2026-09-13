@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Toaster } from '@/components/ui/sonner'
-import { Agent, NFT, TerminalLog, Event, SubAgentType, AgentProposal, MarketplaceAgent } from '@/lib/types'
+import { Agent, NFT, TerminalLog, Event, SubAgentType, MarketplaceAgent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { buildScoutedOpportunities } from '@/lib/scoutUtils'
 import { AnalyticsView } from '@/views/AnalyticsView'
@@ -254,7 +254,6 @@ function App() {
       return changed ? healed : current
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const [proposals, setProposals] = useLocalStorage<AgentProposal[]>('maef-proposals', [])
   const [userBalance, setUserBalance] = useLocalStorage<number>('maef-user-balance', 45.50)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [genesisMintDialogOpen, setGenesisMintDialogOpen] = useState(false)
@@ -284,7 +283,6 @@ function App() {
   }))
   const displayedNFTs = nfts ?? []
   const displayedEvents = events ?? []
-  const displayedProposals = proposals ?? []
 
   const handleHealthConfirmed = () => {
     setBackendConnected(true)
@@ -1025,22 +1023,6 @@ function App() {
   const handleViewEvolution = (agent: Agent) => {
     setSelectedAgent(agent)
     setEvolutionDialogOpen(true)
-  }
-
-  const handleApproveProposal = (proposalId: string) => {
-    setProposals((current) =>
-      (current ?? []).map((p) =>
-        p.id === proposalId ? { ...p, status: 'approved' } : p
-      )
-    )
-  }
-
-  const handleRejectProposal = (proposalId: string) => {
-    setProposals((current) =>
-      (current ?? []).map((p) =>
-        p.id === proposalId ? { ...p, status: 'rejected' } : p
-      )
-    )
   }
 
   const handleToggleAutoReplenish = (agent: Agent, enabled: boolean) => {
