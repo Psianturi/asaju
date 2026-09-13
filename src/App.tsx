@@ -10,6 +10,7 @@ import { buildScoutedOpportunities } from '@/lib/scoutUtils'
 import { AnalyticsView } from '@/views/AnalyticsView'
 import { VaultView } from '@/views/VaultView'
 import { MarketplaceView } from '@/views/MarketplaceView'
+import { AgentDetailView } from '@/views/AgentDetailView'
 import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
@@ -75,14 +76,34 @@ function App() {
     if (hashView) return hashView
     return 'dashboard'
   })
+  // Agent detail sub-route: `#agent/<agentId>`. Independent from mainView so
+  // navigating back from a detail view preserves the previous tab.
+  const [agentDetailId, setAgentDetailId] = useState<string | null>(() => {
+    const m = /^#agent\/([\w-]+)/.exec(window.location.hash)
+    return m ? m[1] : null
+  })
+  useEffect(() => {
+    const onHashChange = () => {
+      const m = /^#agent\/([\w-]+)/.exec(window.location.hash)
+      setAgentDetailId(m ? m[1] : null)
+      const hashView = HASH_TO_VIEW[window.location.hash.slice(1)]
+      if (hashView) setMainView(hashView)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
   useEffect(() => {
     const hash = VIEW_TO_HASH[mainView]
-    if (hash) {
+    if (agentDetailId) {
+      if (window.location.hash !== `#agent/${agentDetailId}`) {
+        window.location.hash = `agent/${agentDetailId}`
+      }
+    } else if (hash) {
       window.location.hash = hash
     } else {
       history.replaceState(null, '', window.location.pathname + window.location.search)
     }
-  }, [mainView])
+  }, [mainView, agentDetailId])
 
   // Auto-reconnect on page load if any EIP-1193 wallet is already authorized.
   const WALLET_SESSION_KEY = 'maef-wallet-session-at'
@@ -1481,7 +1502,7 @@ function App() {
                         <div className="space-y-3">
                           <AgentCard
                             agent={agent}
-                            onClick={() => agent.wisdomUnlocked && handleOpenWisdomReport(agent)}
+                            onClick={() => setAgentDetailId(agent.id)}
                             onConfigure={handleConfigureAgent}
                             onChat={handleChatWithAgent}
                             onViewEvolution={handleViewEvolution}
@@ -1612,6 +1633,35 @@ function App() {
           {mainView === 'marketplace' && (
             <MarketplaceView marketplaceAgents={marketplaceAgents ?? []} />
           )}
+
+          {agentDetailId && (() => {
+            const agent = displayedAgents.find(a => a.id === agentDetailId)
+            if (!agent) {
+              return (
+                <Card className="glass-card p-8 text-center border border-rose-500/20">
+                  <p className="text-rose-400 font-semibold mb-2">Agent not found</p>
+                  <p className="text-xs text-muted-foreground mb-4">This agent may have been deleted from another session.</p>
+                  <Button onClick={() => setAgentDetailId(null)} variant="outline">Back to dashboard</Button>
+                </Card>
+              )
+            }
+            return (
+              <AgentDetailView
+                agent={agent}
+                events={displayedEvents}
+                nfts={displayedNFTs}
+                onBack={() => setAgentDetailId(null)}
+                onConfigure={handleConfigureAgent}
+                onChat={handleChatWithAgent}
+                onTopUpGas={(a) => { setSelectedAgentForTopUp(a); setTopUpDialogOpen(true) }}
+                onViewEvolution={handleViewEvolution}
+                onToggleAutoReplenish={handleToggleAutoReplenish}
+                pendingProposalCount={proposalCounts[agent.id] ?? 0}
+                onOpenProposals={(a) => setProposalModalAgent(a)}
+                onDeleteAgent={handleDeleteAgent}
+              />
+            )
+          })()}
 
 
         </main>
