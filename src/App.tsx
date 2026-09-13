@@ -11,6 +11,7 @@ import { AnalyticsView } from '@/views/AnalyticsView'
 import { VaultView } from '@/views/VaultView'
 import { MarketplaceView } from '@/views/MarketplaceView'
 import { AgentDetailView } from '@/views/AgentDetailView'
+import { MyAgentsView } from '@/views/MyAgentsView'
 import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
@@ -70,9 +71,9 @@ function App() {
   const [walletAddress, setWalletAddress] = useState<string>()
   const [selectedChainId, setSelectedChainId] = useState(DEFAULT_CHAIN_ID)
   const [walletChainId, setWalletChainId] = useState<number | undefined>()
-  type MainView = 'dashboard' | 'analytics' | 'vault' | 'marketplace'
-  const HASH_TO_VIEW: Record<string, MainView> = { analytics: 'analytics', 'nft-vault': 'vault', marketplace: 'marketplace' }
-  const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', analytics: 'analytics', vault: 'nft-vault', marketplace: 'marketplace' }
+  type MainView = 'dashboard' | 'my-agents' | 'analytics' | 'vault' | 'marketplace'
+  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', analytics: 'analytics', 'nft-vault': 'vault', marketplace: 'marketplace' }
+  const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', 'my-agents': 'my-agents', analytics: 'analytics', vault: 'nft-vault', marketplace: 'marketplace' }
   const [mainView, setMainView] = useState<MainView>(() => {
     const hashView = HASH_TO_VIEW[window.location.hash.slice(1)]
     if (hashView) return hashView
@@ -1206,6 +1207,7 @@ function App() {
               <nav className="flex items-center gap-0.5 flex-1 justify-center">
                 {([
                   { view: 'dashboard', label: 'Dashboard', icon: Robot, color: 'primary' },
+                  { view: 'my-agents', label: 'My Agents', icon: Robot, color: 'secondary' },
                   { view: 'analytics', label: 'Analytics', icon: ChartLine, color: 'primary' },
                   { view: 'vault', label: 'NFT Vault', icon: WalletIcon, color: 'primary' },
                   { view: 'marketplace', label: 'Marketplace', icon: Storefront, color: 'secondary' },
@@ -1393,7 +1395,7 @@ function App() {
               ))}
 
 
-              <div>
+              <div className={walletConnected ? 'hidden' : undefined}>
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold flex items-center gap-2">
                     <span>{walletConnected ? 'Your Agents' : 'Example Agent'}</span>
@@ -1519,6 +1521,22 @@ function App() {
                 )}
               </div>
 
+              {walletConnected && (
+                <Card className="glass-card-hover p-5 border border-secondary/25 bg-secondary/5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-secondary font-mono mb-1">Operations workspace</p>
+                      <h2 className="text-lg font-bold">Your agents are ready to operate</h2>
+                      <p className="text-xs text-muted-foreground mt-1">Manage learning, gas, scouting, and proposals from one focused workspace.</p>
+                    </div>
+                    <Button onClick={() => setMainView('my-agents')} variant="outline" className="border-secondary/40 text-secondary hover:bg-secondary/10 shrink-0">
+                      Open My Agents
+                      <FlowArrow size={15} className="ml-2" />
+                    </Button>
+                  </div>
+                </Card>
+              )}
+
               {/* ── Featured Wisdom — community showcase ─── */}
               {!walletConnected && featuredWisdom.length > 0 && (
                 <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
@@ -1600,6 +1618,27 @@ function App() {
               )}
               </div>
             </>
+          )}
+
+          {/* ── My Agents ─────────────────────────────── */}
+          {!agentDetailId && mainView === 'my-agents' && (
+            <MyAgentsView
+              agents={displayedAgents}
+              walletConnected={walletConnected}
+              onConnectWallet={() => handleWalletConnect('')}
+              onSpawn={() => walletConnected ? setSpawnDialogOpen(true) : handleWalletConnect('')}
+              onOpenAgent={(agent) => setAgentDetailId(agent.id)}
+              onConfigure={handleConfigureAgent}
+              onChat={handleChatWithAgent}
+              onViewEvolution={handleViewEvolution}
+              onToggleAutoReplenish={handleToggleAutoReplenish}
+              onOpenProposals={(agent) => setProposalModalAgent(agent)}
+              onDeleteAgent={handleDeleteAgent}
+              onRetrySpawn={handleRetrySpawn}
+              onToggleScout={handleToggleScout}
+              onApproveEvent={handleApproveScoutedEvent}
+              proposalCounts={proposalCounts}
+            />
           )}
 
           {/* ── Analytics ─────────────────────────────── */}
