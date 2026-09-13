@@ -744,14 +744,31 @@ export const cloudRunService = {
     return { topFeedbackTags: raw.top_feedback_tags ?? [] }
   },
 
-  async chatWithAgent(agentId: string, message: string, conversationHistory: string[]): Promise<string> {
+  async chatWithAgent(
+    agentId: string,
+    message: string,
+    conversationHistory: string[],
+    userContext?: {
+      customInstructions?: string
+      customAgenda?: string
+      topFeedbackTags?: Array<{ tag: string; score: number }>
+      eventsAttended?: number
+    },
+  ): Promise<{ reply: string; intent?: string }> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/agent/${agentId}/chat`,
-      { method: 'POST', body: JSON.stringify({ message, conversation_history: conversationHistory }) },
-      20000
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          message,
+          conversation_history: conversationHistory,
+          user_context: userContext ?? null,
+        }),
+      },
+      20000,
     )
-    const raw = await handleAPIResponse<{ reply: string }>(response)
-    return raw.reply
+    const raw = await handleAPIResponse<{ reply: string; intent?: string }>(response)
+    return { reply: raw.reply, intent: raw.intent }
   },
 
   async generateWisdom(agentId: string, niche: string): Promise<{ insights: string[]; strategicTips: string[]; eventsAnalyzed: number; generatedAt: number }> {

@@ -27,6 +27,7 @@ from core.config import get_chain_config
 from core.database import get_db
 from core.kms_service import decrypt_private_key, encrypt_private_key
 from services.llm_service import chat_with_agent, generate_lineage_biography, generate_wisdom_report
+from services.market_data_service import get_market_snapshot
 from services.web3_service import web3_service
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,59 @@ async def _update_agent_balance_cache(doc_ref, balance: float | None) -> None:
         )
     except Exception as exc:
         logger.warning("Agent balance cache update failed: %s", exc.__class__.__name__)
+
+
+async def _maybe_auto_disable_on_low_gas(db, doc_ref, agent_id: str, run_at: float) -> None:
+    """If the last N scout runs (default 3) all failed with LOW_GAS, flip
+    auto_scout_enabled off and record a notice. Owner can re-enable after topping
+    up the agent wallet. Best-effort — never raises."""
+    threshold = 3
+    try:
+        cutoff = run_at - (7 * 24 * 3600)  # look back 7 days
+        recent_logs: list[dict] = []
+        async for log_doc in (
+            db.collection(SCOUT_LOGS_COLLECTION)
+            .where(filter=FieldFilter("agent_id", "==", agent_id))
+            .where(filter=FieldFilter("run_at", ">=", cutoff))
+            .order_by("run_at", direction="DESCENDING")
+            .limit(threshold)
+            .stream()
+        ):
+            ld = log_doc.to_dict() or {}
+            recent_logs.append(ld)
+
+        consecutive_low_gas = (
+            len(recent_logs) >= threshold
+            and all(log.get("reason_code") == "LOW_GAS" for log in recent_logs[:threshold])
+        )
+        if not consecutive_low_gas:
+            return
+
+        current = (await doc_ref.get()).to_dict() or {}
+        if not current.get("auto_scout_enabled"):
+            return  # already off
+
+        await doc_ref.update(
+            {
+                "auto_scout_enabled": False,
+                "auto_scout_disabled_reason": (
+                    f"Auto-disabled after {threshold} consecutive LOW_GAS scout runs. "
+                    "Top up the agent wallet and re-enable on the agent detail page."
+                ),
+                "auto_scout_disabled_at": run_at,
+            }
+        )
+        logger.warning(
+            "Auto-disabled auto_scout on agent %s after %d LOW_GAS runs",
+            agent_id,
+            threshold,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Auto-disable check failed for agent %s: %s",
+            agent_id,
+            exc.__class__.__name__,
+        )
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -1056,6 +1110,7 @@ EVENTS_COLLECTION = "agent_events"
 class ChatRequest(BaseModel):
     message: str
     conversation_history: list[str] = []
+    user_context: dict | None = None
 
 
 @router.post("/{agent_id}/chat")
@@ -1089,6 +1144,30 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
     except Exception as exc:
         logger.warning("Could not fetch event history for chat grounding: %s", exc.__class__.__name__)
 
+    # Fetch live market context so the chat can quote real prices / sentiment / news.
+    # Best-effort: failures are logged and chat continues without market grounding.
+    market_context: dict | None = None
+    try:
+        market_context = await get_market_snapshot()
+    except Exception as exc:
+        logger.warning("Market snapshot unavailable for chat (agent %s): %s", agent_id, exc.__class__.__name__)
+
+    # Recall recent chat topics so the agent remembers what the owner has been
+    # asking about. Per-owner privacy boundary.
+    chat_topics: list[dict] = []
+    user_wallet = data.get("user_wallet")
+    if user_wallet:
+        try:
+            from services.wisdom_cache import recall_chat_topics
+
+            chat_topics = await recall_chat_topics(
+                agent_id=agent_id,
+                user_wallet=user_wallet,
+                limit=4,
+            )
+        except Exception as exc:
+            logger.warning("Chat topic recall failed for agent %s: %s", agent_id, exc.__class__.__name__)
+
     # For offspring with Superior Knowledge Base / Legendary Wisdom Heritage,
     # also pull parent agents' event summaries as inherited context
     genetic_traits: list[str] = data.get("genetic_traits") or []
@@ -1110,6 +1189,38 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
             except Exception:
                 pass
 
+    # Classify user intent so the chat can route to the right tool/action.
+    # Best-effort: failures fall back to "general_chat" inside the classifier,
+    # so we never let classification block the main reply path.
+    intent: str = "general_chat"
+    try:
+        from services.llm_service import classify_chat_intent
+
+        intent = await classify_chat_intent(
+            message=req.message,
+            niche=data.get("niche", "Blockchain/DeFi"),
+        )
+    except Exception as exc:
+        logger.warning("Intent classification failed for agent %s: %s", agent_id, exc.__class__.__name__)
+
+    # Tool execution for data_fetch intents: route to the niche-specific tool
+    # and attach its result to the prompt as concrete grounding. Best-effort —
+    # tool failures are logged and chat continues with just the LLM response.
+    tool_result: dict | None = None
+    if intent == "data_fetch":
+        try:
+            from services.tools_registry import run_niche_tool
+
+            niche_value = data.get("niche", "Blockchain/DeFi")
+            symbol_hint = "BTC"  # default; could be parsed from message later
+            tool_result = await run_niche_tool(
+                niche=niche_value,
+                tool_name="fetch_cmc_derivatives",
+                args={"symbol": symbol_hint, "limit": 5},
+            )
+        except Exception as exc:
+            logger.warning("Tool execution failed for agent %s: %s", agent_id, exc.__class__.__name__)
+
     reply = await chat_with_agent(
         agent_name=data.get("agent_name", "Agent"),
         personality=data.get("personality", "Analytical"),
@@ -1122,8 +1233,32 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
         parent_wisdom=parent_wisdom or None,
         parent_names=data.get("parent_names"),
         generation=data.get("generation"),
+        user_context=req.user_context,
+        market_context=market_context,
+        user_intent=intent,
+        tool_result=tool_result,
+        chat_topics=chat_topics,
     )
-    return {"reply": reply}
+
+    # Persist this chat turn as a learnable topic for future sessions.
+    # Strictly per-(user_wallet, agent_id). Best-effort.
+    if user_wallet:
+        try:
+            from services.wisdom_cache import persist_chat_topic
+
+            await persist_chat_topic(
+                agent_id=agent_id,
+                user_wallet=user_wallet,
+                niche=data.get("niche", "Blockchain/DeFi"),
+                user_message=req.message,
+                agent_reply=reply,
+                intent=intent,
+                tool_source=(tool_result or {}).get("source"),
+            )
+        except Exception as exc:
+            logger.warning("Chat topic persist failed for agent %s: %s", agent_id, exc.__class__.__name__)
+
+    return {"reply": reply, "intent": intent, "tool_source": (tool_result or {}).get("source")}
 
 
 @router.post("/{agent_id}/wisdom")
@@ -1311,6 +1446,82 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
         video["title"], agent_id, video.get("scout_reason", "N/A"),
     )
 
+    # ── Mint cap guard ─────────────────────────────────────────────────────
+    # Hard ceiling on autonomous mints so a runaway scheduler / generous Gemini
+    # scoring doesn't drain the agent's wallet. Caps are read from agent doc
+    # (with safe defaults). Override per-agent via the agent state endpoint.
+    import asyncio
+
+    daily_cap = int(data.get("daily_mint_cap", 3))
+    weekly_cap = int(data.get("weekly_mint_cap", 10))
+
+    async def _count_recent_mints(window_seconds: float) -> int:
+        cutoff = time.time() - window_seconds
+        count = 0
+        try:
+            async for ev_doc in (
+                db.collection(EVENTS_COLLECTION)
+                .where(filter=FieldFilter("agent_id", "==", agent_id))
+                .where(filter=FieldFilter("created_at", ">=", cutoff))
+                .stream()
+            ):
+                ev = ev_doc.to_dict() or {}
+                if ev.get("source") in ("auto_scout", "scout", "scheduler"):
+                    count += 1
+        except Exception as exc:
+            logger.warning(
+                "Mint cap query failed for agent %s: %s — falling back to no cap",
+                agent_id,
+                exc.__class__.__name__,
+            )
+        return count
+
+    if daily_cap > 0 or weekly_cap > 0:
+        minted_24h, minted_7d = await asyncio.gather(
+            _count_recent_mints(24 * 3600),
+            _count_recent_mints(7 * 24 * 3600),
+        )
+        capped = (daily_cap > 0 and minted_24h >= daily_cap) or (weekly_cap > 0 and minted_7d >= weekly_cap)
+        if capped:
+            balance = decision.get("agent_gas_balance")
+            await _update_agent_balance_cache(doc_ref, balance)
+            await _write_scout_log(
+                db,
+                agent_id=agent_id,
+                action="SKIPPED",
+                reason_code="MINT_CAP_REACHED",
+                run_at=run_at,
+                scheduler_run_id=scheduler_run_id,
+                score=decision.get("score"),
+                threshold_applied=decision.get("threshold_applied"),
+                agent_gas_balance=balance,
+                candidate_title=video.get("title"),
+                candidate_url=video.get("url"),
+                reason_description=(
+                    f"Daily/weekly mint cap reached (24h={minted_24h}/{daily_cap}, 7d={minted_7d}/{weekly_cap}). "
+                    "Raise the cap on the agent document or wait for the window to roll over."
+                ),
+            )
+            return {
+                "status": "skipped",
+                "message": (
+                    f"Mint cap reached — {minted_24h}/{daily_cap} in last 24h, "
+                    f"{minted_7d}/{weekly_cap} in last 7 days. "
+                    "Adjust caps in the agent config to override."
+                ),
+                "agent_id": agent_id,
+                "reason_code": "MINT_CAP_REACHED",
+                "decision_metrics": {
+                    "score": decision.get("score"),
+                    "threshold_applied": decision.get("threshold_applied"),
+                    "agent_gas_balance": balance,
+                    "mints_24h": minted_24h,
+                    "mints_7d": minted_7d,
+                    "daily_cap": daily_cap,
+                    "weekly_cap": weekly_cap,
+                },
+            }
+
     # ── Mint-Master: attend the discovered event ──────────────────────────
     from routers.events import AttendRequest, attend_event
 
@@ -1366,6 +1577,13 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             reason_description=reason_description,
         )
         await _update_agent_balance_cache(doc_ref, balance)
+
+        # Auto-disable on persistent LOW_GAS: if this is the Nth consecutive
+        # LOW_GAS event (default 3), flip auto_scout_enabled off so the
+        # scheduler stops spending LLM/YouTube quota on a wallet that can't pay.
+        if reason_code == "LOW_GAS":
+            await _maybe_auto_disable_on_low_gas(db, doc_ref, agent_id, run_at)
+
         raise
     except Exception as exc:
         logger.error("Auto Scout attend failed for agent %s: %s", agent_id, exc)

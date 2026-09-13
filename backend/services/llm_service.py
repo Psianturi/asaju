@@ -359,12 +359,19 @@ async def chat_with_agent(
     parent_wisdom: list[str] | None = None,
     parent_names: dict | None = None,
     generation: int | None = None,
+    user_context: dict | None = None,
+    market_context: dict | None = None,
+    user_intent: str | None = None,
+    tool_result: dict | None = None,
+    chat_topics: list[dict] | None = None,
 ) -> str:
     """
     Generate a contextual chat reply from the agent using Gemini.
     Falls back to a canned reply if the API is unavailable.
     event_summaries: list of "EventTitle: wisdom_summary" strings from Firestore.
     genetic_traits / parent_wisdom / parent_names: populated for bred offspring.
+    user_context: optional personalization signals from the owner — customInstructions,
+        customAgenda, topFeedbackTags (from 👍/👎 ratings), eventsAttended.
     """
     history_text = "\n\n".join(conversation_history[-6:]) if conversation_history else ""
 
@@ -400,16 +407,96 @@ async def chat_with_agent(
             "You carry this inherited knowledge from your lineage — reference it when relevant.\n"
         )
 
+    # ── Recent chat topics (the agent's conversation memory) ───────────────
+    topic_block = ""
+    if chat_topics:
+        lines: list[str] = []
+        for t in chat_topics[:4]:
+            q = (t.get("user_message") or "").strip()
+            a = (t.get("agent_reply") or "").strip()
+            if q:
+                lines.append(f"  Owner asked: {q[:140]}")
+            if a:
+                lines.append(f"  You answered: {a[:140]}")
+        if lines:
+            topic_block = (
+                "\nRecent conversation history with this owner (most recent first):\n"
+                + "\n".join(lines)
+                + "\n\nReference prior topics when the owner follows up — continuity matters.\n"
+            )
+
+    # ── Owner personalization signals ──────────────────────────────────────────
+    personalization = ""
+    if user_context:
+        custom_instructions = (user_context.get("customInstructions") or "").strip()
+        custom_agenda = (user_context.get("customAgenda") or "").strip()
+        top_tags = user_context.get("topFeedbackTags") or []
+        liked_tags = [t["tag"] for t in top_tags if isinstance(t, dict) and t.get("score", 0) > 0][:6]
+        disliked_tags = [t["tag"] for t in top_tags if isinstance(t, dict) and t.get("score", 0) < 0][:6]
+
+        if custom_instructions:
+            personalization += f"\nOwner's standing instructions for you (always honor these):\n  - {custom_instructions}\n"
+        if custom_agenda:
+            personalization += f"\nOwner's current agenda:\n  - {custom_agenda}\n"
+        if liked_tags:
+            personalization += f"\nThe owner has consistently rated content about these topics positively: {', '.join(liked_tags)}. Lean into these when making recommendations.\n"
+        if disliked_tags:
+            personalization += f"\nThe owner has consistently rated content about these topics negatively: {', '.join(disliked_tags)}. Avoid recommending similar content unless the owner explicitly asks.\n"
+
+    # ── Live market context (real CoinGecko + CoinMarketCap data) ─────────────
+    market_block = _format_chat_market_context(market_context)
+
+    # ── Tool result (fresh external data fetched for this turn) ────────────
+    tool_block = ""
+    if tool_result:
+        source = tool_result.get("source", "unknown")
+        status = tool_result.get("status", "error")
+        if status == "ok" and tool_result.get("data") is not None:
+            try:
+                # Cap JSON size — tools may return large lists
+                payload_str = json.dumps(tool_result["data"], default=str)[:3000]
+            except Exception:
+                payload_str = "(non-serializable tool result)"
+            tool_block = (
+                f"\nFresh tool result (source: {source}, fetched for this turn):\n"
+                f"```json\n{payload_str}\n```\n\n"
+                "Quote numbers from this tool result verbatim. "
+                "If the user asked for futures/funding data, this is the data you must use.\n"
+            )
+        else:
+            msg = tool_result.get("message", "tool unavailable")
+            tool_block = f"\nNote: the data-fetch tool ({source}) is currently unavailable: {msg}\n"
+
     prompt = (
         f"You are {agent_name}, an autonomous AI agent with a {personality.lower()} personality "
-        f"specializing in {niche}. You have attended {events_attended} events on-chain "
-        f"and gained deep insights recorded as NFT wisdom.\n"
+        f"specializing in {niche}. "
+        + (
+            f"You have attended {events_attended} events on-chain and gained deep insights recorded as NFT wisdom."
+            if events_attended > 0
+            else "You have not yet attended any events — ask the owner to paste a YouTube URL on the dashboard so you can start learning, and suggest concrete first steps based on the owner's stated agenda."
+        )
+        + "\n"
         + (lineage_intro if lineage_intro else "")
         + event_knowledge
+        + topic_block
+        + personalization
+        + market_block
+        + tool_block
+        + (
+            f"\nThe owner's message was classified as intent = '{user_intent}'. "
+            "If the user asked for fresh data, quote the live market block above; "
+            "if they asked for a schedule or study plan, produce one in their niche; "
+            "if they asked for a recommendation, give concrete advice grounded in the owner's stated agenda and feedback tags; "
+            "if they asked for a proposal / on-chain action, sketch the reasoning but DO NOT claim anything is on-chain until the owner approves via the Proposal modal.\n"
+            if user_intent and user_intent != "general_chat" else ""
+        )
         + (f"Previous conversation:\n{history_text}\n\n" if history_text else "")
         + f"User: {message}\n\n"
         "Respond in the same language as the user's message (Indonesian or English). "
-        "Be specific — reference the actual events you attended when relevant. "
+        "Be specific — reference the actual events you attended when relevant, "
+        "and honor the owner's standing instructions and feedback preferences. "
+        "If you don't have enough context yet (e.g. zero events attended), say so honestly "
+        "and suggest a concrete next step. "
         "Keep the response conversational but informative, 2-4 paragraphs."
     )
 
@@ -427,7 +514,7 @@ async def chat_with_agent(
             "temperature": 0.8,
             "maxOutputTokens": 1024,
             "topP": 0.9,
-            "thinkingConfig": {"thinkingBudget": 0},  # nested here — disables thinking, all tokens go to response
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -444,10 +531,9 @@ async def chat_with_agent(
     except Exception as exc:
         logger.error("Agent chat failed: %s", exc.__class__.__name__)
         return (
-            f"I apologize, I'm having trouble connecting right now. "
+            f"I'm having trouble reaching my reasoning model right now. "
             f"As your {personality.lower()} agent focused on {niche}, "
-            f"I'm ready to share insights from the {events_attended} events I've attended. "
-            "Please try again."
+            "try again in a moment, or paste a YouTube URL on the dashboard so I have more context."
         )
 
 _BIOGRAPHY_PROMPT = """\
@@ -632,6 +718,60 @@ in your description so the reasoning stays auditable. For "governance", "educati
 """
 
 
+def _format_chat_market_context(market_context: dict | None) -> str:
+    """Render a cached market snapshot for the chat prompt. Empty string if unavailable —
+    chat must never fail just because a market provider is down. The chat prompt needs the
+    agent to *quote* specific numbers, so we use a slightly different (more directive) format
+    than the proposal version."""
+    if not market_context:
+        return ""
+
+    prices = market_context.get("prices") or {}
+    fear_greed = market_context.get("fear_greed") or {}
+    news = market_context.get("news") or []
+    generated_at = market_context.get("generated_at")
+
+    price_lines: list[str] = []
+    for sym, p in prices.items():
+        if not isinstance(p, dict):
+            continue
+        usd = p.get("usd")
+        if usd is None:
+            continue
+        chg = p.get("usd_24h_change")
+        chg_str = f" ({chg:+.2f}% 24h)" if isinstance(chg, (int, float)) else ""
+        price_lines.append(f"  - {str(sym).upper()}: ${usd:,.2f}{chg_str}")
+
+    if not price_lines and not fear_greed and not news:
+        return ""
+
+    snapshot_time = (
+        datetime.fromtimestamp(generated_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        if generated_at else "unknown time"
+    )
+
+    sections = ["Live market data (CoinGecko + CoinMarketCap, snapshot at " + snapshot_time + "):"]
+    if price_lines:
+        sections.append("\n".join(price_lines))
+
+    fg_value = fear_greed.get("value") if isinstance(fear_greed, dict) else None
+    if fg_value is not None:
+        classification = fear_greed.get("value_classification", "N/A")
+        sections.append(f"Market sentiment (CoinMarketCap Fear & Greed): {fg_value}/100 — {classification}")
+
+    if news:
+        top_news = [n.get("title") for n in news[:3] if isinstance(n, dict) and n.get("title")]
+        if top_news:
+            sections.append("Recent headlines:\n" + "\n".join(f"  - {t}" for t in top_news))
+
+    return (
+        "\n" + "\n\n".join(sections)
+        + "\n\nWhen the owner asks about market conditions, quote these specific numbers. "
+        "Do not invent figures — only use what's listed here. "
+        "If a coin or metric isn't listed, say you don't have that data right now.\n"
+    )
+
+
 async def generate_agent_proposal(
     agent_name: str,
     niche: str,
@@ -727,6 +867,112 @@ Respond ONLY with valid JSON in this exact format:
 SKILL_TAXONOMY: list[str] = [
     "Blockchain/DeFi", "Trading/Investment", "Technology", "Health/Wellness", "Other",
 ]
+
+
+# Chat intent taxonomy — what the user is asking the agent to do in a single
+# message. Drives routing: data_fetch → tool call, schedule → schedule service,
+# propose_action → proposal flow, analysis / recommendation → reasoning,
+# general_chat → standard reply.
+CHAT_INTENT_TAXONOMY: list[str] = [
+    "data_fetch",      # user wants fresh external data (CMC, futures, news)
+    "analysis",        # user wants interpretation of existing context
+    "schedule",        # user wants a plan / study agenda / reminder
+    "recommendation",  # user wants advice on what to do
+    "propose_action",  # user wants the agent to draft a proposal / on-chain action
+    "general_chat",    # everything else — conversational reply
+]
+
+# Hint keywords that suggest data_fetch intent *before* we spend a Gemini call.
+# Cheap pre-filter; Gemini refines when ambiguous. Matched case-insensitive.
+_DATA_FETCH_HINTS = (
+    "futures", "perp", "perpetual", "funding rate", "open interest",
+    "liquidat", "ohlcv", "candlestick", "historical price",
+    "ambil data", "fetch", "data terbaru", "current price",
+    "ticker", "spot price", "market cap", "volume",
+)
+
+_SCHEDULE_HINTS = (
+    "study plan", "jadwal", "schedule", "agenda",
+    "mingguan", "weekly plan", "daily routine", "syllabus",
+    "reminder", "pengingat",
+)
+
+_PROPOSE_HINTS = (
+    "buatkan proposal", "create proposal", "draft proposal",
+    "submit proposal", "trade sekarang", "execute now",
+    "swap", "deposit", "stake sekarang",
+)
+
+
+async def classify_chat_intent(message: str, niche: str) -> str:
+    """
+    Cheap pre-filter + Gemini Flash tiebreaker to classify what the user is asking.
+
+    Returns one of CHAT_INTENT_TAXONOMY. Falls back to "general_chat" on any error
+    so chat never breaks because of a routing miss. Designed to be <200ms on hot
+    path: keyword pre-filter short-circuits obvious cases, Gemini is only called
+    for ambiguous ones.
+    """
+    text = (message or "").lower().strip()
+    if not text:
+        return "general_chat"
+
+    # ── Cheap pre-filter ────────────────────────────────────────────────────
+    if any(h in text for h in _PROPOSE_HINTS):
+        return "propose_action"
+    if any(h in text for h in _SCHEDULE_HINTS):
+        return "schedule"
+    if any(h in text for h in _DATA_FETCH_HINTS):
+        return "data_fetch"
+
+    # Niche-specific bias: Trading/Investment questions often mean data_fetch.
+    if niche == "Trading/Investment" and any(
+        kw in text for kw in ("apa", "bagaimana", "gimana", "how", "what", "analisa", "analyze")
+    ):
+        # Heuristic only — short questions on trading niche often request live data.
+        # Still call Gemini for ambiguous ones.
+        pass
+
+    # ── Gemini tiebreaker ────────────────────────────────────────────────────
+    try:
+        api_key = get_llm_api_key()
+    except RuntimeError:
+        return "general_chat"
+
+    options = ", ".join(f'"{n}"' for n in CHAT_INTENT_TAXONOMY)
+    prompt = (
+        f"An AI agent specializing in {niche} just received this user message:\n\n"
+        f"{text[:500]}\n\n"
+        "Classify the user's primary intent into EXACTLY one category:\n"
+        f"{options}\n\n"
+        'Definitions:\n'
+        ' - "data_fetch" = user wants fresh external data fetched (prices, funding, news)\n'
+        ' - "analysis" = user wants interpretation of context the agent already has\n'
+        ' - "schedule" = user wants a plan, agenda, or reminder set up\n'
+        ' - "recommendation" = user wants actionable advice\n'
+        ' - "propose_action" = user wants the agent to draft a proposal / on-chain action\n'
+        ' - "general_chat" = conversational — no specific tool/plan needed\n\n'
+        "Respond with ONLY the category label — no punctuation, no explanation."
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 20, "topP": 0.1},
+    }
+    try:
+        data = await _call_gemini_with_retry(
+            api_key, payload, timeout=8.0, context="chat intent classification"
+        )
+        parts = data["candidates"][0]["content"]["parts"]
+        raw = next((p["text"].strip() for p in reversed(parts) if p.get("text", "").strip()), "")
+        raw = raw.strip('"\'`').strip().lower()
+        # Strict match against taxonomy — fall back if Gemini drifted
+        for valid in CHAT_INTENT_TAXONOMY:
+            if raw == valid:
+                return valid
+        return "general_chat"
+    except Exception as exc:
+        logger.warning("Chat intent classification failed: %s", exc.__class__.__name__)
+        return "general_chat"
 
 
 async def classify_event_niche(summary_text: str) -> str:
