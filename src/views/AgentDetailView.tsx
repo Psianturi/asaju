@@ -222,6 +222,41 @@ export function AgentDetailView({
         )}
       </div>
 
+      {/* Auto-Replenish inline control — better placement here than the card */}
+      {onToggleAutoReplenish && (
+        <Card className="glass-card-hover p-4 border border-border/30">
+          <div className="flex items-center gap-3">
+            <Lightning
+              size={18}
+              className={agent.autoReplenishGas ? 'text-emerald-500' : 'text-muted-foreground'}
+              weight="fill"
+            />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Auto-Replenish Gas</p>
+              <p className="text-[10px] text-muted-foreground">
+                Top-up automatically when gas falls below 0.05 {chain?.nativeSymbol ?? 'ETH'}.
+                Deduction is 0.1 {chain?.nativeSymbol ?? 'ETH'} per refill.
+              </p>
+            </div>
+            <button
+              onClick={() => onToggleAutoReplenish(agent, !agent.autoReplenishGas)}
+              className={cn(
+                'w-11 h-6 rounded-full transition-colors relative',
+                agent.autoReplenishGas ? 'bg-emerald-500' : 'bg-muted/40',
+              )}
+              aria-label={agent.autoReplenishGas ? 'Disable auto-replenish' : 'Enable auto-replenish'}
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow',
+                  agent.autoReplenishGas ? 'translate-x-5' : 'translate-x-0.5',
+                )}
+              />
+            </button>
+          </div>
+        </Card>
+      )}
+
       {/* Wisdom timeline */}
       <Card className="glass-card-hover p-6 border border-primary/20">
         <div className="flex items-center gap-3 mb-5">
