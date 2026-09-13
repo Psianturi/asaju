@@ -52,6 +52,7 @@ export interface Agent {
   mintCount7d?: number
   lastScoutAt?: number
   lastScoutReason?: string
+  topFeedbackTags?: Array<{ tag: string; score: number }>
   customAgenda?: string
   scoutedOpportunities?: ScoutedEvent[]
   autonomousSignatures?: number

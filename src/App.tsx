@@ -1667,6 +1667,7 @@ function App() {
                 onChat={handleChatWithAgent}
                 onTopUpGas={(a) => { setSelectedAgentForTopUp(a); setTopUpDialogOpen(true) }}
                 onViewEvolution={handleViewEvolution}
+                onOpenWisdomReport={handleOpenWisdomReport}
                 onToggleAutoReplenish={handleToggleAutoReplenish}
                 pendingProposalCount={proposalCounts[agent.id] ?? 0}
                 onOpenProposals={(a) => setProposalModalAgent(a)}

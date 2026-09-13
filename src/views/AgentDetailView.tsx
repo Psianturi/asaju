@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +21,7 @@ interface AgentDetailViewProps {
   onChat?: (agent: Agent) => void
   onTopUpGas?: (agent: Agent) => void
   onViewEvolution?: (agent: Agent) => void
+  onOpenWisdomReport?: (agent: Agent) => void
   onToggleAutoReplenish?: (agent: Agent, enabled: boolean) => void
   pendingProposalCount?: number
   onOpenProposals?: (agent: Agent) => void
@@ -45,6 +46,7 @@ export function AgentDetailView({
   onChat,
   onTopUpGas,
   onViewEvolution,
+  onOpenWisdomReport,
   onToggleAutoReplenish,
   pendingProposalCount,
   onOpenProposals,
@@ -197,10 +199,19 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
           </div>
 
           <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto">
-            {onViewEvolution && (
+            {agent.wisdomUnlocked && onViewEvolution && (
               <Button onClick={() => onViewEvolution(agent)} className="bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25">
                 <Sparkle className="mr-2" weight="duotone" size={16} />
                 Evolution
+              </Button>
+            )}
+            {agent.wisdomUnlocked && (
+              <Button
+                onClick={() => onOpenWisdomReport?.(agent)}
+                className="bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-bold shadow-lg shadow-amber-500/30"
+              >
+                <FilePdf className="mr-2" weight="duotone" size={16} />
+                Generate Wisdom Report
               </Button>
             )}
             {onChat && (
