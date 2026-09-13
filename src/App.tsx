@@ -38,6 +38,8 @@ import { GlobalSecurityAuditLog } from '@/components/GlobalSecurityAuditLog'
 import { AgentBreedingDialog } from '@/components/AgentBreedingDialog'
 import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
+import { WisdomTimeline } from '@/components/WisdomTimeline'
+import { ActivityLog } from '@/components/ActivityLog'
 import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House } from '@phosphor-icons/react'
 import maefLogo from '@/assets/maef-logo.png'
 import { toast } from 'sonner'
@@ -1281,7 +1283,7 @@ function App() {
         </header>
 
         <main className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6 pb-24">
-          {mainView === 'dashboard' && (
+          {!agentDetailId && mainView === 'dashboard' && (
             <>
               {/* Hero section — compact */}
               <div className="text-center py-5 px-4 mb-4">
@@ -1588,6 +1590,13 @@ function App() {
                 )
               })()}
 
+              {walletConnected && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  <WisdomTimeline events={displayedEvents} nfts={displayedNFTs} />
+                  <ActivityLog logs={logs} />
+                </div>
+              )}
+
               {/* ── Fusion Lab (inline, only when ≥ 2 agents) ─── */}
               {displayedAgents.length >= 2 && (
                 <NeuralFusionLab
@@ -1612,13 +1621,13 @@ function App() {
           )}
 
           {/* ── Analytics ─────────────────────────────── */}
-          {mainView === 'analytics' && (
+          {!agentDetailId && mainView === 'analytics' && (
             <AnalyticsView agents={displayedAgents} events={displayedEvents} nfts={displayedNFTs} />
           )}
 
           {/* ── NFT Vault ─────────────────────────────── */}
           {/* -- NFT Vault ------------------------------- */}
-          {mainView === 'vault' && (
+          {!agentDetailId && mainView === 'vault' && (
             <VaultView
               displayedNFTs={displayedNFTs}
               selectedChainId={selectedChainId}
@@ -1630,7 +1639,7 @@ function App() {
           )}
 
 
-          {mainView === 'marketplace' && (
+          {!agentDetailId && mainView === 'marketplace' && (
             <MarketplaceView marketplaceAgents={marketplaceAgents ?? []} />
           )}
 

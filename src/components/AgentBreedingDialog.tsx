@@ -95,7 +95,7 @@ export function AgentBreedingDialog({
     // ── Phase 1: On-chain payment via MetaMask ─────────────────────────────
     if (window.ethereum) {
       try {
-        const provider = new BrowserProvider(window.ethereum as Parameters<typeof BrowserProvider>[0])
+        const provider = new BrowserProvider(window.ethereum as any)
         const signer = await provider.getSigner()
         const contractAddress = CONTRACT_ADDRESSES.sepolia.MAEF_NFT
         const contract = new Contract(contractAddress, BREED_ABI, signer)

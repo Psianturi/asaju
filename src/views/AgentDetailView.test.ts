@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Agent, Event, NFT } from './types'
+import type { Agent, Event, NFT } from '@/lib/types'
 
 describe('AgentDetailView data shape', () => {
   const baseAgent: Agent = {
@@ -18,7 +18,6 @@ describe('AgentDetailView data shape', () => {
     agentGasBalance: 1.021,
     generation: 1,
     breedingCount: 0,
-    heritageScore: 5,
   }
 
   it('required fields present', () => {
@@ -34,8 +33,8 @@ describe('AgentDetailView data shape', () => {
 
   it('event list filters by agentId', () => {
     const events: Event[] = [
-      { id: 'e-1', agentId: 'a-1', url: 'https://youtube.com', title: 'a', date: 1, summary: 'x', status: 'completed' },
-      { id: 'e-2', agentId: 'a-2', url: 'https://youtube.com', title: 'b', date: 2, summary: 'y', status: 'completed' },
+      { id: 'e-1', agentId: 'a-1', url: 'https://youtube.com', title: 'a', platform: 'YouTube', date: 1, summary: 'x', status: 'completed' },
+      { id: 'e-2', agentId: 'a-2', url: 'https://youtube.com', title: 'b', platform: 'YouTube', date: 2, summary: 'y', status: 'completed' },
     ]
     const mine = events.filter(e => e.agentId === 'a-1')
     expect(mine.length).toBe(1)
