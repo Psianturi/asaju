@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Agent, BackendProposal } from '@/lib/types'
@@ -22,6 +23,10 @@ import {
   Users,
   Warning,
   ArrowClockwise,
+  ShieldCheck,
+  Vault,
+  Wallet,
+  ArrowsDownUp,
 } from '@phosphor-icons/react'
 
 interface ProposalModalProps {
@@ -301,6 +306,34 @@ function ProposalCard({
 const HERITAGE_XP = 5
 const FETCH_TIMEOUT_MS = 12_000
 
+interface ParsedExecutionDetails {
+  proposalId: string
+  proposalHash: string
+  agentWallet: string
+  vaultAddress: string
+  amountMnt: number
+  ownerWallet: string
+  nonce: string
+  expiresAt: number
+}
+
+function parseExecutionMessage(message: string): ParsedExecutionDetails | null {
+  const lines = message.split('\n')
+  const get = (key: string) => lines.find(l => l.startsWith(key))?.split(': ')[1]?.trim()
+  const proposalId = get('Proposal ID:') ?? ''
+  const proposalHash = get('Proposal hash:') ?? ''
+  const agentWallet = get('Agent wallet:') ?? ''
+  const vaultAddress = get('Transfer to vault:') ?? ''
+  const amountStr = get('Amount:') ?? '0'
+  const amountMnt = parseFloat(amountStr.replace(' MNT', ''))
+  const ownerWallet = get('Owner wallet:') ?? ''
+  const nonce = get('Nonce:') ?? ''
+  const expiresStr = get('Expires at:') ?? '0'
+  const expiresAt = parseInt(expiresStr, 10)
+  if (!proposalId || !vaultAddress) return null
+  return { proposalId, proposalHash, agentWallet, vaultAddress, amountMnt, ownerWallet, nonce, expiresAt }
+}
+
 export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange }: ProposalModalProps) {
   const [proposals, setProposals] = useState<BackendProposal[]>([])
   const [loading, setLoading] = useState(false)
@@ -308,6 +341,8 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
   const [generating, setGenerating] = useState(false)
   const [actioningId, setActioningId] = useState<string | null>(null)
   const [executingId, setExecutingId] = useState<string | null>(null)
+  const [executionPreview, setExecutionPreview] = useState<{ nonce: string; message: string; expires_at: number; parsed: ParsedExecutionDetails } | null>(null)
+  const [pendingExecutionProposal, setPendingExecutionProposal] = useState<BackendProposal | null>(null)
 
   const pendingCount = proposals.filter(p => p.status === 'pending').length
 
@@ -419,9 +454,30 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
     setExecutingId(proposal.proposal_id)
     try {
       const challenge = await cloudRunService.createExecutionChallenge(proposal.proposal_id)
-      const signedAuthorization = await mantleService.signMessage(challenge.message)
-      const authorization = { ...signedAuthorization, nonce: challenge.nonce }
-      const updated = await cloudRunService.executeProposalTransfer(proposal.proposal_id, authorization)
+      const parsed = parseExecutionMessage(challenge.message)
+      if (!parsed) {
+        toast.error('Failed to parse execution details')
+        setExecutingId(null)
+        return
+      }
+      setPendingExecutionProposal(proposal)
+      setExecutionPreview({ nonce: challenge.nonce, message: challenge.message, expires_at: challenge.expires_at, parsed })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Execution failed'
+      toast.error('Transfer execution failed', { description: msg })
+      setExecutingId(null)
+    }
+  }
+
+  const handleConfirmExecute = async () => {
+    if (!executionPreview || !pendingExecutionProposal) return
+    setExecutingId(pendingExecutionProposal.proposal_id)
+    setExecutionPreview(null)
+    setPendingExecutionProposal(null)
+    try {
+      const signedAuthorization = await mantleService.signMessage(executionPreview.message)
+      const authorization = { ...signedAuthorization, nonce: executionPreview.nonce }
+      const updated = await cloudRunService.executeProposalTransfer(pendingExecutionProposal.proposal_id, authorization)
       const next = proposals.map(p => p.proposal_id === updated.proposal_id ? updated : p)
       setProposals(next)
       toast.success('Transfer executed', {
@@ -433,6 +489,12 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
     } finally {
       setExecutingId(null)
     }
+  }
+
+  const handleCancelExecute = () => {
+    setExecutionPreview(null)
+    setPendingExecutionProposal(null)
+    setExecutingId(null)
   }
 
   return (
@@ -533,6 +595,88 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
           )}
         </div>
       </DialogContent>
+
+      <AlertDialog open={!!executionPreview} onOpenChange={(open) => { if (!open) handleCancelExecute() }}>
+        <AlertDialogContent className="glass-card max-w-md w-full border-primary/30">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+                <ShieldCheck size={18} className="text-emerald-400" weight="duotone" />
+              </div>
+              Review Transfer Details
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-muted-foreground">
+              This action will transfer MNT from the agent wallet to the vault. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {executionPreview && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-lg bg-black/30 border border-border/40 p-3 space-y-2.5 text-xs font-mono">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="text-emerald-400 font-bold">{executionPreview.parsed.amountMnt} MNT</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Wallet size={12} className="text-muted-foreground mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground leading-tight">From (Agent Wallet)</div>
+                    <div className="text-foreground truncate leading-tight" title={executionPreview.parsed.agentWallet}>
+                      {executionPreview.parsed.agentWallet}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Vault size={12} className="text-muted-foreground mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground leading-tight">To (Vault)</div>
+                    <div className="text-foreground truncate leading-tight" title={executionPreview.parsed.vaultAddress}>
+                      {executionPreview.parsed.vaultAddress}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Chain</span>
+                  <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary/70">
+                    Mantle Sepolia (5003)
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Proposal</span>
+                  <span className="text-foreground truncate max-w-[180px]" title={executionPreview.parsed.proposalId}>
+                    {executionPreview.parsed.proposalId}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded bg-amber-500/10 border border-amber-500/30 p-2">
+                <Warning size={11} className="text-amber-400 shrink-0" weight="fill" />
+                <p className="text-[10px] text-amber-300 leading-relaxed">
+                  Confirming signs a message with your wallet. The transfer executes immediately after.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel asChild>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCancelExecute}>
+                Cancel
+              </Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={handleConfirmExecute}
+              >
+                <ShieldCheck size={13} weight="fill" />
+                Confirm & Sign
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   )
 }

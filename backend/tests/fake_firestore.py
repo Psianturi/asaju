@@ -71,6 +71,14 @@ class FakeCollection:
     def where(self, filter) -> FakeQuery:  # noqa: A002 — mirrors real Firestore kwarg name
         return FakeQuery(self, filter.field_path, filter.op_string, filter.value)
 
+    async def add(self, data: dict) -> tuple[FakeDocRef, str]:
+        """Generate a new doc ID and set data on it. Returns (ref, doc_id)."""
+        import uuid
+        doc_id = str(uuid.uuid4())
+        ref = FakeDocRef(self, doc_id)
+        await ref.set(data)
+        return ref, doc_id
+
     def __len__(self) -> int:
         return len(self._docs)
 

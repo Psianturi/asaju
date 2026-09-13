@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { CheckCircle, XCircle, ArrowRight, Clock, Cube, Lightning } from '@phosphor-icons/react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { CheckCircle, ArrowRight, Clock, Cube, Lightning } from '@phosphor-icons/react'
+import { motion } from 'framer-motion'
 import { Agent } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
 
@@ -21,81 +20,41 @@ interface DeploymentStep {
 interface ContractDeploymentProgressProps {
   agent: Agent
   isDeploying: boolean
-  onComplete?: () => void
 }
 
-export function ContractDeploymentProgress({ agent, isDeploying, onComplete }: ContractDeploymentProgressProps) {
+export function ContractDeploymentProgress({ agent, isDeploying }: ContractDeploymentProgressProps) {
   const explorerBaseUrl = appConfig.blockchain.explorerUrl
 
-  const [steps, setSteps] = useState<DeploymentStep[]>([
-    { id: 'wallet', label: 'Generating Mantle wallet', status: 'pending' },
-    { id: 'contract', label: 'Compiling smart contract', status: 'pending' },
-    { id: 'deploy', label: 'Deploying to Mantle Network', status: 'pending' },
-    { id: 'verify', label: 'Verifying contract on Explorer', status: 'pending' },
-    { id: 'init', label: 'Initializing agent parameters', status: 'pending' },
-    { id: 'fund', label: 'Funding wallet with MNT', status: 'pending' },
-  ])
-
-  const [currentStepIndex, setCurrentStepIndex] = useState(-1)
-  const [overallProgress, setOverallProgress] = useState(0)
-
-  useEffect(() => {
-    if (!isDeploying) {
-      setCurrentStepIndex(-1)
-      setOverallProgress(0)
-      setSteps(prev => prev.map(s => ({ ...s, status: 'pending' })))
-      return
-    }
-
-    let stepIndex = 0
-    const totalSteps = steps.length
-
-    const processNextStep = () => {
-      if (stepIndex >= totalSteps) {
-        setOverallProgress(100)
-        setTimeout(() => {
-          onComplete?.()
-        }, 1000)
-        return
-      }
-
-      setSteps(prev => prev.map((s, idx) => 
-        idx === stepIndex 
-          ? { ...s, status: 'in-progress' as const, timestamp: Date.now() }
-          : s
-      ))
-      setCurrentStepIndex(stepIndex)
-
-      const stepDuration = Math.random() * 1500 + 1000
-
-      setTimeout(() => {
-        const mockGas = (Math.random() * 0.002 + 0.001).toFixed(6)
-        const mockTxHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`
-
-        setSteps(prev => prev.map((s, idx) => 
-          idx === stepIndex 
-            ? { 
-                ...s, 
-                status: 'complete' as const,
-                gasUsed: stepIndex === 2 || stepIndex === 5 ? mockGas : undefined,
-                transactionHash: stepIndex === 2 ? mockTxHash : undefined,
-              }
-            : s
-        ))
-
-        const progress = ((stepIndex + 1) / totalSteps) * 100
-        setOverallProgress(progress)
-
-        stepIndex++
-        setTimeout(processNextStep, 500)
-      }, stepDuration)
-    }
-
-    processNextStep()
-  }, [isDeploying, onComplete])
+  const steps: DeploymentStep[] = [
+    {
+      id: 'wallet',
+      label: 'Agent wallet registered',
+      status: agent.walletAddress ? 'complete' : 'pending',
+      details: agent.walletAddress ? 'Wallet address received from the backend.' : 'Awaiting wallet data from the backend.',
+    },
+    {
+      id: 'contract',
+      label: 'Contract address available',
+      status: agent.contractAddress ? 'complete' : 'pending',
+      details: agent.contractAddress ? agent.contractAddress : 'No contract address has been returned yet.',
+    },
+    {
+      id: 'deploy',
+      label: 'Deployment transaction recorded',
+      status: agent.deploymentTxHash ? 'complete' : isDeploying ? 'in-progress' : 'pending',
+      transactionHash: agent.deploymentTxHash,
+      details: agent.deploymentTxHash ? 'Transaction hash received from the backend.' : 'Waiting for a real deployment transaction hash.',
+    },
+    {
+      id: 'verify',
+      label: 'Explorer verification',
+      status: 'pending',
+      details: agent.deploymentTxHash ? 'Verification is tracked from the recorded transaction.' : 'Verification starts after a deployment transaction is recorded.',
+    },
+  ]
 
   const completedSteps = steps.filter(s => s.status === 'complete').length
-  const hasErrors = steps.some(s => s.status === 'error')
+  const overallProgress = (completedSteps / steps.length) * 100
 
   return (
     <Card className="glass-card-hover p-6 border-2 border-primary/20 relative overflow-hidden">
@@ -116,10 +75,10 @@ export function ContractDeploymentProgress({ agent, isDeploying, onComplete }: C
           </div>
           
           <Badge 
-            variant={hasErrors ? 'destructive' : isDeploying ? 'default' : 'secondary'}
+            variant={isDeploying ? 'default' : 'secondary'}
             className="font-semibold"
           >
-            {hasErrors ? 'Failed' : isDeploying ? 'Deploying' : completedSteps === steps.length ? 'Complete' : 'Pending'}
+            {isDeploying ? 'Syncing live status' : completedSteps === steps.length ? 'Complete' : 'Pending'}
           </Badge>
         </div>
 
@@ -141,22 +100,15 @@ export function ContractDeploymentProgress({ agent, isDeploying, onComplete }: C
         </div>
 
         <div className="space-y-2">
-          <AnimatePresence mode="popLayout">
-            {steps.map((step, idx) => (
-              <motion.div
+          {steps.map((step) => (
+              <div
                 key={step.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ delay: idx * 0.05 }}
                 className={`
                   flex items-start gap-3 p-3 rounded-lg border transition-all duration-300
                   ${step.status === 'complete' 
                     ? 'bg-green-500/10 border-green-500/30' 
                     : step.status === 'in-progress'
                     ? 'bg-primary/10 border-primary/40 shadow-lg shadow-primary/20'
-                    : step.status === 'error'
-                    ? 'bg-destructive/10 border-destructive/30'
                     : 'bg-card/30 border-border/50'
                   }
                 `}
@@ -181,9 +133,6 @@ export function ContractDeploymentProgress({ agent, isDeploying, onComplete }: C
                   {step.status === 'pending' && (
                     <div className="w-5 h-5 border-2 border-muted-foreground/30 rounded-full" />
                   )}
-                  {step.status === 'error' && (
-                    <XCircle size={20} className="text-destructive" weight="fill" />
-                  )}
                 </div>
 
                 <div className="flex-1 min-w-0">
@@ -191,7 +140,6 @@ export function ContractDeploymentProgress({ agent, isDeploying, onComplete }: C
                     <p className={`text-sm font-medium ${
                       step.status === 'complete' ? 'text-green-500' :
                       step.status === 'in-progress' ? 'text-primary' :
-                      step.status === 'error' ? 'text-destructive' :
                       'text-muted-foreground'
                     }`}>
                       {step.label}
@@ -228,9 +176,8 @@ export function ContractDeploymentProgress({ agent, isDeploying, onComplete }: C
                     </div>
                   )}
                 </div>
-              </motion.div>
+              </div>
             ))}
-          </AnimatePresence>
         </div>
 
         {completedSteps === steps.length && !isDeploying && (

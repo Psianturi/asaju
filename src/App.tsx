@@ -15,7 +15,6 @@ import { MyAgentsView } from '@/views/MyAgentsView'
 import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
-import { NeuralFusionLab } from '@/components/NeuralFusionLab'
 import { NFTCard } from '@/components/NFTCard'
 import { SpawnAgentDialog } from '@/components/SpawnAgentDialog'
 import { TerminalConsole } from '@/components/TerminalConsole'
@@ -34,8 +33,6 @@ import { ContractVerificationTracker } from '@/components/ContractVerificationTr
 import { AgentEvolutionDialog } from '@/components/AgentEvolutionDialog'
 import { TopUpGasDialog } from '@/components/TopUpGasDialog'
 import { GenesisMintConfirmation } from '@/components/GenesisMintConfirmation'
-import { SecurityAuditLog } from '@/components/SecurityAuditLog'
-import { GlobalSecurityAuditLog } from '@/components/GlobalSecurityAuditLog'
 import { AgentBreedingDialog } from '@/components/AgentBreedingDialog'
 import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
@@ -1378,7 +1375,6 @@ function App() {
                 <ContractDeploymentProgress
                   agent={agents.find(a => a.id === deployingAgentId)!}
                   isDeploying={true}
-                  onComplete={() => setDeployingAgentId(null)}
                 />
               )}
 
@@ -1597,25 +1593,6 @@ function App() {
                 </div>
               )}
 
-              {/* ── Fusion Lab (inline, only when ≥ 2 agents) ─── */}
-              {displayedAgents.length >= 2 && (
-                <NeuralFusionLab
-                  agents={displayedAgents}
-                  walletConnected={walletConnected}
-                  userBalance={userBalance ?? 0}
-                  proposalCounts={proposalCounts}
-                  onConnectWallet={() => handleWalletConnect('')}
-                  onInitiateFusion={() => setBreedingDialogOpen(true)}
-                  onConfigureAgent={handleConfigureAgent}
-                  onChatWithAgent={handleChatWithAgent}
-                  onViewEvolution={handleViewEvolution}
-                  onToggleAutoReplenish={handleToggleAutoReplenish}
-                  onOpenProposals={(a) => setProposalModalAgent(a)}
-                  onDeleteAgent={handleDeleteAgent}
-                  onRetrySpawn={handleRetrySpawn}
-                  onCooldownBoost={handleCooldownBoost}
-                />
-              )}
               </div>
             </>
           )}
@@ -1638,6 +1615,9 @@ function App() {
               onToggleScout={handleToggleScout}
               onApproveEvent={handleApproveScoutedEvent}
               proposalCounts={proposalCounts}
+              userBalance={userBalance ?? 0}
+              onInitiateFusion={() => setBreedingDialogOpen(true)}
+              onCooldownBoost={handleCooldownBoost}
             />
           )}
 

@@ -50,11 +50,6 @@ export function BackendHealthModal({ open, onOpenChange, onHealthConfirmed }: Ba
     checkHealth()
   }
 
-  const handleContinueOffline = () => {
-    onHealthConfirmed()
-    onOpenChange(false)
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="glass-card border-2 border-primary/30 max-w-md">
@@ -118,13 +113,9 @@ export function BackendHealthModal({ open, onOpenChange, onHealthConfirmed }: Ba
                   <ArrowsClockwise className="mr-2" weight="bold" />
                   Retry Connection
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleContinueOffline}
-                  className="border-muted-foreground/30"
-                >
-                  Continue with Mock Data
-                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Live agent data remains unavailable until the backend connection is restored.
+                </p>
               </div>
             </motion.div>
           )}

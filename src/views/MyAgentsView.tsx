@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight, Brain, ChartLine, Lightning, MagnifyingGlass, Plus, Robot, ShieldCheck } from '@phosphor-icons/react'
 import { AgentCard } from '@/components/AgentCard'
 import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
+import { NeuralFusionLab } from '@/components/NeuralFusionLab'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +26,9 @@ interface MyAgentsViewProps {
   onToggleScout: (agentId: string, enabled: boolean) => void
   onApproveEvent: (agentId: string, eventId: string) => void
   proposalCounts: Record<string, number>
+  userBalance: number
+  onInitiateFusion: () => void
+  onCooldownBoost: (agentId: string) => void
 }
 
 type StatusFilter = 'all' | Agent['status']
@@ -47,6 +51,9 @@ export function MyAgentsView({
   onToggleScout,
   onApproveEvent,
   proposalCounts,
+  userBalance,
+  onInitiateFusion,
+  onCooldownBoost,
 }: MyAgentsViewProps) {
   const [query, setQuery] = useState('')
   const [niche, setNiche] = useState<'all' | Niche>('all')
@@ -172,6 +179,25 @@ export function MyAgentsView({
             </motion.div>
           ))}
         </div>
+      )}
+
+      {agents.length >= 2 && (
+        <NeuralFusionLab
+          agents={agents}
+          walletConnected={walletConnected}
+          userBalance={userBalance}
+          proposalCounts={proposalCounts}
+          onConnectWallet={onConnectWallet}
+          onInitiateFusion={onInitiateFusion}
+          onConfigureAgent={onConfigure}
+          onChatWithAgent={onChat}
+          onViewEvolution={onViewEvolution}
+          onToggleAutoReplenish={onToggleAutoReplenish}
+          onOpenProposals={onOpenProposals}
+          onDeleteAgent={onDeleteAgent}
+          onRetrySpawn={onRetrySpawn}
+          onCooldownBoost={onCooldownBoost}
+        />
       )}
     </motion.div>
   )

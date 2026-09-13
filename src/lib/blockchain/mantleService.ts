@@ -204,7 +204,7 @@ export class MantleBlockchainService {
     const contractAddress = this.getChainConfig(this.currentChainId).contractAddress
 
     if (contractAddress === '0x0000000000000000000000000000000000000000') {
-      console.warn('Contract not deployed. Using mock mode.')
+      this.contract = null
       return
     }
 
