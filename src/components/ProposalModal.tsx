@@ -75,11 +75,15 @@ function ProposalCard({
   proposal,
   onApprove,
   onReject,
+  onExecute,
+  executingId,
   actioningId,
 }: {
   proposal: BackendProposal
   onApprove: (p: BackendProposal) => void
   onReject: (p: BackendProposal) => void
+  onExecute: (p: BackendProposal) => void
+  executingId: string | null
   actioningId: string | null
 }) {
   const cat = CATEGORY_CONFIG[proposal.category] ?? CATEGORY_CONFIG.community
@@ -202,7 +206,7 @@ function ProposalCard({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Lightning size={14} className="text-violet-400" weight="fill" />
-              <span className="text-xs font-bold text-violet-300">Autonomous Execution</span>
+              <span className="text-xs font-bold text-violet-300">DeFi Execution</span>
             </div>
             {proposal.autonomous_transfer_tx ? (
               <a
@@ -218,17 +222,29 @@ function ProposalCard({
             ) : proposal.autonomous_execution_triggered ? (
               <span className="text-[10px] text-violet-400/60 font-mono">pending…</span>
             ) : (
-              <span className="text-[10px] text-muted-foreground font-mono">disabled by policy</span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={executingId === proposal.proposal_id}
+                onClick={() => onExecute(proposal)}
+                className="h-6 px-2 text-[10px] border-violet-500/40 text-violet-300 hover:bg-violet-500/10"
+              >
+                {executingId === proposal.proposal_id ? (
+                  <SpinnerGap size={11} className="animate-spin" />
+                ) : (
+                  'Execute Transfer'
+                )}
+              </Button>
             )}
           </div>
           <p className="text-[11px] text-violet-300/70 mt-1 leading-relaxed">
             {proposal.autonomous_transfer_status === 'success'
-              ? `Agent autonomously transferred ${proposal.autonomous_transfer_amount_mnt ?? 0.1} MNT to Autonomous Vault`
+              ? `Agent transferred ${proposal.autonomous_transfer_amount_mnt ?? 0.1} MNT to Autonomous Vault`
               : proposal.autonomous_transfer_status === 'failed'
               ? 'Transfer failed — check agent gas balance'
               : proposal.autonomous_execution_triggered
-              ? 'Agent wallet signing native MNT transfer to Autonomous Vault…'
-              : 'Autonomous fund transfer is not configured — no transfer will occur.'}
+              ? 'Transfer in progress…'
+              : 'Requires separate owner approval to transfer 0.1 MNT from agent wallet to vault.'}
           </p>
         </motion.div>
       )}
@@ -281,6 +297,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [actioningId, setActioningId] = useState<string | null>(null)
+  const [executingId, setExecutingId] = useState<string | null>(null)
 
   const pendingCount = proposals.filter(p => p.status === 'pending').length
 
@@ -388,6 +405,26 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
     }
   }
 
+  const handleExecute = async (proposal: BackendProposal) => {
+    setExecutingId(proposal.proposal_id)
+    try {
+      const challenge = await cloudRunService.createExecutionChallenge(proposal.proposal_id)
+      const signedAuthorization = await mantleService.signMessage(challenge.message)
+      const authorization = { ...signedAuthorization, nonce: challenge.nonce }
+      const updated = await cloudRunService.executeProposalTransfer(proposal.proposal_id, authorization)
+      const next = proposals.map(p => p.proposal_id === updated.proposal_id ? updated : p)
+      setProposals(next)
+      toast.success('Transfer executed', {
+        description: `0.1 MNT transferred from agent wallet to vault`,
+      })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Execution failed'
+      toast.error('Transfer execution failed', { description: msg })
+    } finally {
+      setExecutingId(null)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="glass-card max-w-lg w-full max-h-[85vh] flex flex-col border-primary/30">
@@ -449,6 +486,8 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   proposal={p}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onExecute={handleExecute}
+                  executingId={executingId}
                   actioningId={actioningId}
                 />
               ))}

@@ -44,6 +44,7 @@ AGENTS_COLLECTION = "agents"
 EVENTS_COLLECTION = "agent_events"
 PROPOSALS_COLLECTION = "proposals"
 APPROVAL_CHALLENGES_COLLECTION = "proposal_approval_challenges"
+EXECUTION_CHALLENGES_COLLECTION = "proposal_execution_challenges"
 
 PROPOSAL_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 HERITAGE_XP_PER_PROPOSAL = 5
@@ -599,7 +600,6 @@ async def create_approval_challenge(
 async def approve_proposal(
     proposal_id: str,
     authorization: ApprovalAuthorizationRequest,
-    background_tasks: BackgroundTasks,
     request: Request,
 ) -> ProposalResponse:
     """
@@ -692,41 +692,9 @@ async def approve_proposal(
 
     # ── Option A: Semi-Autonomous Execution for DeFi proposals ───────────────
     # TODO(architectural): Per P1 decision, autonomous transfer should require a
-    # separate approval. Currently triggers automatically on DeFi proposal approval.
+    # Per P1 architectural decision: autonomous transfer requires a separate owner approval.
     # See: CURRENT_STATUS_AUDIT_2026-09-12.md decision #2.
-    if data.get("category") == "defi":
-        try:
-            agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
-            agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
-            stored_key = agent_data.get("private_key_enc") or agent_data.get("private_key")
-            if stored_key:
-                agent_private_key = decrypt_private_key(stored_key)
-                background_tasks.add_task(
-                    _bg_autonomous_transfer,
-                    proposal_id,
-                    agent_id,
-                    agent_wallet,
-                    agent_private_key,
-                    agent_chain_id,
-                )
-                try:
-                    await doc.reference.update({"autonomous_execution_triggered": True})
-                except Exception:
-                    pass
-                logger.info(
-                    "Autonomous transfer queued for DeFi proposal %s (agent %s)",
-                    proposal_id, agent_id,
-                )
-            else:
-                logger.warning(
-                    "Agent %s has no private key — autonomous transfer skipped for proposal %s",
-                    agent_id, proposal_id,
-                )
-        except Exception as exc:
-            logger.warning(
-                "Could not queue autonomous transfer for proposal %s: %s — continuing",
-                proposal_id, exc,
-            )
+    # The /{proposal_id}/execute endpoint handles this with its own signature challenge.
 
     return _doc_to_response(proposal_id, data)
 
@@ -773,3 +741,259 @@ async def reject_proposal(
         proposal_hash=data.get("proposal_hash"),
     )
     return _doc_to_response(proposal_id, data)
+
+
+class ExecutionChallengeResponse(BaseModel):
+    nonce: str
+    message: str
+    expires_at: float
+
+
+class ExecutionAuthorizationRequest(BaseModel):
+    nonce: str
+    signer_wallet: str
+    signature: str
+
+    @field_validator("signer_wallet")
+    @classmethod
+    def validate_wallet(cls, value: str) -> str:
+        if not Web3.is_address(value):
+            raise ValueError("Invalid Ethereum wallet address")
+        return Web3.to_checksum_address(value)
+
+    @field_validator("nonce", "signature")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Value must not be empty")
+        return value
+
+
+def _execution_message(
+    proposal_id: str,
+    proposal_hash: str,
+    agent_wallet: str,
+    vault_address: str,
+    amount_mnt: float,
+    owner_wallet: str,
+    nonce: str,
+    expires_at: float,
+) -> str:
+    return (
+        "ASAJU DeFi Execution Authorization\n"
+        f"Proposal ID: {proposal_id}\n"
+        f"Proposal hash: {proposal_hash}\n"
+        f"Agent wallet: {agent_wallet}\n"
+        f"Transfer to vault: {vault_address}\n"
+        f"Amount: {amount_mnt} MNT\n"
+        f"Owner wallet: {owner_wallet}\n"
+        f"Nonce: {nonce}\n"
+        f"Expires at: {int(expires_at)}\n"
+        f"This authorizes a {amount_mnt} MNT transfer from the agent wallet to the vault."
+    )
+
+
+def _enforce_execution_rate_limit(request: Request, proposal_id: str) -> None:
+    client_host = request.client.host if request.client else "unknown"
+    key = f"{client_host}:execute:{proposal_id}"
+    now = time.time()
+    attempts = _approval_attempts[key]
+    while attempts and now - attempts[0] >= APPROVAL_RATE_LIMIT_WINDOW_SECONDS:
+        attempts.popleft()
+    if len(attempts) >= APPROVAL_RATE_LIMIT_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many execution attempts. Try again in one minute.",
+        )
+    attempts.append(now)
+
+
+@router.post(
+    "/api/v1/proposals/{proposal_id}/execution-challenge",
+    response_model=ExecutionChallengeResponse,
+)
+async def create_execution_challenge(
+    proposal_id: str,
+    request: Request,
+) -> ExecutionChallengeResponse:
+    """Create a single-use challenge for autonomous DeFi execution (transfer from agent wallet)."""
+    _enforce_execution_rate_limit(request, proposal_id)
+    db = get_db()
+
+    try:
+        doc = await db.collection(PROPOSALS_COLLECTION).document(proposal_id).get()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable") from exc
+
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    data = doc.to_dict() or {}
+
+    if data.get("status") != "approved":
+        raise HTTPException(status_code=422, detail="Only approved proposals can be executed")
+    if data.get("category") != "defi":
+        raise HTTPException(status_code=422, detail="Only DeFi proposals require execution")
+    if data.get("autonomous_execution_triggered"):
+        raise HTTPException(status_code=422, detail="Execution has already been triggered for this proposal")
+
+    agent_id = data.get("agent_id", "")
+    agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
+    owner_wallet = agent_data.get("user_wallet", "")
+    agent_wallet = data.get("agent_wallet", "")
+    proposal_hash = data.get("proposal_hash", "")
+    vault_address = settings.autonomous_vault_address
+
+    if not all(Web3.is_address(a) for a in [owner_wallet, agent_wallet, vault_address]):
+        raise HTTPException(status_code=400, detail="Agent or vault wallet address is invalid")
+
+    owner_wallet = Web3.to_checksum_address(owner_wallet)
+    agent_wallet = Web3.to_checksum_address(agent_wallet)
+    nonce = secrets.token_urlsafe(32)
+    expires_at = time.time() + APPROVAL_CHALLENGE_TTL_SECONDS
+    message = _execution_message(
+        proposal_id,
+        proposal_hash,
+        agent_wallet,
+        vault_address,
+        0.1,
+        owner_wallet,
+        nonce,
+        expires_at,
+    )
+    await db.collection(EXECUTION_CHALLENGES_COLLECTION).document(nonce).set(
+        {
+            "proposal_id": proposal_id,
+            "agent_id": agent_id,
+            "owner_wallet": owner_wallet,
+            "agent_wallet": agent_wallet,
+            "vault_address": vault_address,
+            "amount_mnt": 0.1,
+            "message": message,
+            "expires_at": expires_at,
+            "used_at": None,
+            "created_at": time.time(),
+        }
+    )
+    return ExecutionChallengeResponse(nonce=nonce, message=message, expires_at=expires_at)
+
+
+@router.post("/api/v1/proposals/{proposal_id}/execute", response_model=ProposalResponse)
+async def execute_proposal_transfer(
+    proposal_id: str,
+    authorization: ExecutionAuthorizationRequest,
+    request: Request,
+) -> ProposalResponse:
+    """
+    Execute the autonomous transfer for an approved DeFi proposal.
+    Requires a separate owner signature bound to the execution challenge (not the proposal hash).
+    """
+    _enforce_execution_rate_limit(request, proposal_id)
+    db = get_db()
+
+    try:
+        challenge_ref = db.collection(EXECUTION_CHALLENGES_COLLECTION).document(authorization.nonce)
+        challenge_doc = await challenge_ref.get()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Execution authorization could not be verified") from exc
+
+    challenge_data = (challenge_doc.to_dict() or {}) if challenge_doc.exists else {}
+    if not challenge_doc.exists or challenge_data.get("proposal_id") != proposal_id:
+        raise HTTPException(status_code=401, detail="Execution authorization is invalid")
+
+    now = time.time()
+    if challenge_data.get("used_at"):
+        raise HTTPException(status_code=401, detail="Execution authorization has already been used")
+    if challenge_data.get("expires_at", 0) < now:
+        raise HTTPException(status_code=401, detail="Execution authorization has expired")
+
+    try:
+        recovered_wallet = Web3.to_checksum_address(
+            Account.recover_message(
+                encode_defunct(text=challenge_data.get("message", "")),
+                signature=authorization.signature,
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Execution signature is invalid") from exc
+
+    owner_wallet = challenge_data.get("owner_wallet", "")
+    if recovered_wallet != authorization.signer_wallet:
+        raise HTTPException(status_code=401, detail="Signature does not match the claimed wallet")
+    if not Web3.is_address(owner_wallet) or recovered_wallet != Web3.to_checksum_address(owner_wallet):
+        raise HTTPException(status_code=403, detail="Only the agent owner can authorize execution")
+
+    await challenge_ref.update({"used_at": now})
+
+    doc = await db.collection(PROPOSALS_COLLECTION).document(proposal_id).get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    data = doc.to_dict() or {}
+    agent_id = data.get("agent_id", "")
+
+    agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
+    stored_key = agent_data.get("private_key_enc") or agent_data.get("private_key")
+    if not stored_key:
+        _write_audit_event(
+            db,
+            actor_wallet=recovered_wallet,
+            agent_id=agent_id,
+            action="proposal_executed",
+            status="failure",
+            proposal_id=proposal_id,
+            proposal_hash=data.get("proposal_hash"),
+            failure_reason="Agent has no private key",
+        )
+        raise HTTPException(status_code=400, detail="Agent has no private key — cannot execute transfer")
+
+    agent_private_key = decrypt_private_key(stored_key)
+    agent_chain_id = agent_data.get("chain_id", 5003)
+
+    try:
+        result = await web3_service.execute_autonomous_transfer(
+            agent_wallet=challenge_data.get("agent_wallet"),
+            agent_private_key=agent_private_key,
+            amount_mnt=challenge_data.get("amount_mnt", 0.1),
+            vault_address=challenge_data.get("vault_address"),
+            chain_id=agent_chain_id,
+        )
+        await doc.reference.update({
+            "autonomous_execution_triggered": True,
+            "autonomous_transfer_tx": result.get("tx_hash"),
+            "autonomous_transfer_status": result.get("status"),
+            "autonomous_transfer_amount_mnt": result.get("amount_mnt"),
+            "autonomous_executed_at": time.time(),
+        })
+        _write_audit_event(
+            db,
+            actor_wallet=recovered_wallet,
+            agent_id=agent_id,
+            action="proposal_executed",
+            status=result.get("status", "unknown"),
+            proposal_id=proposal_id,
+            proposal_hash=data.get("proposal_hash"),
+            tx_hash=result.get("tx_hash"),
+        )
+        logger.info(
+            "Autonomous execution complete for proposal %s: tx=%s status=%s",
+            proposal_id, result.get("tx_hash"), result.get("status"),
+        )
+    except Exception as exc:
+        _write_audit_event(
+            db,
+            actor_wallet=recovered_wallet,
+            agent_id=agent_id,
+            action="proposal_executed",
+            status="failure",
+            proposal_id=proposal_id,
+            proposal_hash=data.get("proposal_hash"),
+            failure_reason=str(exc)[:200],
+        )
+        logger.error("Autonomous execution failed for proposal %s: %s", proposal_id, exc)
+        raise HTTPException(status_code=503, detail=f"Execution failed: {exc}")
+
+    updated_doc = await doc.reference.get()
+    return _doc_to_response(proposal_id, updated_doc.to_dict() or data)

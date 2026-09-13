@@ -1096,6 +1096,35 @@ export const cloudRunService = {
     return handleAPIResponse<BackendProposal>(response)
   },
 
+  async createExecutionChallenge(
+    proposalId: string,
+  ): Promise<{ nonce: string; message: string; expires_at: number }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/proposals/${encodeURIComponent(proposalId)}/execution-challenge`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    )
+    return handleAPIResponse<{ nonce: string; message: string; expires_at: number }>(response)
+  },
+
+  async executeProposalTransfer(
+    proposalId: string,
+    authorization: { nonce: string; signerWallet: string; signature: string },
+  ): Promise<BackendProposal> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/proposals/${encodeURIComponent(proposalId)}/execute`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nonce: authorization.nonce,
+          signer_wallet: authorization.signerWallet,
+          signature: authorization.signature,
+        }),
+      },
+    )
+    return handleAPIResponse<BackendProposal>(response)
+  },
+
   async getMarketSnapshot(coins: string[] = ['bitcoin', 'ethereum', 'mantle']): Promise<MarketSnapshot> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/snapshot?coins=${encodeURIComponent(coins.join(','))}`,
