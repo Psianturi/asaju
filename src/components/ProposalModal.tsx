@@ -157,6 +157,16 @@ function ProposalCard({
       {proposal.market_context && (
         <div className="mb-4 rounded-xl border border-cyan-400/15 bg-cyan-400/[0.03] p-3">
           <MarketContextPanel snapshot={proposal.market_context} compact />
+          <div className="mt-2 pt-2 border-t border-cyan-400/10 flex items-center justify-between">
+            <span className="text-[9px] text-cyan-400/40 font-mono">
+              Sources: CoinGecko / CoinMarketCap Fear &amp; Greed + News
+            </span>
+            {proposal.market_context.generated_at && (
+              <span className="text-[9px] text-cyan-400/30 font-mono">
+                {new Date(proposal.market_context.generated_at * 1000).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
