@@ -590,8 +590,9 @@ def _format_market_context(market_context: dict | None) -> str:
 
     prices = market_context.get("prices") or {}
     fear_greed = market_context.get("fear_greed")
+    news = market_context.get("news") or []
     generated_at = market_context.get("generated_at")
-    if not prices and not fear_greed:
+    if not prices and not fear_greed and not news:
         return ""
 
     lines = []
@@ -607,15 +608,27 @@ def _format_market_context(market_context: dict | None) -> str:
         if generated_at else "unknown time"
     )
 
-    return f"""
-Live Market Context (snapshot at {snapshot_time}):
-{chr(10).join(lines)}
+    parts = []
+    if lines:
+        parts.append(f"Live Market Context (snapshot at {snapshot_time}):\n{chr(10).join(lines)}")
 
-Only factor this into your reasoning if genuinely relevant — especially for "defi"
-category proposals. If you do reference it, explicitly note "based on live market
-data as of {snapshot_time}" in your description so the reasoning stays auditable.
-For "governance", "education", or "community" proposals where market conditions
-aren't directly relevant, ignore this section entirely.
+    if news:
+        news_lines = []
+        for item in news[:3]:
+            title = item.get("title") or item.get("headline") or str(item)
+            news_lines.append(f"  - {title}")
+        if news_lines:
+            parts.append(f"Recent Market News:\n{chr(10).join(news_lines)}")
+
+    if not parts:
+        return ""
+
+    return "\n\n".join(parts) + f"""
+
+Only factor market context into your reasoning if genuinely relevant — especially for "defi"
+category proposals. If you do reference market data, explicitly note the source and date
+in your description so the reasoning stays auditable. For "governance", "education", or
+"community" proposals where market conditions aren't directly relevant, ignore this section.
 """
 
 
