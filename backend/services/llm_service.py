@@ -21,6 +21,10 @@ import httpx
 from core.secrets import get_llm_api_key
 
 logger = logging.getLogger(__name__)
+
+
+class ProposalGenerationError(Exception):
+    """Raised when proposal generation fails due to LLM unavailable or API error."""
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -627,15 +631,13 @@ async def generate_agent_proposal(
     """
     Gemini generates a strategic proposal for the agent based on its history.
     Returns: { title, description, category }
-    Falls back to deterministic proposals if LLM is unavailable.
+    Raises ProposalGenerationError if LLM is unavailable or API call fails.
+    Router must catch this and return 503.
     """
-    import hashlib
-    fallback_idx = int(hashlib.md5(f"{agent_name}{niche}".encode()).hexdigest(), 16) % len(_PROPOSAL_FALLBACKS)
-
     try:
         api_key = get_llm_api_key()
-    except RuntimeError:
-        return _PROPOSAL_FALLBACKS[fallback_idx]
+    except RuntimeError as exc:
+        raise ProposalGenerationError(f"LLM API key unavailable: {exc}") from exc
 
     traits_text = ", ".join(genetic_traits) if genetic_traits else "none"
     events_text = "\n".join(f"  - {s}" for s in event_summaries) if event_summaries else "  - (no events attended yet)"
@@ -702,8 +704,7 @@ Respond ONLY with valid JSON in this exact format:
             "category": category,
         }
     except Exception as exc:
-        logger.warning("Proposal generation failed (%s), using fallback", exc.__class__.__name__)
-        return _PROPOSAL_FALLBACKS[fallback_idx]
+        raise ProposalGenerationError(f"Gemini API call failed: {exc}") from exc
 
 
 # Skill taxonomy — mirrors the niche options users pick from at spawn

@@ -113,6 +113,7 @@ export interface BackendProposal {
     fear_greed: { value: number; value_classification: string } | null
     generated_at: number
   } | null
+  market_context_status?: 'available' | 'stale' | 'unavailable'
 }
 
 export interface AgentProposal {

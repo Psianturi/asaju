@@ -15,6 +15,7 @@ Flow:
 """
 
 from collections import defaultdict, deque
+from typing import Literal
 import logging
 import secrets
 import time
@@ -30,7 +31,7 @@ from core.config import settings
 from core.database import get_db
 from core.kms_service import decrypt_private_key
 from google.cloud.firestore_v1.base_query import FieldFilter
-from services.llm_service import generate_agent_proposal
+from services.llm_service import ProposalGenerationError, generate_agent_proposal
 from services.market_data_service import get_market_snapshot
 from services.web3_service import web3_service
 
@@ -48,6 +49,20 @@ APPROVAL_CHALLENGE_TTL_SECONDS = 10 * 60
 APPROVAL_RATE_LIMIT_WINDOW_SECONDS = 60
 APPROVAL_RATE_LIMIT_MAX_ATTEMPTS = 5
 _approval_attempts: dict[str, deque[float]] = defaultdict(deque)
+
+MARKET_CONTEXT_STALENESS_THRESHOLD_SECONDS = 3600  # 1 hour
+
+
+def _market_context_status(market_context: dict | None) -> Literal["available", "stale", "unavailable"]:
+    """Determine market data freshness for proposal audit trail."""
+    if market_context is None:
+        return "unavailable"
+    generated_at = market_context.get("generated_at")
+    if not generated_at:
+        return "unavailable"
+    if time.time() - generated_at > MARKET_CONTEXT_STALENESS_THRESHOLD_SECONDS:
+        return "stale"
+    return "available"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -71,7 +86,8 @@ class ProposalResponse(BaseModel):
     autonomous_transfer_tx: str | None = None
     autonomous_transfer_status: str | None = None
     autonomous_transfer_amount_mnt: float | None = None
-    market_context: dict | None = None  # audit trail: raw snapshot the LLM saw, if any
+    market_context: dict | None = None
+    market_context_status: Literal["available", "stale", "unavailable"] = "unavailable"
 
 
 class ApprovalChallengeResponse(BaseModel):
@@ -127,7 +143,9 @@ def _approval_message(
         f"Owner wallet: {owner_wallet}\n"
         f"Nonce: {nonce}\n"
         f"Expires at: {int(expires_at)}\n"
-        f"This signature authorizes one {action} only and does not transfer funds from your wallet."
+        f"This signature approves the proposal and records +5 heritage score on-chain.\n"
+        f"Note: This action may trigger a 0.1 MNT autonomous transfer from the agent wallet "
+        f"({agent_wallet}) as part of DeFi execution. The transfer is not from your wallet."
     )
 
 
@@ -252,6 +270,7 @@ def _doc_to_response(doc_id: str, data: dict) -> ProposalResponse:
         autonomous_transfer_status=data.get("autonomous_transfer_status"),
         autonomous_transfer_amount_mnt=data.get("autonomous_transfer_amount_mnt"),
         market_context=data.get("market_context"),
+        market_context_status=data.get("market_context_status", "unavailable"),
     )
 
 
@@ -366,6 +385,8 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
     except Exception as exc:
         logger.warning("Market snapshot unavailable for proposal (agent %s): %s", agent_id, exc)
 
+    market_context_status = _market_context_status(market_context)
+
     # Generate proposal via Gemini
     try:
         proposal_data = await generate_agent_proposal(
@@ -381,6 +402,14 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         logger.error("Gemini proposal generation failed for agent %s: %s", agent_id, exc)
         raise HTTPException(status_code=503, detail="Proposal generation failed — LLM unavailable")
 
+    # Block DeFi proposals when market context is unavailable or stale
+    if proposal_data["category"] == "defi" and market_context_status in ("unavailable", "stale"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"DeFi proposals require fresh market data. Current market context is {market_context_status}. "
+                   "Please try again when market data is available.",
+        )
+
     now = time.time()
     proposal_hash = _compute_proposal_hash(agent_wallet, proposal_data["title"], now)
 
@@ -394,9 +423,8 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         "status": "pending",
         "created_at": now,
         "expires_at": now + PROPOSAL_TTL_SECONDS,
-        # Raw snapshot the LLM actually saw — objective audit record, independent
-        # of whether the generated text mentions it.
         "market_context": market_context,
+        "market_context_status": market_context_status,
     }
 
     try:
@@ -596,6 +624,9 @@ async def approve_proposal(
     )
 
     # ── Option A: Semi-Autonomous Execution for DeFi proposals ───────────────
+    # TODO(architectural): Per P1 decision, autonomous transfer should require a
+    # separate approval. Currently triggers automatically on DeFi proposal approval.
+    # See: CURRENT_STATUS_AUDIT_2026-09-12.md decision #2.
     if data.get("category") == "defi":
         try:
             agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()

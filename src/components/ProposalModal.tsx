@@ -156,6 +156,17 @@ function ProposalCard({
         </div>
       )}
 
+      {proposal.market_context_status !== 'available' && (
+        <div className="mb-4 rounded-xl border border-yellow-400/20 bg-yellow-400/[0.04] px-3 py-2 flex items-center gap-2">
+          <Warning size={13} className="text-yellow-400 shrink-0" weight="fill" />
+          <span className="text-xs text-yellow-200">
+            {proposal.market_context_status === 'stale'
+              ? 'Market data is stale — over 1 hour old. This proposal was generated without current market conditions.'
+              : 'Market data unavailable — this proposal was generated without market context.'}
+          </span>
+        </div>
+      )}
+
       {isApproved && proposal.tx_hash && (
         <motion.div
           initial={{ opacity: 0, y: 6 }}
@@ -325,7 +336,13 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       toast.success('Strategic proposal generated', { description: newProposal.title })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Generation failed'
-      toast.error('Proposal generation failed', { description: msg })
+      if (msg.includes('422') && msg.toLowerCase().includes('defi')) {
+        toast.error('DeFi proposal blocked', {
+          description: 'Market data is unavailable or stale. DeFi proposals require fresh market context.',
+        })
+      } else {
+        toast.error('Proposal generation failed', { description: msg })
+      }
     } finally {
       setGenerating(false)
     }
