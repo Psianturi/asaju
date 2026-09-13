@@ -35,6 +35,8 @@ from services.llm_service import ProposalGenerationError, generate_agent_proposa
 from services.market_data_service import get_market_snapshot
 from services.web3_service import web3_service
 
+AUDIT_COLLECTION = "audit_events"
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["proposals"])
 
@@ -63,6 +65,43 @@ def _market_context_status(market_context: dict | None) -> Literal["available", 
     if time.time() - generated_at > MARKET_CONTEXT_STALENESS_THRESHOLD_SECONDS:
         return "stale"
     return "available"
+
+
+def _write_audit_event(
+    db,
+    actor_wallet: str,
+    agent_id: str,
+    action: str,
+    *,
+    status: str = "success",
+    proposal_id: str | None = None,
+    proposal_hash: str | None = None,
+    tx_hash: str | None = None,
+    failure_reason: str | None = None,
+    extra: dict | None = None,
+) -> None:
+    """Write an immutable audit event to Firestore. Failures are logged but never raised."""
+    event: dict[str, object] = {
+        "actor_wallet": actor_wallet,
+        "agent_id": agent_id,
+        "action": action,
+        "status": status,
+        "timestamp": time.time(),
+    }
+    if proposal_id is not None:
+        event["proposal_id"] = proposal_id
+    if proposal_hash is not None:
+        event["proposal_hash"] = proposal_hash
+    if tx_hash is not None:
+        event["tx_hash"] = tx_hash
+    if failure_reason is not None:
+        event["failure_reason"] = failure_reason
+    if extra is not None:
+        event.update(extra)
+    try:
+        db.collection(AUDIT_COLLECTION).add(event)
+    except Exception as exc:
+        logger.warning("Failed to write audit event %s for agent %s: %s", action, agent_id, exc)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -437,6 +476,19 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         "Proposal generated for agent %s: '%s' (hash: %s)",
         agent_id, proposal_data["title"], proposal_hash[:12],
     )
+    _write_audit_event(
+        db,
+        actor_wallet=agent_data.get("user_wallet", ""),
+        agent_id=agent_id,
+        action="proposal_generated",
+        status="success",
+        proposal_id=doc_ref.id,
+        proposal_hash=proposal_hash,
+        extra={
+            "category": proposal_data["category"],
+            "market_context_status": market_context_status,
+        },
+    )
     return _doc_to_response(doc_ref.id, proposal_doc)
 
 
@@ -622,6 +674,21 @@ async def approve_proposal(
         "Proposal %s approved on-chain: tx=%s heritage=%s",
         proposal_id, result.get("tx_hash"), result.get("heritage_score_after"),
     )
+    _write_audit_event(
+        db,
+        actor_wallet=authorization.signer_wallet,
+        agent_id=agent_id,
+        action="proposal_approved",
+        status="success",
+        proposal_id=proposal_id,
+        proposal_hash=proposal_hash,
+        tx_hash=result.get("tx_hash"),
+        extra={
+            "category": data.get("category"),
+            "heritage_score_after": result.get("heritage_score_after"),
+            "autonomous_execution_triggered": data.get("category") == "defi",
+        },
+    )
 
     # ── Option A: Semi-Autonomous Execution for DeFi proposals ───────────────
     # TODO(architectural): Per P1 decision, autonomous transfer should require a
@@ -685,7 +752,7 @@ async def reject_proposal(
         raise HTTPException(status_code=404, detail="Proposal not found")
 
     data = doc.to_dict() or {}
-    challenge_ref, _ = await _verify_proposal_action_signature(db, proposal_id, authorization)
+    challenge_ref, challenge_data = await _verify_proposal_action_signature(db, proposal_id, authorization)
 
     proposal_ref = db.collection(PROPOSALS_COLLECTION).document(proposal_id)
     now = time.time()
@@ -696,4 +763,13 @@ async def reject_proposal(
 
     data["status"] = "rejected"
     logger.info("Proposal %s rejected by owner", proposal_id)
+    _write_audit_event(
+        db,
+        actor_wallet=authorization.signer_wallet,
+        agent_id=data.get("agent_id", ""),
+        action="proposal_rejected",
+        status="success",
+        proposal_id=proposal_id,
+        proposal_hash=data.get("proposal_hash"),
+    )
     return _doc_to_response(proposal_id, data)
