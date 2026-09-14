@@ -277,7 +277,7 @@ export function AnalyticsCharts({ agents = [], events = [], nfts = [] }: Analyti
                   dataKey="events" 
                   fill="#9d00ff" 
                   radius={[8, 8, 0, 0]}
-                  name="Events Attended"
+                  name="Videos Analyzed"
                 />
               </BarChart>
             </ResponsiveContainer>

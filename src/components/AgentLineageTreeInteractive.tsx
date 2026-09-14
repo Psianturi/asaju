@@ -128,7 +128,7 @@ export function AgentLineageTree({ agent, allAgents }: AgentLineageTreeProps) {
                 <span className="text-sm font-semibold text-primary">{parent.niche}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Events Attended:</span>
+                <span className="text-xs text-muted-foreground">Videos Analyzed:</span>
                 <span className="text-sm font-semibold">{parent.eventsAttended}</span>
               </div>
               {parent.wisdomUnlocked && (

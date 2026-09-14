@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
-import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
+import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { GasStatusBadge } from './GasStatusBadge'
 import { ChainBadge } from './ChainBadge'
 import { DEFAULT_CHAIN_ID, getChain } from '@/lib/blockchain/chains'
@@ -448,7 +448,11 @@ export function AgentCard({ agent, onClick, onConfigure, onChat, onViewEvolution
           <div className="mb-5" onClick={onClick}>
             <div className="flex items-center justify-between text-xs mb-2">
               <span className="text-muted-foreground font-medium">Wisdom Progress</span>
-              <span className="font-mono font-bold text-primary">{agent.eventsAttended}/5</span>
+              <span className="font-mono font-bold text-primary">
+                {agent.wisdomUnlocked
+                  ? `${agent.eventsAttended} videos · unlocked`
+                  : `${agent.eventsAttended}/${WISDOM_UNLOCK_THRESHOLD}`}
+              </span>
             </div>
             <div className="relative h-2.5 bg-muted/50 rounded-full overflow-hidden border border-border/50">
               <motion.div

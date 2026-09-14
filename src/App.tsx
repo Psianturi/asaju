@@ -39,7 +39,7 @@ import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
 import { WisdomTimeline } from '@/components/WisdomTimeline'
 import { ActivityLog } from '@/components/ActivityLog'
-import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House } from '@phosphor-icons/react'
+import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House, Lightning } from '@phosphor-icons/react'
 import maefLogo from '@/assets/maef-logo.png'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
@@ -876,7 +876,7 @@ function App() {
       const sourceCount = displayedEvents.length
       if (sourceCount === 0) {
         toast.info('No historical events yet', {
-          description: 'Auto Scout will populate opportunities after your first attended events.'
+          description: 'Auto Scout will populate opportunities after your first analyzed videos.'
         })
       } else {
         toast.info('Scout refreshed from live event history', {
@@ -1144,16 +1144,16 @@ function App() {
   const isPlatformView = !walletConnected
   const stats = isPlatformView && platformMetrics
     ? [
-        { label: 'Active Agents', value: platformMetrics.total_agents, icon: Robot, color: 'text-primary' },
-        { label: 'NFTs Minted', value: platformMetrics.total_wisdom_nfts, icon: WalletIcon, color: 'text-secondary' },
-        { label: 'Events Attended', value: platformMetrics.total_events_attended, icon: Globe, color: 'text-primary' },
+        { label: 'Total Agents', value: platformMetrics.total_agents, icon: Robot, color: 'text-primary' },
+        { label: 'Wisdom NFTs', value: platformMetrics.total_wisdom_nfts, icon: WalletIcon, color: 'text-secondary' },
+        { label: 'Videos Analyzed', value: platformMetrics.total_events_attended, icon: Globe, color: 'text-primary' },
         { label: 'Avg Agent Level', value: `Lv ${platformMetrics.average_agent_level.toFixed(1)}`, icon: ChartLine, color: 'text-secondary' }
       ]
     : [
-        { label: 'Active Agents', value: displayedAgents.length, icon: Robot, color: 'text-primary' },
-        { label: 'NFTs Minted', value: displayedNFTs.length, icon: WalletIcon, color: 'text-secondary' },
-        { label: 'Events Attended', value: displayedEvents.length, icon: Globe, color: 'text-primary' },
-        { label: 'Wisdom Unlocked', value: displayedAgents.filter(a => a.wisdomUnlocked).length, icon: ChartLine, color: 'text-secondary' }
+        { label: 'Your Agents', value: displayedAgents.length, icon: Robot, color: 'text-primary' },
+        { label: 'Active Agents', value: displayedAgents.filter(a => a.status === 'active').length, icon: Lightning, color: 'text-emerald-400' },
+        { label: 'Videos Analyzed', value: displayedAgents.reduce((sum, a) => sum + (a.eventsAttended ?? 0), 0), icon: Globe, color: 'text-accent' },
+        { label: 'Pending Proposals', value: Object.values(proposalCounts).reduce((s, n) => s + n, 0), icon: ChartLine, color: 'text-amber-400' }
       ]
 
   const isViewOnly = !walletConnected

@@ -2,6 +2,8 @@ import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { RarityTier, Agent } from './types'
 
+export const WISDOM_UNLOCK_THRESHOLD = 5
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
