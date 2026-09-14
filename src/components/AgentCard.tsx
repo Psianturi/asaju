@@ -65,7 +65,7 @@ export function AgentCard({ agent, onClick, onConfigure, onChat, onViewEvolution
     setTimeout(() => setWalletCopied(false), 1500)
   }
   const PersonalityIcon = personalityIcons[agent.personality]
-  const progress = (agent.eventsAttended / 5) * 100
+  const progress = Math.min((agent.eventsAttended / WISDOM_UNLOCK_THRESHOLD) * 100, 100)
   const avatar = getAgentAvatar(agent.id, agent.name)
 
   const rarityTier = calculateRarityTier(agent)

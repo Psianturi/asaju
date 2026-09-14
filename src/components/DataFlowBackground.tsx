@@ -20,11 +20,13 @@ interface Pulse {
   color: string
 }
 
-interface DataFlowBackgroundProps {
-  variant?: 'dark' | 'light'
-}
+const STREAM_COUNT = 8
 
-export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps) {
+// Trails fade this much per frame. Too low and old strokes pile up into a
+// visible web across the page, which competes with the data on top of it.
+const TRAIL_FADE = 0.14
+
+export function DataFlowBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -43,38 +45,31 @@ export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps
     resizeCanvas()
     window.addEventListener('resize', resizeCanvas)
 
-    const isLight = variant === 'light'
     const dataStreams: DataStream[] = []
     const pulses: Pulse[] = []
-    const streamCount = isLight ? 18 : 25
-    const colors = isLight
-      ? ['rgba(0, 180, 200,', 'rgba(20, 160, 180,', 'rgba(0, 140, 160,']
-      : ['rgba(0, 243, 255,', 'rgba(157, 0, 255,', 'rgba(100, 150, 255,']
-    const speedMult = isLight ? 0.45 : 1
-    const opacityMult = isLight ? 0.45 : 1
+    const colors = ['rgba(0, 243, 255,', 'rgba(157, 0, 255,', 'rgba(100, 150, 255,']
 
-    for (let i = 0; i < streamCount; i++) {
-      const angle = Math.random() * Math.PI * 2
+    for (let i = 0; i < STREAM_COUNT; i++) {
       dataStreams.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        speed: (Math.random() * 1.5 + 0.5) * speedMult,
-        length: Math.random() * 80 + 40,
-        opacity: (Math.random() * 0.4 + 0.2) * opacityMult,
+        speed: Math.random() * 1.2 + 0.4,
+        length: Math.random() * 70 + 40,
+        opacity: Math.random() * 0.13 + 0.06,
         color: colors[Math.floor(Math.random() * colors.length)],
-        angle: angle
+        angle: Math.random() * Math.PI * 2
       })
     }
 
     const createPulse = () => {
-      if (Math.random() > 0.98) {
+      if (Math.random() > 0.996) {
         pulses.push({
           x: Math.random() * canvas.width,
           y: Math.random() * canvas.height,
           radius: 0,
-          maxRadius: Math.random() * 100 + 80,
-          speed: (Math.random() * 2 + 1) * speedMult,
-          opacity: isLight ? 0.25 : 0.6,
+          maxRadius: Math.random() * 90 + 70,
+          speed: Math.random() * 2 + 1,
+          opacity: 0.18,
           color: colors[Math.floor(Math.random() * colors.length)]
         })
       }
@@ -83,7 +78,7 @@ export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps
     let animationFrameId: number
 
     const animate = () => {
-      ctx.fillStyle = isLight ? 'rgba(245, 250, 252, 0.04)' : 'rgba(18, 18, 35, 0.05)'
+      ctx.fillStyle = `rgba(18, 18, 35, ${TRAIL_FADE})`
       ctx.fillRect(0, 0, canvas.width, canvas.height)
 
       dataStreams.forEach(stream => {
@@ -95,30 +90,25 @@ export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps
         if (stream.y < -stream.length) stream.y = canvas.height + stream.length
         if (stream.y > canvas.height + stream.length) stream.y = -stream.length
 
-        const gradient = ctx.createLinearGradient(
-          stream.x - Math.cos(stream.angle) * stream.length,
-          stream.y - Math.sin(stream.angle) * stream.length,
-          stream.x,
-          stream.y
-        )
+        const tailX = stream.x - Math.cos(stream.angle) * stream.length
+        const tailY = stream.y - Math.sin(stream.angle) * stream.length
+
+        const gradient = ctx.createLinearGradient(tailX, tailY, stream.x, stream.y)
         gradient.addColorStop(0, stream.color + ' 0)')
-        gradient.addColorStop(0.5, stream.color + ' ' + (stream.opacity * 0.6) + ')')
+        gradient.addColorStop(0.5, stream.color + ' ' + stream.opacity * 0.6 + ')')
         gradient.addColorStop(1, stream.color + ' ' + stream.opacity + ')')
 
         ctx.strokeStyle = gradient
-        ctx.lineWidth = 2
+        ctx.lineWidth = 1.5
         ctx.lineCap = 'round'
         ctx.beginPath()
-        ctx.moveTo(
-          stream.x - Math.cos(stream.angle) * stream.length,
-          stream.y - Math.sin(stream.angle) * stream.length
-        )
+        ctx.moveTo(tailX, tailY)
         ctx.lineTo(stream.x, stream.y)
         ctx.stroke()
 
         ctx.fillStyle = stream.color + ' ' + stream.opacity + ')'
         ctx.beginPath()
-        ctx.arc(stream.x, stream.y, 2, 0, Math.PI * 2)
+        ctx.arc(stream.x, stream.y, 1.5, 0, Math.PI * 2)
         ctx.fill()
       })
 
@@ -126,7 +116,7 @@ export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps
 
       pulses.forEach((pulse, index) => {
         pulse.radius += pulse.speed
-        pulse.opacity -= 0.008
+        pulse.opacity -= 0.004
 
         if (pulse.opacity <= 0 || pulse.radius >= pulse.maxRadius) {
           pulses.splice(index, 1)
@@ -134,15 +124,9 @@ export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps
         }
 
         ctx.strokeStyle = pulse.color + ' ' + pulse.opacity + ')'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2)
-        ctx.stroke()
-
-        ctx.strokeStyle = pulse.color + ' ' + (pulse.opacity * 0.5) + ')'
         ctx.lineWidth = 1
         ctx.beginPath()
-        ctx.arc(pulse.x, pulse.y, pulse.radius * 0.7, 0, Math.PI * 2)
+        ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2)
         ctx.stroke()
       })
 
@@ -161,7 +145,7 @@ export function DataFlowBackground({ variant = 'dark' }: DataFlowBackgroundProps
     <canvas
       ref={canvasRef}
       className="fixed inset-0 pointer-events-none z-0"
-      style={{ mixBlendMode: variant === 'light' ? 'multiply' : 'screen' }}
+      style={{ mixBlendMode: 'screen' }}
     />
   )
 }

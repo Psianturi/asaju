@@ -8,6 +8,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Agents are never marked 'active' by any loader, so auto-scout is the only
+// real signal that an agent works on its own. Shared so views can't drift apart.
+export function isAgentAutoScouting(agent: Agent): boolean {
+  return agent.autoScoutEnabled === true
+}
+
 export function calculateRarityTier(agent: Agent): RarityTier {
   const generation = agent.generation ?? 1
   const level = agent.level

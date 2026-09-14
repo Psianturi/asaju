@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Toaster } from '@/components/ui/sonner'
 import { NotificationBell } from '@/components/NotificationBell'
 import { Agent, NFT, TerminalLog, Event, SubAgentType, MarketplaceAgent } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { cn, isAgentAutoScouting } from '@/lib/utils'
 import { buildScoutedOpportunities } from '@/lib/scoutUtils'
 import { AnalyticsView } from '@/views/AnalyticsView'
 import { VaultView } from '@/views/VaultView'
@@ -1151,7 +1151,7 @@ function App() {
       ]
     : [
         { label: 'Your Agents', value: displayedAgents.length, icon: Robot, color: 'text-primary' },
-        { label: 'Active Agents', value: displayedAgents.filter(a => a.status === 'active').length, icon: Lightning, color: 'text-emerald-400' },
+        { label: 'Auto-Scouting', value: displayedAgents.filter(isAgentAutoScouting).length, icon: Lightning, color: 'text-emerald-400' },
         { label: 'Videos Analyzed', value: displayedAgents.reduce((sum, a) => sum + (a.eventsAttended ?? 0), 0), icon: Globe, color: 'text-accent' },
         { label: 'Pending Proposals', value: Object.values(proposalCounts).reduce((s, n) => s + n, 0), icon: ChartLine, color: 'text-amber-400' }
       ]

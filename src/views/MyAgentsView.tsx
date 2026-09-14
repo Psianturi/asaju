@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Agent, Niche } from '@/lib/types'
+import { isAgentAutoScouting } from '@/lib/utils'
 
 interface MyAgentsViewProps {
   agents: Agent[]
@@ -90,7 +91,7 @@ export function MyAgentsView({
     )
   }
 
-  const activeCount = agents.filter((agent) => agent.status === 'active').length
+  const activeCount = agents.filter(isAgentAutoScouting).length
   const learningCount = agents.reduce((total, agent) => total + agent.eventsAttended, 0)
   const proposalCount = Object.values(proposalCounts).reduce((total, count) => total + count, 0)
 
@@ -113,7 +114,7 @@ export function MyAgentsView({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total agents', value: agents.length, icon: Robot, color: 'text-primary' },
-          { label: 'Active now', value: activeCount, icon: Lightning, color: 'text-emerald-400' },
+          { label: 'Auto-scouting', value: activeCount, icon: Lightning, color: 'text-emerald-400' },
           { label: 'Videos analyzed', value: learningCount, icon: Brain, color: 'text-accent' },
           { label: 'Pending proposals', value: proposalCount, icon: ChartLine, color: 'text-amber-400' },
         ].map(({ label, value, icon: Icon, color }) => (
