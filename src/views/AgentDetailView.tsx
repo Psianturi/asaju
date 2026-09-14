@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -224,8 +224,9 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
         </div>
       </Card>
 
-      {/* Quick actions bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* Quick actions bar — destructive action kept out of this grid so it
+          doesn't share visual weight with routine actions like Configure. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {onConfigure && (
           <Button
             onClick={() => onConfigure(agent)}
@@ -261,21 +262,25 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
             )}
           </Button>
         )}
-        {onDeleteAgent && (
+      </div>
+
+      {onDeleteAgent && (
+        <div className="flex justify-end">
           <Button
             onClick={() => {
               if (confirm(`Delete ${agent.name}? This removes the local record; on-chain NFT and history remain.`)) {
                 onDeleteAgent(agent)
               }
             }}
-            variant="outline"
-            className="border-rose-500/20 text-rose-400/80 hover:bg-rose-500/10 justify-start"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 text-xs"
           >
-            <ShieldCheck className="mr-2" weight="duotone" size={16} />
-            Delete
+            <Trash className="mr-1.5" weight="duotone" size={14} />
+            Remove Agent
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Auto-Replenish inline control — better placement here than the card */}
       {onToggleAutoReplenish && (

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Agent, Niche, Event } from '@/lib/types'
-import { isAgentAutoScouting } from '@/lib/utils'
+import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 
 interface MyAgentsViewProps {
   agents: Agent[]
@@ -97,7 +97,7 @@ export function MyAgentsView({
 
   const activeCount = agents.filter(isAgentAutoScouting).length
   const learningCount = events
-    ? events.filter(e => agents.some(a => a.id === e.agentId)).length
+    ? countActualVideosAnalyzed(agents, events)
     : agents.reduce((total, agent) => total + agent.eventsAttended, 0)
   const proposalCount = Object.values(proposalCounts).reduce((total, count) => total + count, 0)
   const actualEventsByAgent = events

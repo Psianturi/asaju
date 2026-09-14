@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { RarityTier, Agent } from './types'
+import { RarityTier, Agent, Event } from './types'
 
 export const WISDOM_UNLOCK_THRESHOLD = 5
 
@@ -12,6 +12,14 @@ export function cn(...inputs: ClassValue[]) {
 // real signal that an agent works on its own. Shared so views can't drift apart.
 export function isAgentAutoScouting(agent: Agent): boolean {
   return agent.autoScoutEnabled === true
+}
+
+// agent.eventsAttended is a counter that can start inflated for bred offspring
+// (inherited via formula, not backed 1:1 by real event docs — see agents.py).
+// Counting the actual docs is the source of truth; shared so every view agrees.
+export function countActualVideosAnalyzed(agents: Agent[], events: Event[]): number {
+  const agentIds = new Set(agents.map(a => a.id))
+  return events.filter(e => agentIds.has(e.agentId)).length
 }
 
 export function calculateRarityTier(agent: Agent): RarityTier {
