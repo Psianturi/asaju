@@ -12,6 +12,7 @@ import { GasStatusBadge } from './GasStatusBadge'
 import { ChainBadge } from './ChainBadge'
 import { DEFAULT_CHAIN_ID, getChain } from '@/lib/blockchain/chains'
 import { getAgentAvatar } from '@/lib/avatarUtils'
+import { NicheAvatar } from './NicheAvatar'
 
 interface AgentCardProps {
   agent: Agent
@@ -134,15 +135,10 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
         <div className="relative z-10">
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-3" onClick={onClick}>
-              <div className={cn(
-                'w-12 h-12 rounded-full flex items-center justify-center relative ring-2 font-black text-sm',
-                avatar.bgColor,
-                avatar.ringColor,
-                agent.status === 'active' && 'ring-primary',
-              )}>
-                <span className={avatar.textColor}>{avatar.initials}</span>
+              <div className="relative">
+                <NicheAvatar agent={agent} size="md" />
                 {agent.status === 'active' && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full animate-pulse" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full animate-pulse ring-2 ring-background" />
                 )}
                 {agent.isGenesis && (
                   <div className="absolute -bottom-1 -right-1">

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Agent, Event, NFT } from '@/lib/types'
 import { getAgentAvatar } from '@/lib/avatarUtils'
+import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { getChain } from '@/lib/blockchain/chains'
 import { AgentLineageTree } from '@/components/AgentLineageTree'
@@ -136,13 +137,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
           <div className={cn('absolute inset-0 rounded-lg opacity-10', rarityStyles.bgClass)} />
         )}
         <div className="relative flex flex-col sm:flex-row items-start gap-5">
-          <div className={cn(
-            'w-20 h-20 rounded-2xl flex items-center justify-center font-black text-2xl ring-2 flex-shrink-0',
-            avatar.bgColor, avatar.ringColor, avatar.textColor,
-            agent.status === 'active' && 'ring-primary',
-          )}>
-            {avatar.initials}
-          </div>
+          <NicheAvatar agent={agent} size="xl" />
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
