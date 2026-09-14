@@ -173,7 +173,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Videos Analyzed</p>
-                <p className="text-xl font-bold font-mono mt-1">{agent.eventsAttended}</p>
+                <p className="text-xl font-bold font-mono mt-1">{agentEvents.length}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">NFTs Minted</p>

@@ -1485,6 +1485,7 @@ function App() {
                         <div className="space-y-3">
                           <AgentCard
                             agent={agent}
+                            videosAnalyzedActual={displayedEvents.filter(e => e.agentId === agent.id).length}
                             onClick={() => setAgentDetailId(agent.id)}
                             onConfigure={handleConfigureAgent}
                             onChat={handleChatWithAgent}
@@ -1602,6 +1603,7 @@ function App() {
           {!agentDetailId && mainView === 'my-agents' && (
             <MyAgentsView
               agents={displayedAgents}
+              events={displayedEvents}
               walletConnected={walletConnected}
               onConnectWallet={() => handleWalletConnect('')}
               onSpawn={() => walletConnected ? setSpawnDialogOpen(true) : handleWalletConnect('')}

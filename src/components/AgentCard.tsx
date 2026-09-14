@@ -15,6 +15,11 @@ import { getAgentAvatar } from '@/lib/avatarUtils'
 
 interface AgentCardProps {
   agent: Agent
+  /** Actual count of event documents for this agent — preferred over the
+   * agent.eventsAttended counter because the counter can drift (e.g. offspring
+   * inherit the count without having actual documents). Falls back to the
+   * counter when not supplied. */
+  videosAnalyzedActual?: number
   onClick?: () => void
   onConfigure?: (agent: Agent) => void
   onChat?: (agent: Agent) => void
@@ -55,9 +60,10 @@ const subAgentLabels = {
   'mint-master': 'Mint-Master'
 }
 
-export function AgentCard({ agent, onClick, onConfigure, onChat, onViewEvolution, onTopUpGas, onListMarketplace, onToggleAutoReplenish, pendingProposalCount, onOpenProposals, onDeleteAgent, onRetrySpawn }: AgentCardProps) {
+export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, onChat, onViewEvolution, onTopUpGas, onListMarketplace, onToggleAutoReplenish, pendingProposalCount, onOpenProposals, onDeleteAgent, onRetrySpawn }: AgentCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [walletCopied, setWalletCopied] = useState(false)
+  const videosAnalyzed = videosAnalyzedActual ?? agent.eventsAttended ?? 0
 
   const copyWalletAddress = async () => {
     await navigator.clipboard.writeText(agent.walletAddress)
@@ -65,7 +71,7 @@ export function AgentCard({ agent, onClick, onConfigure, onChat, onViewEvolution
     setTimeout(() => setWalletCopied(false), 1500)
   }
   const PersonalityIcon = personalityIcons[agent.personality]
-  const progress = Math.min((agent.eventsAttended / WISDOM_UNLOCK_THRESHOLD) * 100, 100)
+  const progress = Math.min((videosAnalyzed / WISDOM_UNLOCK_THRESHOLD) * 100, 100)
   const avatar = getAgentAvatar(agent.id, agent.name)
 
   const rarityTier = calculateRarityTier(agent)
@@ -450,8 +456,8 @@ export function AgentCard({ agent, onClick, onConfigure, onChat, onViewEvolution
               <span className="text-muted-foreground font-medium">Wisdom Progress</span>
               <span className="font-mono font-bold text-primary">
                 {agent.wisdomUnlocked
-                  ? `${agent.eventsAttended} videos · unlocked`
-                  : `${agent.eventsAttended}/${WISDOM_UNLOCK_THRESHOLD}`}
+                  ? `${videosAnalyzed} videos · unlocked`
+                  : `${videosAnalyzed}/${WISDOM_UNLOCK_THRESHOLD}`}
               </span>
             </div>
             <div className="relative h-2.5 bg-muted/50 rounded-full overflow-hidden border border-border/50">

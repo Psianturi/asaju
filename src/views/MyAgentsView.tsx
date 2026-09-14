@@ -8,11 +8,14 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Agent, Niche } from '@/lib/types'
+import { Agent, Niche, Event } from '@/lib/types'
 import { isAgentAutoScouting } from '@/lib/utils'
 
 interface MyAgentsViewProps {
   agents: Agent[]
+  /** All event docs in the current session — used for per-agent actual video
+   * counts so the AgentCard Wisdom Progress reflects documents, not counters. */
+  events?: Event[]
   walletConnected: boolean
   onConnectWallet: () => void
   onSpawn: () => void
@@ -38,6 +41,7 @@ const niches: Array<'all' | Niche> = ['all', 'Blockchain/DeFi', 'Trading/Investm
 
 export function MyAgentsView({
   agents,
+  events,
   walletConnected,
   onConnectWallet,
   onSpawn,
@@ -92,8 +96,16 @@ export function MyAgentsView({
   }
 
   const activeCount = agents.filter(isAgentAutoScouting).length
-  const learningCount = agents.reduce((total, agent) => total + agent.eventsAttended, 0)
+  const learningCount = events
+    ? events.filter(e => agents.some(a => a.id === e.agentId)).length
+    : agents.reduce((total, agent) => total + agent.eventsAttended, 0)
   const proposalCount = Object.values(proposalCounts).reduce((total, count) => total + count, 0)
+  const actualEventsByAgent = events
+    ? events.reduce<Record<string, number>>((acc, e) => {
+        acc[e.agentId] = (acc[e.agentId] ?? 0) + 1
+        return acc
+      }, {})
+    : {}
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -161,6 +173,7 @@ export function MyAgentsView({
             <motion.div key={agent.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }} className="space-y-3">
               <AgentCard
                 agent={agent}
+                videosAnalyzedActual={actualEventsByAgent[agent.id]}
                 onClick={() => onOpenAgent(agent)}
                 onConfigure={onConfigure}
                 onChat={onChat}
