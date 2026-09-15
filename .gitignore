@@ -89,4 +89,7 @@ dmypy.json
 # Local memory / AI context docs — never commit
 memory/
 
+# Submission drafts and working docs — never commit
+docs/
+
 .kilo/
