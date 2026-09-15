@@ -147,8 +147,11 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 )}
               </div>
               <div>
-                <h3 className="font-bold text-lg tracking-tight flex items-center gap-2">
+                <h3 className="font-bold text-lg tracking-tight flex items-center gap-2 flex-wrap">
                   {agent.name}
+                  <Badge className={cn('text-[10px] font-mono px-1.5 py-0 border', statusColors[agent.status])}>
+                    {agent.status.toUpperCase()}
+                  </Badge>
                   {agent.isGenesis && (
                     <Badge className="bg-amber-500/20 text-amber-500 text-[10px] font-bold border-amber-500/30 px-1.5 py-0">
                       GENESIS
@@ -191,65 +194,51 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                   </Badge>
                 </motion.div>
               )}
-              <Badge className={cn('text-xs font-mono', statusColors[agent.status])}>
-                {agent.status.toUpperCase()}
-              </Badge>
             </div>
           </div>
 
           {agent.ownershipStatus && (
-            <div className="mb-4 p-2.5 rounded-lg bg-accent/10 border border-accent/30" onClick={onClick}>
-              <div className="flex items-center gap-2">
-                {agent.ownershipStatus === 'original-creator' ? (
-                  <>
-                    <Crown className="text-accent" weight="fill" size={16} />
-                    <span className="text-xs font-semibold text-accent uppercase tracking-wider">Original Creator</span>
-                  </>
-                ) : agent.ownershipStatus === 'bred' ? (
-                  <>
-                    <Dna className="text-secondary" weight="duotone" size={16} />
-                    <span className="text-xs font-semibold text-secondary uppercase tracking-wider">Neural Fusion Offspring</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCart className="text-secondary" weight="fill" size={16} />
-                    <span className="text-xs font-semibold text-secondary uppercase tracking-wider">Acquired via Marketplace</span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {agent.ownershipStatus === 'bred' && (
-            <div className="mb-4 rounded-lg border overflow-hidden"
-              style={agent.spawnedOnV4
-                ? { background: 'rgba(16,185,129,0.08)', borderColor: 'rgba(16,185,129,0.3)' }
-                : { background: 'rgba(234,179,8,0.08)', borderColor: 'rgba(234,179,8,0.3)' }
-              }
-            >
-              <div className="flex items-center gap-2 p-2">
-                {agent.spawnedOnV4 ? (
-                  <>
-                    <Lightning size={13} className="text-emerald-400" weight="fill" />
-                    <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Sovereign Mode Active</span>
-                  </>
-                ) : (
-                  <>
-                    <motion.div animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }}>
-                      <GearSix size={13} className="text-yellow-400" weight="duotone" />
-                    </motion.div>
-                    <span className="text-xs font-semibold text-yellow-400 uppercase tracking-wider flex-1">Activating on V4...</span>
-                    {onRetrySpawn && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onRetrySpawn(agent) }}
-                        className="text-[10px] font-bold text-yellow-400 hover:text-yellow-300 underline underline-offset-2 transition-colors"
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
+            <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider" onClick={onClick}>
+              {agent.ownershipStatus === 'original-creator' && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/10 border border-accent/30 text-accent">
+                  <Crown weight="fill" size={11} />
+                  Original Creator
+                </span>
+              )}
+              {agent.ownershipStatus === 'bred' && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/10 border border-secondary/30 text-secondary">
+                  <Dna weight="duotone" size={11} />
+                  Neural Fusion
+                </span>
+              )}
+              {agent.ownershipStatus === 'marketplace-acquired' && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/10 border border-secondary/30 text-secondary">
+                  <ShoppingCart weight="fill" size={11} />
+                  Marketplace
+                </span>
+              )}
+              {agent.ownershipStatus === 'bred' && agent.spawnedOnV4 && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <Lightning weight="fill" size={11} />
+                  Sovereign Mode
+                </span>
+              )}
+              {agent.ownershipStatus === 'bred' && !agent.spawnedOnV4 && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+                  <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }}>
+                    <GearSix weight="duotone" size={11} />
+                  </motion.span>
+                  Activating V4
+                  {onRetrySpawn && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onRetrySpawn(agent) }}
+                      className="ml-1 underline underline-offset-2 hover:text-yellow-300 transition-colors normal-case"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </span>
+              )}
             </div>
           )}
 

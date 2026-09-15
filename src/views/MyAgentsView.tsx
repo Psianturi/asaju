@@ -168,7 +168,7 @@ export function MyAgentsView({
           <p className="text-xs text-muted-foreground mt-1">Clear the filters or spawn a new agent.</p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
           {filteredAgents.map((agent, index) => (
             <motion.div key={agent.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }} className="space-y-3">
               <AgentCard

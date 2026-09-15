@@ -13,6 +13,7 @@ import { VaultView } from '@/views/VaultView'
 import { MarketplaceView } from '@/views/MarketplaceView'
 import { AgentDetailView } from '@/views/AgentDetailView'
 import { MyAgentsView } from '@/views/MyAgentsView'
+import { DashboardView } from '@/views/DashboardView'
 import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
@@ -1177,7 +1178,7 @@ function App() {
           selectedChainId={selectedChainId}
           onSwitch={handleSwitchNetwork}
         />
-        <header className="border-b border-primary/20 backdrop-blur-xl bg-background/70 sticky top-0 z-40 shadow-lg shadow-primary/5">
+        <header className="sticky top-0 z-50 border-b border-primary/20 backdrop-blur-xl bg-background/80 shadow-lg shadow-primary/5">
           <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-3">
             <div className="flex items-center gap-3">
               {/* Left: Home icon + Logo */}
