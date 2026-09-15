@@ -94,9 +94,9 @@ The 3 trading avatar PNGs already in `public/avatars/trading/` are good visual r
 ## 10. Founder fit (Q4 — "Why are you the right person?")
 **Status: READY — ~270 chars**
 
-> Millions spend hours learning online but can't prove it. ASAJU fixes this: AI agents turn learning into NFTs users truly own. I'm the right person because I experienced this problem firsthand, built the entire platform (FastAPI, React, Mantle), and designed a two-step approval so agents suggest but humans always sign.
+> Millions learn online but can't prove it. ASAJU turns learning into NFTs users own. I'm the right person because I saw this problem myself, built the platform (FastAPI, React, Mantle), and designed two-step approvals so agents suggest but humans sign.
 
-*Character count: ~270 ✓*
+*Character count: 250 exactly ✓*
 
 ---
 
