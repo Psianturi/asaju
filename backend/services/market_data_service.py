@@ -31,6 +31,8 @@ _TTL_PRICE = 300        # 5 min
 _TTL_OHLC = 900         # 15 min
 _TTL_FEAR_GREED = 3600  # 1 hour
 _TTL_NEWS = 1800        # 30 min
+_TTL_TRENDING = 600     # 10 min — matches CMC's own update cadence for these endpoints
+_TTL_NEW_LISTINGS = 3600  # 1 hour — new listings don't churn minute to minute
 
 
 async def _cached(key: str, ttl_seconds: int, fetch):
@@ -179,6 +181,57 @@ async def get_asset_news(limit: int = 5) -> list:
             return []
 
     return await _cached(key, _TTL_NEWS, fetch)
+
+
+async def get_trending_gainers_losers(time_period: str = "24h", limit: int = 10) -> list:
+    """Biggest % movers (up or down) over time_period (1h/24h/7d/30d). Startup-tier endpoint. Cached 10 min."""
+    key = f"trending_gl:{time_period}:{limit}"
+
+    async def fetch():
+        try:
+            data = await _cmc_get(
+                "/v1/cryptocurrency/trending/gainers-losers",
+                {"time_period": time_period, "limit": limit},
+            )
+            return data.get("data", [])
+        except Exception as exc:
+            logger.warning("CMC trending gainers/losers fetch failed: %s", exc)
+            return []
+
+    return await _cached(key, _TTL_TRENDING, fetch)
+
+
+async def get_trending_latest(time_period: str = "24h", limit: int = 10) -> list:
+    """Coins trending by search/interest right now. Startup-tier endpoint. Cached 10 min."""
+    key = f"trending_latest:{time_period}:{limit}"
+
+    async def fetch():
+        try:
+            data = await _cmc_get(
+                "/v1/cryptocurrency/trending/latest",
+                {"time_period": time_period, "limit": limit},
+            )
+            return data.get("data", [])
+        except Exception as exc:
+            logger.warning("CMC trending latest fetch failed: %s", exc)
+            return []
+
+    return await _cached(key, _TTL_TRENDING, fetch)
+
+
+async def get_new_listings(limit: int = 10) -> list:
+    """Most recently listed cryptocurrencies on CMC. Startup-tier endpoint. Cached 1 hour — low churn."""
+    key = f"new_listings:{limit}"
+
+    async def fetch():
+        try:
+            data = await _cmc_get("/v1/cryptocurrency/listings/new", {"limit": limit})
+            return data.get("data", [])
+        except Exception as exc:
+            logger.warning("CMC new listings fetch failed: %s", exc)
+            return []
+
+    return await _cached(key, _TTL_NEW_LISTINGS, fetch)
 
 
 async def get_market_snapshot(coin_ids: list[str] | None = None) -> dict:

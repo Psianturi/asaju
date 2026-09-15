@@ -21,7 +21,13 @@ from typing import Any, Callable
 import httpx
 
 from core.secrets import get_coinmarketcap_api_key
-from services.market_data_service import get_fear_greed_index, get_prices
+from services.market_data_service import (
+    get_fear_greed_index,
+    get_new_listings,
+    get_prices,
+    get_trending_gainers_losers,
+    get_trending_latest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +75,39 @@ async def fetch_fear_greed() -> dict:
         return {"status": "ok", "source": "coinmarketcap:fear-and-greed", "data": fg}
     except Exception as exc:
         return {"status": "error", "source": "coinmarketcap:fear-and-greed", "message": str(exc)}
+
+
+async def fetch_trending_gainers_losers(time_period: str = "24h", limit: int = 10) -> dict:
+    """Biggest price movers (up or down) over a time window.
+    Endpoint: GET /v1/cryptocurrency/trending/gainers-losers
+    Plan requirement: Startup (matches our CMC plan)."""
+    try:
+        data = await get_trending_gainers_losers(time_period=time_period, limit=limit)
+        return {"status": "ok", "source": "coinmarketcap:trending/gainers-losers", "data": data}
+    except Exception as exc:
+        return {"status": "error", "source": "coinmarketcap:trending/gainers-losers", "message": str(exc)}
+
+
+async def fetch_trending_latest(time_period: str = "24h", limit: int = 10) -> dict:
+    """Coins currently trending by search/interest.
+    Endpoint: GET /v1/cryptocurrency/trending/latest
+    Plan requirement: Startup (matches our CMC plan)."""
+    try:
+        data = await get_trending_latest(time_period=time_period, limit=limit)
+        return {"status": "ok", "source": "coinmarketcap:trending/latest", "data": data}
+    except Exception as exc:
+        return {"status": "error", "source": "coinmarketcap:trending/latest", "message": str(exc)}
+
+
+async def fetch_new_listings(limit: int = 10) -> dict:
+    """Most recently listed cryptocurrencies on CMC.
+    Endpoint: GET /v1/cryptocurrency/listings/new
+    Plan requirement: Startup (matches our CMC plan)."""
+    try:
+        data = await get_new_listings(limit=limit)
+        return {"status": "ok", "source": "coinmarketcap:listings/new", "data": data}
+    except Exception as exc:
+        return {"status": "error", "source": "coinmarketcap:listings/new", "message": str(exc)}
 
 
 async def fetch_cmc_derivatives(symbol: str = "BTC", limit: int = 10) -> dict:
@@ -213,14 +252,14 @@ async def fetch_youtube_search_preview(query: str, niche: str | None = None) -> 
 
 async def fetch_mantle_dex_pools(limit: int = 10) -> dict:
     """Re-export the existing DEX pools endpoint as a chat tool."""
-    from services.market_data_service import get_mantle_dex_pools
+    from services.market_data_service import get_dex_pools
 
     try:
-        result = await get_mantle_dex_pools()
+        result = await get_dex_pools(network="mantle")
         return {
             "status": "ok",
             "source": "coingecko:onchain-dex/mantle",
-            "data": result,
+            "data": result[:limit],
         }
     except Exception as exc:
         return {"status": "error", "source": "coingecko:onchain-dex/mantle", "message": str(exc)}
@@ -235,6 +274,9 @@ NICHE_TOOLS: dict[str, dict[str, Callable[..., Any]]] = {
         "fetch_fear_greed": fetch_fear_greed,
         "fetch_cmc_derivatives": fetch_cmc_derivatives,
         "fetch_cmc_liquidations": fetch_cmc_liquidations,
+        "fetch_trending_gainers_losers": fetch_trending_gainers_losers,
+        "fetch_trending_latest": fetch_trending_latest,
+        "fetch_new_listings": fetch_new_listings,
     },
     "Blockchain/DeFi": {
         "fetch_crypto_spot_prices": fetch_crypto_spot_prices,
