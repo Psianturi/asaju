@@ -94,9 +94,9 @@ The 3 trading avatar PNGs already in `public/avatars/trading/` are good visual r
 ## 10. Founder fit (Q4 — "Why are you the right person?")
 **Status: DRAFT — 244 chars**
 
-> Built ASAJU end-to-end — backend (FastAPI + Firestore), frontend (React + Next.js), and on-chain integration (Mantle smart contract). Personally solved the trade-off between AI autonomy and user agency by designing two-step owner approvals, so the agent can suggest actions but humans always sign.
+> Saya membangun ASAJU karena frustrasi pribadi: menghabiskan ratusan jam belajar dari YouTube tapi tidak punya bukti nyata atas apa yang sudah dipelajari. Saya tangani sendiri backend, frontend, dan integrasi on-chain Mantle — termasuk desain two-step approval agar agent bisa menyarankan tapi manusia yang selalu menandatangani.
 
-*Character count: ~244.*
+*Character count: ~220 ✓*
 
 ---
 
