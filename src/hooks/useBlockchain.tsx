@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { mantleService } from '@/lib/blockchain/mantleService'
 
 export interface BlockchainState {
@@ -10,7 +10,21 @@ export interface BlockchainState {
   error: string | null
 }
 
-export function useBlockchain() {
+interface BlockchainContextValue extends BlockchainState {
+  connectWallet: (chainId?: number) => Promise<string>
+  disconnectWallet: () => void
+  refreshBalance: (chainId?: number) => Promise<string>
+  getExplorerUrl: (txHash: string, chainId?: number) => string
+  getAddressExplorerUrl: (address: string, chainId?: number) => string
+  getBalance: (address: string, chainId?: number) => Promise<string>
+}
+
+const BlockchainContext = createContext<BlockchainContextValue | null>(null)
+
+// Every consumer must share one connection state — a component-local useState
+// here previously meant each caller (App, DashboardView, NotificationBell) had
+// its own copy that never saw a connect made through a different instance.
+export function BlockchainProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<BlockchainState>({
     isConnected: false,
     address: null,
@@ -81,7 +95,7 @@ export function useBlockchain() {
     return mantleService.getBalance(address, chainId)
   }, [])
 
-  return {
+  const value: BlockchainContextValue = {
     ...state,
     connectWallet,
     disconnectWallet,
@@ -90,4 +104,14 @@ export function useBlockchain() {
     getAddressExplorerUrl,
     getBalance,
   }
+
+  return <BlockchainContext.Provider value={value}>{children}</BlockchainContext.Provider>
+}
+
+export function useBlockchain(): BlockchainContextValue {
+  const ctx = useContext(BlockchainContext)
+  if (!ctx) {
+    throw new Error('useBlockchain must be used within a BlockchainProvider')
+  }
+  return ctx
 }

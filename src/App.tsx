@@ -16,7 +16,6 @@ import { MyAgentsView } from '@/views/MyAgentsView'
 import { DashboardView } from '@/views/DashboardView'
 import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
-import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { NFTCard } from '@/components/NFTCard'
 import { SpawnAgentDialog } from '@/components/SpawnAgentDialog'
 import { TerminalConsole } from '@/components/TerminalConsole'
@@ -1273,12 +1272,12 @@ function App() {
               nfts={displayedNFTs}
               dataLoaded={dataLoaded}
               isPlatformView={isPlatformView}
+              walletAddress={walletAddress}
               onSelectAgent={(agent) => agent ? setSelectedAgent(agent) : setSelectedAgent(null)}
               onOpenAgent={(agent) => setAgentDetailId(agent.id)}
               onSpawnAgent={() => walletConnected ? setSpawnDialogOpen(true) : handleWalletConnect("")}
               onConnectWallet={() => handleWalletConnect("")}
               onOpenMyAgents={() => setMainView("my-agents")}
-              onOpenMarket={() => setMainView("marketplace")}
               onRunAutoScout={(id) => handleRunAutoScout(id)}
               onChatAgent={(agent) => handleChatWithAgent(agent)}
             />

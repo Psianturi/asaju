@@ -5,6 +5,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import App from './App.tsx'
 import { LandingPage } from './LandingPage.tsx'
 import { ErrorFallback } from './ErrorFallback.tsx'
+import { BlockchainProvider } from './hooks/useBlockchain'
 
 import "./main.css"
 import "./styles/theme.css"
@@ -15,7 +16,14 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/dashboard/*" element={<App />} />
+        <Route
+          path="/dashboard/*"
+          element={
+            <BlockchainProvider>
+              <App />
+            </BlockchainProvider>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

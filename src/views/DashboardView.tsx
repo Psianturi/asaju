@@ -3,12 +3,12 @@ import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Coins, Clock, FileText } from '@phosphor-icons/react'
+import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText } from '@phosphor-icons/react'
 import { Agent, Event, NFT } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
-import { useBlockchain } from '@/hooks/useBlockchain'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
+import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 
 interface DashboardViewProps {
   agents: Agent[]
@@ -16,12 +16,12 @@ interface DashboardViewProps {
   nfts: NFT[]
   dataLoaded: boolean
   isPlatformView: boolean
+  walletAddress?: string
   onSelectAgent: (agent: Agent) => void
   onOpenAgent: (agent: Agent) => void
   onSpawnAgent: () => void
   onConnectWallet: () => void
   onOpenMyAgents: () => void
-  onOpenMarket: () => void
   onRunAutoScout: (agentId: string) => void
   onChatAgent: (agent: Agent) => void
 }
@@ -48,16 +48,17 @@ export function DashboardView({
   nfts,
   dataLoaded,
   isPlatformView,
+  walletAddress,
   onSelectAgent,
   onOpenAgent,
   onSpawnAgent,
   onConnectWallet,
   onOpenMyAgents,
-  onOpenMarket,
   onRunAutoScout,
   onChatAgent,
 }: DashboardViewProps) {
-  const { isConnected, address } = useBlockchain()
+  const isConnected = !isPlatformView
+  const address = walletAddress
   const [inbox, setInbox] = useState<InboxPayload>(EMPTY_INBOX)
   const [inboxLoading, setInboxLoading] = useState(false)
 
@@ -191,8 +192,8 @@ export function DashboardView({
         />
       )}
 
-      {/* ── Action row: spawn / analyze / market ──────────────────────── */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* ── Action row: spawn / analyze ──────────────────────────────── */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <ActionTile
           icon={<Plus size={18} weight="bold" />}
           title="Spawn an agent"
@@ -205,12 +206,6 @@ export function DashboardView({
           subtitle={agents[0] ? `With ${agents[0].name}` : 'Need at least one agent'}
           onClick={() => onSelectAgent(agents[0] ?? null)}
           disabled={!isConnected || agents.length === 0}
-        />
-        <ActionTile
-          icon={<Coins size={18} weight="duotone" />}
-          title="Check market context"
-          subtitle="CMC + CoinGecko live data"
-          onClick={onOpenMarket}
         />
       </section>
 
@@ -250,6 +245,9 @@ export function DashboardView({
           </div>
         </section>
       )}
+
+      {/* ── Market context — supplementary, never blocks the page ──────── */}
+      <MarketSnapshotCard />
     </div>
   )
 }
