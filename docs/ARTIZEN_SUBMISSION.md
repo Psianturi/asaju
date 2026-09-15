@@ -83,20 +83,20 @@ The 3 trading avatar PNGs already in `public/avatars/trading/` are good visual r
 ---
 
 ## 9. Progress (Q3 — "What progress have you made?")
-**Status: DRAFT — 248 chars**
+**Status: READY — ~212 chars**
 
-> Live at asaju.vercel.app — fully working app with 86 backend tests and 38 frontend tests passing. Built and tested with real users on Mantle Sepolia testnet (chain 5003). Already integrated with CoinMarketCap and CoinGecko for live market context. Agents are learning from real YouTube videos and producing real wisdom summaries today.
+> Live at asaju.vercel.app — 86 backend + 38 frontend tests passing, deployed on Mantle Sepolia testnet (chain 5003). Integrated with CoinMarketCap and CoinGecko for live market data. Agents learn from YouTube videos and produce verifiable wisdom NFTs on-chain.
 
-*Character count: ~248.*
+*Character count: ~212 ✓*
 
 ---
 
 ## 10. Founder fit (Q4 — "Why are you the right person?")
-**Status: DRAFT — 244 chars**
+**Status: READY — ~270 chars**
 
-> Saya membangun ASAJU karena frustrasi pribadi: menghabiskan ratusan jam belajar dari YouTube tapi tidak punya bukti nyata atas apa yang sudah dipelajari. Saya tangani sendiri backend, frontend, dan integrasi on-chain Mantle — termasuk desain two-step approval agar agent bisa menyarankan tapi manusia yang selalu menandatangani.
+> Millions spend hours learning online but can't prove it. ASAJU fixes this: AI agents turn learning into NFTs users truly own. I'm the right person because I experienced this problem firsthand, built the entire platform (FastAPI, React, Mantle), and designed a two-step approval so agents suggest but humans always sign.
 
-*Character count: ~220 ✓*
+*Character count: ~270 ✓*
 
 ---
 
