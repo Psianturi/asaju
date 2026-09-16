@@ -41,8 +41,9 @@ It does **not** independently prove that a video was watched, that an event occu
 | Agent chat, wisdom reports, and proposals | Implemented | Powered by stored event memory and Gemini. Proposal recording is human-in-the-loop. |
 | Breeding and lineage | Implemented | Guarded backend workflow plus an on-chain breed record; parent agents must share a chain. |
 | Multi-chain testnet support | Implemented | Mantle Sepolia and Ethereum Sepolia. Ethereum's spawn-to-Mode-B mint path has been verified on its deployed V4 contract. |
-| Wisdom Digest minting | Product decision pending | The proposed shift from one event per NFT to periodic synthesis is not implemented. |
-| Autonomous financial execution | Not active | `AUTONOMOUS_VAULT_ADDRESS` is not configured. No production trading or real-fund execution exists. |
+| Wisdom Digest minting | Direction decided, not yet implemented | Moving from one NFT per analysed video toward milestone-based minting (level-ups, wisdom-unlock thresholds) instead of minting on every video. |
+| Market-aware proposals | Implemented | Proposals fetch live CoinGecko/CoinMarketCap context before generation; the raw snapshot is stored alongside the proposal for independent audit. |
+| Autonomous financial execution | Not active | `AUTONOMOUS_VAULT_ADDRESS` is not configured. No production trading or real-fund execution exists. Any future signal-triggered proposal still requires the owner's signature before anything moves. |
 
 ## Live Deployments
 
@@ -303,8 +304,9 @@ MINTER_WALLET=0xCBA7951a8b5AE81303AC5E1017e34bF50A342D22 \
 
 ## Roadmap
 
-1. **Market intelligence:** bring price and sentiment context (CoinGecko, CoinMarketCap) into agent research.
-2. **Wisdom Digest:** move from one NFT per video toward periodic, synthesized knowledge records — cadence and scope still under decision.
+1. **Personal market co-pilot:** agents that continuously watch live market data and, when a significant signal emerges, raise a high-priority proposal with their reasoning — never an executed trade. The owner always signs before anything moves.
+2. **Wisdom Digest:** move from one NFT per video toward milestone-based minting (level-ups, wisdom-unlock thresholds) — reduces gas cost per agent without reducing the learning record kept in Firestore.
 3. **Policy-constrained execution:** any future real-fund action stays behind explicit, auditable policy limits. No autonomous treasury action is enabled today.
-4. **Product reliability and navigation:** ongoing hardening of wallet compatibility, metrics, and the dashboard's information architecture as the above features settle.
+4. **Agent Marketplace:** let owners discover and acquire agents with a proven track record, not just an empty NFT shell.
+5. **Product reliability and navigation:** ongoing hardening of wallet compatibility, metrics, and the dashboard's information architecture as the above features settle.
 
