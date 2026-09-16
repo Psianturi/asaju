@@ -239,6 +239,7 @@ function App() {
   const [healthCheckOpen, setHealthCheckOpen] = useState(false) // no auto-popup
   const [backendConnected, setBackendConnected] = useState(false)
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'error'>('checking')
+  const [autonomousExecutionEnabled, setAutonomousExecutionEnabled] = useState(false)
   const [deployingAgentId, setDeployingAgentId] = useState<string | null>(null)
   const [verificationData, setVerificationData] = useLocalStorage<ContractVerificationData[]>('maef-verifications', [])
   const [activeVerifications, setActiveVerifications] = useState<Set<string>>(new Set())
@@ -291,9 +292,10 @@ function App() {
   // Silent background health check on mount — no blocking popup
   useEffect(() => {
     cloudRunService.healthCheck()
-      .then(() => {
+      .then((health) => {
         setBackendConnected(true)
         setBackendStatus('live')
+        setAutonomousExecutionEnabled(health.autonomous_execution_enabled ?? false)
       })
       .catch(() => {
         setBackendStatus('error')
@@ -1460,6 +1462,7 @@ function App() {
           onOpenChange={(open) => { if (!open) setProposalModalAgent(null) }}
           agent={proposalModalAgent}
           onProposalCountChange={handleProposalCountChange}
+          autonomousExecutionEnabled={autonomousExecutionEnabled}
         />
       )}
 

@@ -34,6 +34,9 @@ interface ProposalModalProps {
   onOpenChange: (open: boolean) => void
   agent: Agent
   onProposalCountChange?: (agentId: string, count: number) => void
+  /** Backend reports this false when AUTONOMOUS_VAULT_ADDRESS isn't configured —
+   * hides "Execute Transfer" instead of showing a button that always 400s. */
+  autonomousExecutionEnabled?: boolean
 }
 
 const CATEGORY_CONFIG = {
@@ -83,6 +86,7 @@ function ProposalCard({
   onExecute,
   executingId,
   actioningId,
+  autonomousExecutionEnabled,
 }: {
   proposal: BackendProposal
   onApprove: (p: BackendProposal) => void
@@ -90,6 +94,7 @@ function ProposalCard({
   onExecute: (p: BackendProposal) => void
   executingId: string | null
   actioningId: string | null
+  autonomousExecutionEnabled: boolean
 }) {
   const cat = CATEGORY_CONFIG[proposal.category] ?? CATEGORY_CONFIG.community
   const CatIcon = cat.Icon
@@ -236,7 +241,7 @@ function ProposalCard({
               </a>
             ) : proposal.autonomous_execution_triggered ? (
               <span className="text-[10px] text-violet-400/60 font-mono">pending…</span>
-            ) : (
+            ) : autonomousExecutionEnabled ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -250,6 +255,8 @@ function ProposalCard({
                   'Execute Transfer'
                 )}
               </Button>
+            ) : (
+              <span className="text-[10px] text-violet-400/50 font-mono">not yet enabled</span>
             )}
           </div>
           <p className="text-[11px] text-violet-300/70 mt-1 leading-relaxed">
@@ -259,7 +266,9 @@ function ProposalCard({
               ? 'Transfer failed — check agent gas balance'
               : proposal.autonomous_execution_triggered
               ? 'Transfer in progress…'
-              : 'Requires separate owner approval to transfer 0.1 MNT from agent wallet to vault.'}
+              : autonomousExecutionEnabled
+              ? 'Requires separate owner approval to transfer 0.1 MNT from agent wallet to vault.'
+              : 'Autonomous execution is a roadmap feature and is not enabled on this deployment yet — this proposal stays approved without a transfer.'}
           </p>
         </motion.div>
       )}
@@ -334,7 +343,7 @@ function parseExecutionMessage(message: string): ParsedExecutionDetails | null {
   return { proposalId, proposalHash, agentWallet, vaultAddress, amountMnt, ownerWallet, nonce, expiresAt }
 }
 
-export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange }: ProposalModalProps) {
+export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange, autonomousExecutionEnabled = false }: ProposalModalProps) {
   const [proposals, setProposals] = useState<BackendProposal[]>([])
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -561,6 +570,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   onExecute={handleExecute}
                   executingId={executingId}
                   actioningId={actioningId}
+                  autonomousExecutionEnabled={autonomousExecutionEnabled}
                 />
               ))}
             </AnimatePresence>

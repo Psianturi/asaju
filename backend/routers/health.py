@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import APIRouter
+from web3 import Web3
 
 from core.config import settings
 from services.web3_service import web3_service
@@ -22,6 +23,10 @@ async def health() -> dict:
             bool(settings.contract_address)
             and not settings.contract_address.startswith("0x0000")
         ),
+        # Lets the frontend hide/disable "Execute Transfer" instead of showing
+        # a clickable action that always 400s — matches the exact check
+        # create_execution_challenge() uses in routers/proposals.py.
+        "autonomous_execution_enabled": Web3.is_address(settings.autonomous_vault_address),
     }
 
 

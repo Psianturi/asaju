@@ -860,7 +860,7 @@ export const cloudRunService = {
     }
   },
 
-  async healthCheck(): Promise<{ status: string; version: string }> {
+  async healthCheck(): Promise<{ status: string; version: string; autonomous_execution_enabled?: boolean }> {
     try {
       const response = await fetchWithTimeout(
         `${GCP_BACKEND_URL}/health`,
@@ -870,7 +870,7 @@ export const cloudRunService = {
         5000
       )
 
-      return handleAPIResponse<{ status: string; version: string }>(response)
+      return handleAPIResponse<{ status: string; version: string; autonomous_execution_enabled?: boolean }>(response)
     } catch (error) {
       console.error('Health check failed:', error)
       throw new CloudRunAPIError(
