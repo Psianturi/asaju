@@ -428,8 +428,9 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
 
     # Pull owner's standing instructions + recent chat topics so the proposal
     # reflects the owner's actual agenda, not just the agent's preset niche.
-    custom_instructions = (data.get("custom_instructions") or "").strip() or None
-    custom_agenda = (data.get("custom_agenda") or "").strip() or None
+    custom_instructions = (agent_data.get("custom_instructions") or "").strip() or None
+    custom_agenda = (agent_data.get("custom_agenda") or "").strip() or None
+    user_wallet = agent_data.get("user_wallet")
     owner_chat_topics: list[dict] = []
     if user_wallet:
         try:

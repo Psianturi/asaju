@@ -30,6 +30,10 @@ class FakeDocRef:
         self._collection = collection
         self._doc_id = doc_id
 
+    @property
+    def id(self) -> str:
+        return self._doc_id
+
     async def get(self) -> FakeDocSnapshot:
         return FakeDocSnapshot(
             self._doc_id,
@@ -145,13 +149,20 @@ class FakeCollection:
         value = kwargs.get("value")
         return FakeQuery(self, field, op, value)
 
-    async def add(self, data: dict) -> tuple[FakeDocRef, str]:
-        """Generate a new doc ID and set data on it. Returns (ref, doc_id)."""
+    async def add(self, data: dict) -> tuple[float, FakeDocRef]:
+        """Generate a new doc ID and set data on it.
+
+        Returns (update_time, ref) — matches real AsyncCollectionReference.add(),
+        not (ref, doc_id). Callers that only discard the tuple are unaffected;
+        callers that unpack `_, doc_ref = await ... .add(...)` need doc_ref.id
+        to actually be a ref, the way production Firestore behaves.
+        """
+        import time
         import uuid
         doc_id = str(uuid.uuid4())
         ref = FakeDocRef(self, doc_id)
         await ref.set(data)
-        return ref, doc_id
+        return time.time(), ref
 
     def __len__(self) -> int:
         return len(self._docs)
