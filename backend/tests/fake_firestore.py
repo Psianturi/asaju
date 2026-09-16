@@ -46,7 +46,15 @@ class FakeDocRef:
 
     async def update(self, data: dict) -> None:
         existing = self._collection._docs.setdefault(self._doc_id, {})
-        existing.update(copy.deepcopy(data))
+        for key, value in data.items():
+            # Real Firestore's Increment is a server-side sentinel: it must be
+            # resolved against the stored value, never stored as the literal
+            # object — a naive dict merge here previously corrupted any field
+            # written with Increment(), breaking every subsequent read of it.
+            if type(value).__name__ == "Increment" and hasattr(value, "_value"):
+                existing[key] = (existing.get(key) or 0) + value._value
+            else:
+                existing[key] = copy.deepcopy(value)
 
 
 class FakeQuery:

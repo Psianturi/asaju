@@ -131,6 +131,9 @@ export interface AttendEventRequest {
 
 export interface AttendEventResponse {
   success: boolean
+  /** False when this video was below the next milestone — analyzed and
+   * recorded, but no on-chain NFT was minted for it this time. */
+  minted: boolean
   txHash: string
   tokenId: string
   wisdomSummary: string
@@ -646,6 +649,7 @@ export const cloudRunService = {
 
       const raw = await handleAPIResponse<{
         success: boolean
+        minted: boolean
         tx_hash: string | null
         token_id: string | null
         wisdom_summary: string
@@ -663,6 +667,7 @@ export const cloudRunService = {
 
       return {
         success: true,
+        minted: raw.minted,
         txHash: raw.tx_hash ?? '',
         tokenId: raw.token_id ?? '?',
         wisdomSummary: raw.wisdom_summary,
@@ -695,6 +700,7 @@ export const cloudRunService = {
     discovered?: { url: string; title: string; channel: string; scout_reason: string }
     attend_result?: {
       success: boolean
+      minted: boolean
       tx_hash: string | null
       token_id: string | null
       wisdom_summary: string

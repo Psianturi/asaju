@@ -665,15 +665,23 @@ function App() {
       const signingMode = result.txHash ? (result.txHash.includes('agent') ? 'Agent' : 'Backend') : 'Unknown'
 
       addLog(agent.id, 'scribe', `[${agent.name} - Scribe] Wisdom generated: "${result.wisdomSummary.slice(0, 80)}..."`, 'success')
-      addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Transaction signed by ${signingMode}. TX: ${result.txHash.slice(0, 18)}...`, 'info')
-      addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] NFT minted on ${agentChain?.shortName ?? 'chain'}! Token #${result.tokenId} | Block ${result.blockNumber}`, 'success')
-      addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Gas used: ${Number(result.gasUsed || 0).toLocaleString()} units`, 'info')
 
-      const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3 #Mantle' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Health #Wellness #Web3'
-      const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + '…' : result.wisdomSummary
-      const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT on @MantleNetwork!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #MAEF`
-      setLastSocialPost({ agentId: agent.id, text: socialPostText, eventTitle: resolvedTitle })
-      addLog(agent.id, 'social-lite', `[${agent.name} - Social-Lite] Post draft ready for "${resolvedTitle}"`, 'success')
+      // Milestone-gated minting: most videos are analyzed and recorded without
+      // spending gas on an NFT — only a level-up mints one. Never claim a mint
+      // that didn't happen.
+      if (result.minted) {
+        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Transaction signed by ${signingMode}. TX: ${result.txHash.slice(0, 18)}...`, 'info')
+        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Milestone reached — NFT minted on ${agentChain?.shortName ?? 'chain'}! Token #${result.tokenId} | Block ${result.blockNumber}`, 'success')
+        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Gas used: ${Number(result.gasUsed || 0).toLocaleString()} units`, 'info')
+
+        const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Health #Wellness #Web3'
+        const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + '…' : result.wisdomSummary
+        const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #MAEF`
+        setLastSocialPost({ agentId: agent.id, text: socialPostText, eventTitle: resolvedTitle })
+        addLog(agent.id, 'social-lite', `[${agent.name} - Social-Lite] Post draft ready for "${resolvedTitle}"`, 'success')
+      } else {
+        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Video analyzed and recorded — no NFT minted this time, saving gas until the next milestone.`, 'info')
+      }
 
       const newEvent: Event = {
         id: `event-${Date.now()}`,
@@ -687,7 +695,7 @@ function App() {
         status: 'completed',
       }
 
-      const newNFT: NFT = {
+      const newNFT: NFT | null = result.minted ? {
         id: `nft-${Date.now()}`,
         agentId: agent.id,
         chainId: agentChainId,
@@ -699,7 +707,7 @@ function App() {
         tokenId: result.tokenId,
         explorerUrl: result.explorerUrl,
         imageUrl: 'https://placehold.co/400x400/1a1b3a/00f3ff?text=MAEF+NFT',
-      }
+      } : null
 
       const newEventsAttended = result.newTotalEvents ?? (agent.eventsAttended + 1)
       const newLevel = result.newLevel ?? (result.levelUp ? agent.level + 1 : agent.level)
@@ -712,7 +720,7 @@ function App() {
       }
 
       setEvents(c => [...(c ?? []), newEvent])
-      setNFTs(c => [...(c ?? []), newNFT])
+      if (newNFT) setNFTs(c => [...(c ?? []), newNFT])
       setAgents(c => (c ?? []).map(a =>
         a.id === agent.id
           ? {
@@ -732,14 +740,21 @@ function App() {
       setActiveAgentId(null)
       clearTasks()
 
-      toast.success(`NFT #${result.tokenId} minted on ${agentChain?.name ?? 'the selected network'}!`, {
-        description: `Token ID: ${result.tokenId} | Gas: ${Number(result.gasUsed || 0).toLocaleString()} units`,
-        action: {
-          label: `View Agent Wisdom on ${agentChain?.shortName ?? 'Explorer'}`,
-          onClick: () => window.open(result.explorerUrl, '_blank'),
-        },
-        duration: 10000,
-      })
+      if (result.minted) {
+        toast.success(`NFT #${result.tokenId} minted on ${agentChain?.name ?? 'the selected network'}!`, {
+          description: `Token ID: ${result.tokenId} | Gas: ${Number(result.gasUsed || 0).toLocaleString()} units`,
+          action: {
+            label: `View Agent Wisdom on ${agentChain?.shortName ?? 'Explorer'}`,
+            onClick: () => window.open(result.explorerUrl, '_blank'),
+          },
+          duration: 10000,
+        })
+      } else {
+        toast.success('Video analyzed', {
+          description: 'Recorded — no NFT minted this time. The agent mints at level-up milestones to save gas.',
+          duration: 6000,
+        })
+      }
 
       if (newEventsAttended >= 5 && !agent.wisdomUnlocked) {
         setTimeout(() => {
@@ -940,7 +955,9 @@ function App() {
       const { discovered, attend_result } = result
       if (attend_result?.success) {
         toast.success(`Agent attended: ${discovered?.title}`, {
-          description: `NFT minted. TX: ${attend_result.tx_hash?.slice(0, 10)}...`,
+          description: attend_result.minted
+            ? `NFT minted. TX: ${attend_result.tx_hash?.slice(0, 10)}...`
+            : 'Video analyzed and recorded — no NFT minted this time (below the next milestone).',
         })
         // Update agent stats in local state from scout result
         if (attend_result.new_total_events != null || attend_result.new_level != null) {

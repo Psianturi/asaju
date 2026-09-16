@@ -1670,6 +1670,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
         },
         "attend_result": {
             "success": attend_result.success,
+            "minted": attend_result.minted,
             "tx_hash": attend_result.tx_hash,
             "token_id": attend_result.token_id,
             "wisdom_summary": attend_result.wisdom_summary,

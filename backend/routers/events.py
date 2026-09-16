@@ -104,6 +104,7 @@ class AttendRequest(BaseModel):
 
 class AttendResponse(BaseModel):
     success: bool
+    minted: bool  # False when this video was below the milestone threshold — analyzed, not minted
     tx_hash: str | None
     token_id: str | None
     wisdom_summary: str
@@ -305,58 +306,84 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     )
     logger.info("Wisdom generated for agent %s: %.80s", req.agent_id, wisdom_summary)
 
-    # ── Steps B + C: Mint on Mantle ────────────────────────────────────────
+    # ── Milestone gate: only mint when this video crosses a level boundary ──
+    # Every video gets a wisdom summary and a Firestore record regardless (see
+    # below); minting an on-chain NFT for every single one was burning an
+    # agent's gas reserve linearly with usage for no added signal (see
+    # docs/BUSINESS_MODEL_AND_ARCHITECTURE.md §7). Milestone = the same
+    # level formula already used for progression, so "reaching level N"
+    # stays the one, single definition of a milestone everywhere in the app.
+    current_events = agent_data.get("total_events", 0)
+    current_level = agent_data.get("level", 1)
+    prospective_level = max(current_level, ((current_events + 1) // 2) + 1)
+    should_mint = prospective_level > current_level
+
+    # ── Steps B + C: Mint on Mantle (milestone videos only) ─────────────────
     # Mode B: agent signs with own key, agent pays gas (no fallback to minter).
     # Mode A: MINTER_SERVICE signs (admin ops, recordExecutedProposal, explicit Mode A).
-    try:
-        mint_result = await web3_service.mint_attendance_nft(
-            agent_wallet=req.agent_wallet,
-            event_title=req.event_title,
-            event_url=req.event_url,
-            platform=req.platform,
-            agent_name=req.agent_name,
-            summary=wisdom_summary,
-            niche=req.niche,
-            agent_private_key=agent_private_key,
-            allow_mode_b_fallback=False,  # strict: agent must pay own gas, no silent minter fallback
-            chain_id=req.chain_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "AGENT_NOT_AUTHORIZED",
-                "message": str(exc),
-            },
-        )
-    except RuntimeError as exc:
-        msg = str(exc)
-        code = "AGENT_OUT_OF_GAS" if "out of gas" in msg.lower() else "MODE_B_STRICT_REJECTED"
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": code,
-                "message": msg,
-            },
-        )
-    except ConnectionError as exc:
-        raise HTTPException(
-            status_code=503, detail=f"Mantle RPC unavailable: {exc}"
-        )
-    except Exception as exc:
-        logger.error("mintAttendanceNFT failed for agent %s: %s", req.agent_id, exc)
-        raise HTTPException(
-            status_code=500,
-            detail="NFT minting failed. Check Cloud Run logs for details.",
+    mint_result: dict = {}
+    if should_mint:
+        try:
+            mint_result = await web3_service.mint_attendance_nft(
+                agent_wallet=req.agent_wallet,
+                event_title=req.event_title,
+                event_url=req.event_url,
+                platform=req.platform,
+                agent_name=req.agent_name,
+                summary=wisdom_summary,
+                niche=req.niche,
+                agent_private_key=agent_private_key,
+                allow_mode_b_fallback=False,  # strict: agent must pay own gas, no silent minter fallback
+                chain_id=req.chain_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "AGENT_NOT_AUTHORIZED",
+                    "message": str(exc),
+                },
+            )
+        except RuntimeError as exc:
+            msg = str(exc)
+            code = "AGENT_OUT_OF_GAS" if "out of gas" in msg.lower() else "MODE_B_STRICT_REJECTED"
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": code,
+                    "message": msg,
+                },
+            )
+        except ConnectionError as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Mantle RPC unavailable: {exc}"
+            )
+        except Exception as exc:
+            logger.error("mintAttendanceNFT failed for agent %s: %s", req.agent_id, exc)
+            raise HTTPException(
+                status_code=500,
+                detail="NFT minting failed. Check Cloud Run logs for details.",
+            )
+        tx_hash = mint_result.get("tx_hash")
+        success = mint_result.get("status") == "success"
+        level_up = mint_result.get("level_up", False)
+        # signing_mode from web3_service reflects what actually signed (agent vs minter service)
+        signing_mode = mint_result.get("signing_mode", "B" if req.mode_b else "A")
+    else:
+        # Below a milestone: no on-chain call, no gas spent. The video is still
+        # fully analyzed and recorded (see the Firestore writes below) — it
+        # just isn't proven on-chain until the agent's next level-up.
+        tx_hash = None
+        success = True
+        level_up = False
+        signing_mode = "none"
+        logger.info(
+            "Agent %s: video analyzed, milestone not reached (events %d→%d, level stays %d) — skipping mint",
+            req.agent_id, current_events, current_events + 1, current_level,
         )
 
-    tx_hash = mint_result.get("tx_hash")
-    success = mint_result.get("status") == "success"
-    level_up = mint_result.get("level_up", False)
-    # signing_mode from web3_service reflects what actually signed (agent vs minter service)
-    signing_mode = mint_result.get("signing_mode", "B" if req.mode_b else "A")
     explorer_base = _resolve_explorer_base(req.chain_id)
 
     # ── Update agent stats in Firestore ───────────────────────────────────
@@ -419,6 +446,7 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
                 "block_number": mint_result.get("block_number"),
                 "attended_at": time.time(),
                 "mode": signing_mode,
+                "minted": tx_hash is not None,
             }
             await db.collection(EVENTS_COLLECTION).add(event_doc)
         except Exception as exc:
@@ -426,6 +454,7 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
 
     return AttendResponse(
         success=success,
+        minted=tx_hash is not None,
         tx_hash=tx_hash,
         token_id=mint_result.get("token_id"),
         wisdom_summary=wisdom_summary,
