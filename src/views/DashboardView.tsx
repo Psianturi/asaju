@@ -10,6 +10,7 @@ import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
 import { AgentInsightsSection } from '@/components/AgentInsightsSection'
+import { LiveScoutLog } from '@/components/LiveScoutLog'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
 import { RetroFuturisticBackground } from '@/components/RetroFuturisticBackground'
 
@@ -220,6 +221,12 @@ export function DashboardView({
         onConnectWallet={onConnectWallet}
         onOpenAgent={onOpenAgent}
       />
+
+      {/* Live scout log — shows the agent's most recent attended events so the
+          "what does the agent do" gap is closed. No-op when there are no events. */}
+      {agents.length > 0 && agents.some((a) => (a.recentScoutLog ?? []).length > 0) && (
+        <LiveScoutLog items={agents.flatMap((a) => a.recentScoutLog ?? [])} />
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
         <ActionTile

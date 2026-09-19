@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge } from '@phosphor-icons/react'
+import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge, Target, ChartLine, MagnifyingGlass } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { GasStatusBadge } from './GasStatusBadge'
@@ -452,13 +452,63 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 transition={{ duration: 0.8, delay: 0.2 }}
                 className={cn(
                   'h-full rounded-full',
-                  agent.wisdomUnlocked 
-                    ? 'bg-gradient-to-r from-yellow-400 via-amber-500 to-orange-500 animate-glow-pulse-gold' 
+                  agent.wisdomUnlocked
+                    ? 'bg-gradient-to-r from-yellow-400 via-amber-500 to-orange-500 animate-glow-pulse-gold'
                     : 'bg-gradient-to-r from-primary via-accent to-secondary'
                 )}
               />
             </div>
           </div>
+
+          {/* Comprehension progress — derived from event history (unique titles × niche depth × day-density).
+              Shows the owner how far the agent is toward the next milestone mint. */}
+          {agent.comprehensionScore !== undefined && (
+            <div className="mb-5" onClick={onClick}>
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="text-muted-foreground font-medium flex items-center gap-1">
+                  <Target size={12} weight="duotone" className="text-accent" />
+                  Comprehension
+                </span>
+                <span className="font-mono font-bold text-accent tabular-nums">
+                  {agent.comprehensionScore}/100
+                  {agent.comprehensionNextMilestone != null && (
+                    <span className="text-muted-foreground font-normal ml-1.5">
+                      · {agent.comprehensionProgressToNext} to next mint
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden border border-border/50">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, agent.comprehensionScore)}%` }}
+                  transition={{ duration: 0.9, delay: 0.3 }}
+                  className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-accent to-amber-400"
+                />
+                {/* Milestone tick marks — 20, 40, 60, 80, 100 */}
+                {[20, 40, 60, 80].map((m) => (
+                  <div
+                    key={m}
+                    className="absolute top-0 bottom-0 w-px bg-border/60"
+                    style={{ left: `${m}%` }}
+                    aria-hidden="true"
+                  />
+                ))}
+              </div>
+              {(agent.comprehensionSampledNiches ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {(agent.comprehensionSampledNiches ?? []).slice(0, 4).map((niche) => (
+                    <span
+                      key={niche}
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent/10 border border-accent/30 text-accent/80"
+                    >
+                      {niche}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center gap-2 mb-5" onClick={onClick}>
             <div className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20">

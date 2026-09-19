@@ -527,6 +527,20 @@ export const cloudRunService = {
         agent_gas_balance?: number | null
         chain_id?: number
         skill_scores?: Record<string, number>
+        comprehension_score?: number
+        comprehension_coverage?: number
+        comprehension_depth?: number
+        comprehension_density?: number
+        comprehension_next_milestone?: number | null
+        comprehension_progress_to_next?: number
+        comprehension_sampled_niches?: string[]
+        recent_scout_log?: Array<{
+          event_id: string
+          title: string
+          niche: string
+          attended_at: number
+          summary_excerpt: string
+        }>
       }>>(response)
 
       const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
@@ -564,6 +578,14 @@ export const cloudRunService = {
         isGenesis: r.ownership_status === 'original-creator',
         agentGasBalance: r.agent_gas_balance ?? 0,
         skillScores: r.skill_scores,
+        comprehensionScore: r.comprehension_score ?? 0,
+        comprehensionCoverage: r.comprehension_coverage ?? 0,
+        comprehensionDepth: r.comprehension_depth ?? 0,
+        comprehensionDensity: r.comprehension_density ?? 0,
+        comprehensionNextMilestone: r.comprehension_next_milestone ?? 20,
+        comprehensionProgressToNext: r.comprehension_progress_to_next ?? 20,
+        comprehensionSampledNiches: r.comprehension_sampled_niches ?? [],
+        recentScoutLog: r.recent_scout_log ?? [],
       }))
     } catch (error) {
       // Non-fatal: return empty list if backend is unreachable

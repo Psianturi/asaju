@@ -61,6 +61,26 @@ export interface Agent {
   lineageBiography?: string
   spawnedOnV4?: boolean
   skillScores?: Record<string, number>
+  // Comprehension is a derived view from the agent's event history — computed
+  // live by the backend on every agent fetch. The owner sees *how far along*
+  // the agent is, not just *where it is*, so the dashboard can show a real
+  // progress bar toward the next mint milestone.
+  comprehensionScore?: number
+  comprehensionCoverage?: number
+  comprehensionDepth?: number
+  comprehensionDensity?: number
+  comprehensionNextMilestone?: number | null
+  comprehensionProgressToNext?: number
+  comprehensionSampledNiches?: string[]
+  recentScoutLog?: ScoutLogFeedItem[]
+}
+
+export interface ScoutLogFeedItem {
+  event_id: string
+  title: string
+  niche: string
+  attended_at: number
+  summary_excerpt: string
 }
 
 export interface ScoutLogEntry {
