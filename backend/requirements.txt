@@ -41,3 +41,4 @@ soupsieve>=2.9.0,<3.0.0  # CVE-2026-85999/86000 (transitive via beautifulsoup4)
 
 # Test framework (not in production runtime)
 pytest>=9.0.3,<10.0.0  # PYSEC-2026-1845
+pytest-asyncio>=1.4.0,<2.0.0  # required by pytest>=9; older 0.x pins pytest<9
