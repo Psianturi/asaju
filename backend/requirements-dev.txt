@@ -1,6 +1,0 @@
-# Dev/test-only dependencies — NOT installed in the production Docker image.
-# Install alongside requirements.txt for local test runs:
-#   pip install -r requirements.txt -r requirements-dev.txt
-
-pytest>=8.0.0,<9.0.0
-pytest-asyncio>=0.23.0,<0.25.0
