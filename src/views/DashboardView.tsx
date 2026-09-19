@@ -9,6 +9,7 @@ import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
+import { AgentInsightsSection } from '@/components/AgentInsightsSection'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
 
 interface DashboardViewProps {
@@ -210,6 +211,13 @@ export function DashboardView({
       )}
 
       <MarketIntelligenceHub />
+
+      <AgentInsightsSection
+        agents={agents}
+        isConnected={isConnected}
+        onConnectWallet={onConnectWallet}
+        onOpenAgent={onOpenAgent}
+      />
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
         <ActionTile

@@ -572,6 +572,20 @@ export const cloudRunService = {
     }
   },
 
+  async getCurrentInsight(agentId: string): Promise<{
+    agent_id: string
+    agent_name: string
+    niche: string
+    watching: string
+    suggested_action: string
+    sources: string[]
+    generated_at: number
+  }> {
+    const url = `${GCP_BACKEND_URL}/api/v1/agent/${agentId}/current-insight`
+    const response = await fetchWithTimeout(url, { method: 'GET' })
+    return handleAPIResponse(response)
+  },
+
   async getEventHistoryByWallet(wallet: string): Promise<EventHistoryItem[]> {
     try {
       const response = await fetchWithTimeout(

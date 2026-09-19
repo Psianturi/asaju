@@ -903,6 +903,94 @@ async def list_agents_by_wallet(
     return result
 
 
+
+
+class CurrentInsightResponse(BaseModel):
+    """What the agent is currently observing in the market and what it would propose."""
+    agent_id: str
+    agent_name: str
+    niche: str
+    watching: str
+    suggested_action: str
+    sources: list[str]
+    generated_at: float
+
+
+@router.get("/{agent_id}/current-insight", response_model=CurrentInsightResponse)
+async def get_current_insight(agent_id: str) -> CurrentInsightResponse:
+    """Generate a compact 'what the agent sees right now' summary from live market context."""
+    db = get_db()
+    try:
+        doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    except Exception as exc:
+        logger.error("Firestore read failed for agent %s: %s", agent_id, exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable")
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    data = doc.to_dict() or {}
+    agent_name = data.get("name", "Agent")
+    niche = (data.get("niche") or "General").lower()
+
+    snap = await get_market_snapshot()
+    prices = snap.get("prices") or {}
+    btc = prices.get("bitcoin") or {}
+    eth = prices.get("ethereum") or {}
+    mnt = prices.get("mantle") or {}
+    fg = snap.get("fear_greed") or {}
+    fg_value = fg.get("value")
+    fg_class = fg.get("value_classification", "Neutral")
+
+    def _chg(p: dict):
+        v = p.get("usd_24h_change")
+        return v if isinstance(v, (int, float)) else None
+
+    btc_c = _chg(btc)
+    eth_c = _chg(eth)
+    mnt_c = _chg(mnt)
+
+    momentum: list[str] = []
+    if btc_c is not None:
+        momentum.append(f"BTC {btc_c:+.1f}%")
+    if eth_c is not None:
+        momentum.append(f"ETH {eth_c:+.1f}%")
+    if mnt_c is not None and niche in ("defi", "trading/investment", "trading"):
+        momentum.append(f"MNT {mnt_c:+.1f}%")
+    if not momentum:
+        momentum.append("no strong movers right now")
+
+    watching = f"Tracking {niche} context with {', '.join(momentum)} over the last 24h."
+    if fg_value is not None:
+        watching += f" Market sentiment is {fg_class} ({fg_value}/100)."
+
+    suggested_action = "Hold and continue monitoring."
+    try:
+        hi_changes = [c for c in (btc_c, eth_c, mnt_c) if c is not None]
+        if hi_changes:
+            top = max(hi_changes, key=lambda x: abs(x))
+            if top >= 4:
+                suggested_action = "Consider watching recent upside movers for a potential proposal."
+            elif top <= -4:
+                suggested_action = "Risk-off tone — wait for clearer structure before proposing."
+            if fg_value is not None and fg_value >= 70:
+                suggested_action += " High greed — prefer tighter confirmation before adding exposure."
+            elif fg_value is not None and fg_value <= 30:
+                suggested_action += " Fear regime — accumulation setups become more interesting."
+    except Exception:
+        pass
+
+    sources = ["CoinGecko (prices)", "CoinMarketCap (Fear & Greed, trending)"]
+
+    return CurrentInsightResponse(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        niche=data.get("niche", "General"),
+        watching=watching,
+        suggested_action=suggested_action,
+        sources=sources,
+        generated_at=time.time(),
+    )
+
+
 @router.get("/{agent_id}", response_model=SpawnResponse)
 async def get_agent(agent_id: str) -> SpawnResponse:
     """Retrieve agent info by agent_id."""
