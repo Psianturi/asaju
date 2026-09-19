@@ -739,6 +739,7 @@ in your description so the reasoning stays auditable. For "governance", "educati
 
 
 def _format_chat_market_context(market_context: dict | None) -> str:
+    """Render chat-specific market context (prices + sentiment) as prompt text."""
     """Render a cached market snapshot for the chat prompt. Empty string if unavailable —
     chat must never fail just because a market provider is down. The chat prompt needs the
     agent to *quote* specific numbers, so we use a slightly different (more directive) format
@@ -792,6 +793,134 @@ def _format_chat_market_context(market_context: dict | None) -> str:
     )
 
 
+def _format_cmc_signals(
+    trending_gainers: list | None = None,
+    trending_losers: list | None = None,
+    new_listings: list | None = None,
+    active_airdrops: list | None = None,
+    global_metrics: dict | None = None,
+) -> str:
+    """Render advanced CoinMarketCap signals as prompt text.
+    Empty string if nothing supplied — proposal generation must never fail because
+    a CMC endpoint is down. Each section is included only when its data is present.
+
+    These are the "deep" CMC endpoints (beyond /quotes/latest) that prove the agent
+    is grounded in a richer view of the market than just price snapshots.
+    """
+    sections: list[str] = []
+
+    def _quote_of(coin: dict) -> tuple[float | None, float | None]:
+        """Return (price, percent_change_24h) for a coin payload. Tolerate both
+        array-shaped and object-shaped quote fields (v3 vs v1)."""
+        q = coin.get("quote")
+        price = pct = None
+        if isinstance(q, list) and q:
+            item = q[0]
+            if isinstance(item, dict):
+                price = item.get("price")
+                pct = item.get("percent_change_24h")
+        elif isinstance(q, dict):
+            for _sym, vals in q.items():
+                if isinstance(vals, dict):
+                    price = vals.get("price")
+                    pct = vals.get("percent_change_24h")
+                    break
+        return price, pct
+
+    if trending_gainers:
+        lines = []
+        for c in trending_gainers[:5]:
+            sym = c.get("symbol") or c.get("name") or "?"
+            price, pct = _quote_of(c)
+            if pct is None:
+                continue
+            price_str = f" @ ${price:,.4f}".rstrip("0").rstrip(".") if price is not None else ""
+            lines.append(f"  - {sym}: +{pct:.1f}% 24h{price_str}")
+        if lines:
+            sections.append("CoinMarketCap top gainers (24h):\n" + "\n".join(lines))
+
+    if trending_losers:
+        lines = []
+        for c in trending_losers[:5]:
+            sym = c.get("symbol") or c.get("name") or "?"
+            price, pct = _quote_of(c)
+            if pct is None:
+                continue
+            price_str = f" @ ${price:,.4f}".rstrip("0").rstrip(".") if price is not None else ""
+            lines.append(f"  - {sym}: {pct:.1f}% 24h{price_str}")
+        if lines:
+            sections.append("CoinMarketCap top losers (24h):\n" + "\n".join(lines))
+
+    if new_listings:
+        lines = []
+        for c in new_listings[:5]:
+            sym = c.get("symbol") or "?"
+            name = c.get("name") or ""
+            added = c.get("date_added") or ""
+            if added:
+                added = added[:10]  # YYYY-MM-DD
+                lines.append(f"  - {sym} ({name}) — listed {added}")
+            else:
+                lines.append(f"  - {sym} ({name})")
+        if lines:
+            sections.append("CoinMarketCap recently listed tokens:\n" + "\n".join(lines))
+
+    if active_airdrops:
+        lines = []
+        for a in active_airdrops[:3]:
+            sym = (a.get("coin") or {}).get("symbol") or a.get("name") or "?"
+            prize = a.get("total_prize")
+            currency = a.get("prize_currency") or ""
+            status = a.get("status") or ""
+            end = a.get("end_date") or ""
+            prize_str = ""
+            if prize is not None:
+                if isinstance(prize, str):
+                    try:
+                        prize_num = float(prize)
+                    except ValueError:
+                        prize_num = None
+                else:
+                    prize_num = prize
+                if prize_num:
+                    if currency:
+                        prize_str = f" — prize {prize_num:,.0f} {currency}"
+                    else:
+                        prize_str = f" — prize ${prize_num:,.0f}"
+            status_str = f" [{status}]" if status else ""
+            end_str = f" ends {end[:10]}" if end else ""
+            lines.append(f"  - {sym}{prize_str}{status_str}{end_str}")
+        if lines:
+            sections.append("CoinMarketCap active airdrops:\n" + "\n".join(lines))
+
+    if global_metrics:
+        mcap = global_metrics.get("total_market_cap")
+        btc_dom = global_metrics.get("btc_dominance")
+        eth_dom = global_metrics.get("eth_dominance")
+        mcap_change = global_metrics.get("total_market_cap_yesterday_percentage_change")
+        lines = []
+        if mcap is not None:
+            mcap_str = f"${mcap/1e12:.2f}T" if mcap >= 1e12 else f"${mcap/1e9:.0f}B"
+            change_str = f" ({mcap_change:+.2f}% 24h)" if mcap_change is not None else ""
+            lines.append(f"  Total market cap: {mcap_str}{change_str}")
+        if btc_dom is not None:
+            lines.append(f"  BTC dominance: {btc_dom:.1f}%")
+        if eth_dom is not None:
+            lines.append(f"  ETH dominance: {eth_dom:.1f}%")
+        if lines:
+            sections.append("CoinMarketCap global metrics:\n" + "\n".join(lines))
+
+    if not sections:
+        return ""
+
+    return (
+        "\n\n" + "\n\n".join(sections)
+        + "\n\nUse these advanced CoinMarketCap signals in your reasoning — "
+        "they're the same data the agent watches live in the dashboard, so the "
+        "owner expects your proposal to be grounded in them, not invented."
+    )
+
+
 async def generate_agent_proposal(
     agent_name: str,
     niche: str,
@@ -803,6 +932,11 @@ async def generate_agent_proposal(
     custom_instructions: str | None = None,
     custom_agenda: str | None = None,
     chat_topics: list[dict] | None = None,
+    trending_gainers: list | None = None,
+    trending_losers: list | None = None,
+    new_listings: list | None = None,
+    active_airdrops: list | None = None,
+    global_metrics: dict | None = None,
 ) -> dict:
     """
     Gemini generates a strategic proposal for the agent based on its history.
@@ -818,6 +952,13 @@ async def generate_agent_proposal(
     traits_text = ", ".join(genetic_traits) if genetic_traits else "none"
     events_text = "\n".join(f"  - {s}" for s in event_summaries) if event_summaries else "  - (no events attended yet)"
     market_text = _format_market_context(market_context)
+    cmc_signals_text = _format_cmc_signals(
+        trending_gainers=trending_gainers,
+        trending_losers=trending_losers,
+        new_listings=new_listings,
+        active_airdrops=active_airdrops,
+        global_metrics=global_metrics,
+    )
 
     # Honor owner's standing instructions + current agenda + recent chat topics.
     owner_block = ""
@@ -846,6 +987,7 @@ Agent Profile:
 Recent Wisdom (events attended):
 {events_text}
 {market_text}
+{cmc_signals_text}
 {owner_block}
 Generate ONE strategic proposal this agent should present to its human owner for approval.
 The proposal must be actionable, specific to the agent's niche, and executable within 7 days.

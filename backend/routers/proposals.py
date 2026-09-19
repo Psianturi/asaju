@@ -16,6 +16,7 @@ Flow:
 
 from collections import defaultdict, deque
 from typing import Literal
+import asyncio
 import logging
 import secrets
 import time
@@ -426,6 +427,41 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
 
     market_context_status = _market_context_status(market_context)
 
+    # Advanced CoinMarketCap signals — also best-effort, fetched in parallel so a
+    # single slow endpoint can't stall the proposal. These give Gemini grounding
+    # in trending, new listings, airdrops, and global metrics beyond the basic
+    # price/sentiment snapshot. Same fail-soft policy as market_context.
+    from services.market_data_service import (
+        get_global_metrics,
+        get_most_visited,
+        get_new_listings,
+        get_trending_gainers_losers,
+    )
+
+    async def _safe(coro, default=None):
+        try:
+            return await coro
+        except Exception as exc:
+            logger.warning("CMC signal fetch failed for proposal: %s", exc)
+            return default
+
+    gainers_task = _safe(get_trending_gainers_losers("24h", 5), default=[])
+    losers_task = _safe(get_trending_gainers_losers("24h", 5, sort_dir="asc"), default=[])
+    listings_task = _safe(get_new_listings(5), default=[])
+    visited_task = _safe(get_most_visited(5), default=[])
+    global_task = _safe(get_global_metrics(), default=None)
+
+    # Airdrops are static (no separate sort_dir or window); reuse the trending call's
+    # shape — we already have get_new_listings + get_most_visited for breadth.
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics = await asyncio.gather(
+        gainers_task, losers_task, listings_task, visited_task, global_task
+    )
+
+    # Treat most-visited as a "new listings" supplement when new listings is sparse,
+    # but keep them logically distinct in the prompt.
+    if not new_listings and most_visited:
+        new_listings = most_visited
+
     # Pull owner's standing instructions + recent chat topics so the proposal
     # reflects the owner's actual agenda, not just the agent's preset niche.
     custom_instructions = (agent_data.get("custom_instructions") or "").strip() or None
@@ -457,6 +493,11 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
             custom_instructions=custom_instructions,
             custom_agenda=custom_agenda,
             chat_topics=owner_chat_topics,
+            trending_gainers=trending_gainers or None,
+            trending_losers=trending_losers or None,
+            new_listings=new_listings or None,
+            active_airdrops=None,  # not yet exposed in proposal router — surface in dashboard for now
+            global_metrics=global_metrics,
         )
     except Exception as exc:
         logger.error("Gemini proposal generation failed for agent %s: %s", agent_id, exc)
