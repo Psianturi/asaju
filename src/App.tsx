@@ -428,7 +428,7 @@ function App() {
           transactionHash: item.txHash,
           tokenId: item.tokenId || '?',
           explorerUrl: item.explorerUrl,
-          imageUrl: 'https://placehold.co/400x400/1a1b3a/00f3ff?text=MAEF+NFT',
+          imageUrl: 'https://placehold.co/400x400/1a1b3a/00f3ff?text=ASAJU+NFT',
         }))
 
       setEvents(restoredEvents)
@@ -531,7 +531,7 @@ function App() {
     
     addLog(newAgent.id, 'secretary', `[${newAgent.name} - secretary] Agent initialization complete`, 'success')
     
-    addLog(newAgent.id, 'secretary', `[${newAgent.name} - secretary] Registered agent wallet on MAEF smart contract`, 'success')
+    addLog(newAgent.id, 'secretary', `[${newAgent.name} - secretary] Registered agent wallet on the ASAJU smart contract`, 'success')
 
     const contractAddress = newAgent.contractAddress || CONTRACT_ADDRESSES.sepolia.MAEF_NFT
     const deploymentTxHash = newAgent.deploymentTxHash || ''
@@ -678,7 +678,7 @@ function App() {
 
         const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Health #Wellness #Web3'
         const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + 'â€¦' : result.wisdomSummary
-        const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #MAEF`
+        const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #ASAJU`
         setLastSocialPost({ agentId: agent.id, text: socialPostText, eventTitle: resolvedTitle })
         addLog(agent.id, 'social-lite', `[${agent.name} - Social-Lite] Post draft ready for "${resolvedTitle}"`, 'success')
       } else {
@@ -708,7 +708,7 @@ function App() {
         transactionHash: result.txHash,
         tokenId: result.tokenId,
         explorerUrl: result.explorerUrl,
-        imageUrl: 'https://placehold.co/400x400/1a1b3a/00f3ff?text=MAEF+NFT',
+            imageUrl: 'https://placehold.co/400x400/1a1b3a/00f3ff?text=ASAJU+NFT',
       } : null
 
       const newEventsAttended = result.newTotalEvents ?? (agent.eventsAttended + 1)

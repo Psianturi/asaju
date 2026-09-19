@@ -557,7 +557,7 @@ async def chat_with_agent(
         )
 
 _BIOGRAPHY_PROMPT = """\
-You are narrating the origin story of a newly born AI agent in the MAEF universe — the Mantle Agentic Event Factory, where autonomous AI entities attend on-chain events, accumulate wisdom, and evolve through neural fusion.
+You are narrating the origin story of a newly born AI agent in the ASAJU universe — the Autonomous Sovereign Agent for Joint Understanding, where autonomous AI entities attend on-chain events, accumulate wisdom, and evolve through neural fusion.
 
 An agent named "{offspring_name}" has just been born — a Generation-{generation} entity forged from the convergence of two parent intelligences.
 
