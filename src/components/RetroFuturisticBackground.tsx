@@ -1,16 +1,55 @@
 ﻿/** Unified retro-futuristic background — synthwave/outrun feel, zero asset dependency.
  * Layer stack (back→front):
  *  1. Sky gradient (deep space → horizon violet)
- *  2. Sun disk (upper-center, half-submerged)
+ *  2. Sun disk (upper-center, half-submerged) — slow breathing animation
  *  3. Orbital rings (subtle, center-faded)
- *  4. Perspective grid plane (bottom half)
- *  5. Star dots (sparse static, no JS animation)
+ *  4. Perspective grid plane (bottom half) — mouse parallax
+ *  5. Star dots (sparse static) — mouse parallax
  *  6. Vignette + noise texture (3% opacity)
  * DataFlow canvas remains as a separate layer (streams over grid).
+ *
+ * Micro-interactions added per design review:
+ *   - Slow "breathing" animation on the sun orb (6s cycle, opacity 0.6 → 1.0)
+ *   - Subtle mouse parallax on grid + stars (max ±10px offset)
+ *   - Respects prefers-reduced-motion (animation + parallax disabled)
  */
+import { useEffect, useRef } from 'react'
+
 export function RetroFuturisticBackground() {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) return
+
+    const el = containerRef.current
+    if (!el) return
+
+    const grid = el.querySelector<SVGElement>('.retro-grid-svg')
+    const stars = el.querySelector<SVGSVGElement>('.retro-stars-svg')
+
+    const handleMove = (e: MouseEvent) => {
+      const rect = el.getBoundingClientRect()
+      // Normalize to -1..1 (center = 0,0)
+      const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2
+      const ny = ((e.clientY - rect.top) / rect.height - 0.5) * 2
+      // Max 10-15px shift
+      const dx = nx * 12
+      const dy = ny * 8
+      if (grid) grid.style.transform = `translate(${dx}px, ${dy}px)`
+      if (stars) stars.style.transform = `translate(${dx * 0.5}px, ${dy * 0.5}px)`
+    }
+
+    el.addEventListener('mousemove', handleMove)
+    return () => el.removeEventListener('mousemove', handleMove)
+  }, [])
+
   return (
-    <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden" aria-hidden="true">
+    <div
+      ref={containerRef}
+      className="fixed inset-0 pointer-events-none -z-10 overflow-hidden"
+      aria-hidden="true"
+    >
       {/* Sky gradient */}
       <div
         className="absolute inset-0"
@@ -21,9 +60,9 @@ export function RetroFuturisticBackground() {
         }}
       />
 
-      {/* Sun disk — half submerged at visual horizon (55% from top) */}
+      {/* Sun disk — half submerged at visual horizon (55% from top) — breathing */}
       <div
-        className="absolute left-1/2 -translate-x-1/2"
+        className="retro-sun absolute left-1/2 -translate-x-1/2"
         style={{
           top: '55%',
           width: '44vmin',
@@ -31,12 +70,11 @@ export function RetroFuturisticBackground() {
           borderRadius: '50% 50% 0 0',
           background: 'linear-gradient(180deg, rgba(255,46,151,0.55) 0%, rgba(157,78,221,0.45) 50%, rgba(0,240,255,0.35) 100%)',
           filter: 'blur(28px)',
-          opacity: 0.7,
         }}
       />
       {/* Hard-edged sun silhouette under the glow */}
       <div
-        className="absolute left-1/2 -translate-x-1/2"
+        className="retro-sun absolute left-1/2 -translate-x-1/2"
         style={{
           top: '55%',
           width: '32vmin',
@@ -58,10 +96,10 @@ export function RetroFuturisticBackground() {
         }}
       />
 
-      {/* Perspective grid plane — bottom half only */}
+      {/* Perspective grid plane — bottom half only — mouse parallax */}
       <svg
-        className="absolute left-0 right-0 bottom-0 w-full"
-        style={{ height: '45%', opacity: 0.5 }}
+        className="retro-grid-svg absolute left-0 right-0 bottom-0 w-full"
+        style={{ height: '45%', opacity: 0.5, transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
         viewBox="0 0 1440 405"
         preserveAspectRatio="none"
       >
@@ -73,14 +111,12 @@ export function RetroFuturisticBackground() {
           </linearGradient>
         </defs>
         <g stroke="url(#grid-fade)" strokeWidth="0.8" fill="none">
-          {/* converging verticals */}
           {Array.from({ length: 17 }).map((_, i) => {
             const x = 720 + (i - 8) * 90
             return (
               <line key={`v${i}`} x1={x} y1="0" x2={720 + (x - 720) * 3} y2="405" />
             )
           })}
-          {/* horizontal lines with perspective compression */}
           {Array.from({ length: 12 }).map((_, i) => {
             const t = i / 11
             const y = Math.pow(t, 1.8) * 405
@@ -100,8 +136,11 @@ export function RetroFuturisticBackground() {
         <circle cx="50" cy="50" r="54" fill="none" stroke="#ff2e97" strokeWidth="0.04" strokeDasharray="2 2.4" />
       </svg>
 
-      {/* Sparse star dots (static, accessibility-safe) */}
-      <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.4 }}>
+      {/* Sparse star dots (static, parallax-follow) */}
+      <svg
+        className="retro-stars-svg absolute inset-0 w-full h-full"
+        style={{ opacity: 0.4, transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
+      >
         {[
           [8, 12], [23, 7], [37, 18], [51, 8], [68, 14], [82, 5], [92, 19],
           [14, 32], [44, 28], [76, 31], [88, 38], [5, 45], [26, 52], [60, 47],

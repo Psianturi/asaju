@@ -66,7 +66,7 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
       </div>
       <div className="text-sm font-mono tabular-nums text-right">{fmtPrice(quote?.price)}</div>
       {change != null ? (
-        <span className={`text-[11px] font-mono tabular-nums w-16 text-right ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
+        <span className={`text-[11px] font-mono tabular-nums w-16 text-right ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
           {up ? '+' : ''}{change.toFixed(1)}%
         </span>
       ) : (
@@ -97,7 +97,7 @@ function ListingChip({ coin, index }: { coin: NewListing; index: number }) {
       </div>
       <div className="flex items-center gap-3 shrink-0">
         {change != null && (
-          <span className={`text-[11px] font-mono tabular-nums ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
+          <span className={`text-[11px] font-mono tabular-nums ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
             {up ? '+' : ''}{change.toFixed(1)}%
           </span>
         )}

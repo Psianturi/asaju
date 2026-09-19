@@ -267,6 +267,35 @@
   .animate-blink,
   .animate-float,
   .hologram {
-  animation: none !important;
+    animation: none !important;
   }
+}
+
+/* Retro-futuristik background — breathing sun animation */
+@keyframes retro-sun-breathe {
+  0%, 100% { opacity: 0.60; }
+  50%      { opacity: 1.00; }
+}
+.retro-sun {
+  animation: retro-sun-breathe 6.5s ease-in-out infinite;
+  will-change: opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .retro-sun {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/* Terminal glow for financial figures — neon text-shadow */
+.text-terminal-glow-up   { text-shadow: 0 0 8px rgba(0, 255, 130, 0.55); }
+.text-terminal-glow-down { text-shadow: 0 0 8px rgba(255, 60, 80, 0.55); }
+
+/* Action tile hover accent — neon border that brightens on hover */
+.action-tile-hover {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.action-tile-hover:hover {
+  border-color: rgba(0, 255, 65, 0.45);
+  box-shadow: 0 0 18px rgba(0, 255, 65, 0.18), inset 0 0 12px rgba(0, 255, 65, 0.05);
 }

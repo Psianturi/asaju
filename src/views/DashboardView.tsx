@@ -615,7 +615,7 @@ function ActionTile({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="text-left p-3.5 rounded-lg border border-border/40 bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+      className="action-tile-hover text-left p-3.5 rounded-lg border border-border/40 bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
     >
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center group-hover:bg-primary/15 transition-colors">

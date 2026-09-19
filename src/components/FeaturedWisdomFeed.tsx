@@ -126,7 +126,7 @@ function WisdomCard({ item, index, onRateWisdom, ratedMap, userWallet }: {
         </div>
 
         {/* Wisdom summary */}
-        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 flex-1">
+        <p className="text-xs text-gray-300 leading-relaxed line-clamp-4 flex-1">
           {item.wisdomSummary || 'No wisdom summary available.'}
         </p>
 

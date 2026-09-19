@@ -74,7 +74,7 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
                 )}
               </div>
               <p className="text-sm font-bold font-mono tabular-nums mt-0.5">{fmtPrice(price.usd)}</p>
-              <p className={`text-[10px] font-mono tabular-nums ${change != null ? (up ? 'text-emerald-400' : 'text-rose-400') : 'text-muted-foreground/50'}`}>
+              <p className={`text-[10px] font-mono tabular-nums ${change != null ? (up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down') : 'text-muted-foreground/50'}`}>
                 {change != null ? `${fmtPct(change)} / 24h` : '—'}
               </p>
             </div>
