@@ -305,18 +305,28 @@ function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgen
 function HeroConnect({ onConnect, agents, platformCount }: { onConnect: () => void; agents: Agent[]; platformCount: number | null }) {
   const count = platformCount ?? agents.length
   return (
-    <Card className="p-4 border border-primary/20 bg-gradient-to-br from-primary/[0.05] to-transparent">
+    <Card className="relative overflow-hidden p-4 border border-primary/30 bg-gradient-to-br from-primary/[0.06] via-transparent to-accent/[0.04] shadow-xl shadow-primary/5">
+      <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-1">
         Get started
       </p>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-lg font-bold mb-1">Connect your wallet to manage your agents</h1>
-          <p className="text-xs text-muted-foreground">
-            {count > 0 ? `${count} agent${count === 1 ? '' : 's'} live on the platform.` : 'Be the first to spawn an agent.'}
+          <h1 className="text-lg font-bold mb-1">See what your agent would propose right now</h1>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Connect a wallet to unlock agent watchlists, AI-grounded proposals from live CMC + CoinGecko data, and human-in-the-loop approvals.
           </p>
+          {count > 0 ? (
+            <p className="text-[11px] text-primary/80 mt-1.5 font-mono">
+              {count} agent{count === 1 ? '' : 's'} live on the platform.
+            </p>
+          ) : (
+            <p className="text-[11px] text-accent/80 mt-1.5 font-mono">
+              Be the first to spawn an agent.
+            </p>
+          )}
         </div>
-        <Button onClick={onConnect} size="sm" className="bg-gradient-to-r from-primary via-secondary to-accent hover:opacity-95 shadow-lg shadow-primary/30 text-white shrink-0 self-start sm:self-auto">
+        <Button onClick={onConnect} size="sm" className="bg-gradient-to-r from-primary via-secondary to-accent hover:opacity-95 shadow-lg shadow-primary/40 text-white shrink-0 self-start sm:self-auto">
           <ShieldCheck size={14} className="mr-1.5" weight="bold" />
           Connect wallet
         </Button>

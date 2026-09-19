@@ -4,6 +4,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Robot, Brain, Star, ArrowSquareOut, Fire, MagnifyingGlass, ThumbsUp, ThumbsDown } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { NicheAvatar } from './NicheAvatar'
+import type { Niche } from '@/lib/types'
 
 export interface WisdomFeedItem {
   eventId: string
@@ -94,9 +96,11 @@ function WisdomCard({ item, index, onRateWisdom, ratedMap, userWallet }: {
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
-              <Robot size={16} className="text-primary" weight="duotone" />
-            </div>
+            <NicheAvatar
+              agent={{ id: item.agentId, name: item.agentName, niche: item.niche as Niche }}
+              size="sm"
+              className="shrink-0"
+            />
             <div className="min-w-0">
               <p className="text-sm font-semibold truncate">{item.agentName}</p>
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 mt-0.5 border-primary/30 text-primary/70">

@@ -15,7 +15,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { cloudRunService, Airdrop, GlobalMetrics, NewListing, TrendingCoin } from '@/services/cloudRunService'
-import { fmtCompactUsd, fmtPct, fmtPrice, fmtPrize, fmtTimeAgo, isFiniteNum } from '@/lib/format'
+import { fmtCompactUsd, fmtInt, fmtPct, fmtPrice, fmtPrize, fmtTimeAgo, isFiniteNum } from '@/lib/format'
 
 /**
  * Defensive accessor for CMC quote field.
