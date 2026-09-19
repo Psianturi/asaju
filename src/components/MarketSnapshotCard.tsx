@@ -33,7 +33,7 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
   const news = (snapshot.news ?? []).map(getNewsTitle).filter((title): title is string => Boolean(title)).slice(0, compact ? 2 : 3)
 
   return (
-    <div className={compact ? 'space-y-2.5' : 'space-y-3.5'}>
+    <div className={compact ? 'space-y-2.5' : 'space-y-3'}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -59,12 +59,12 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-3 gap-1">
         {Object.entries(snapshot.prices).map(([id, price]) => {
           const change = isFiniteNum(price.usd_24h_change) ? (price.usd_24h_change as number) : null
           const up = change != null && change >= 0
           return (
-            <div key={id} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
+            <div key={id} className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1.5">
               <div className="flex items-center justify-between gap-1">
                 <span className="text-[10px] text-muted-foreground font-mono uppercase">{COIN_LABELS[id] ?? id}</span>
                 {change != null && (
@@ -83,17 +83,14 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
       </div>
 
       {sentimentValue !== null && snapshot.fear_greed && (
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
-          <div className="flex items-center justify-between gap-3 mb-1.5">
-            <span className="text-xs font-semibold">Market sentiment</span>
-            <span className={`text-xs font-bold tabular-nums ${sentimentColor(sentimentValue)}`}>
-              {snapshot.fear_greed.value_classification} · {sentimentValue}/100
-            </span>
+        <div className="flex items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5">
+          <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground shrink-0">Sentiment</span>
+          <div className="relative flex-1 h-1 rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 opacity-80">
+            <div className="absolute h-2 w-2 -translate-y-[2px] rounded-full border border-background bg-white shadow" style={{ left: `calc(${Math.max(0, Math.min(100, sentimentValue))}% - 4px)` }} />
           </div>
-          <div className="h-1.5 rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 opacity-80">
-            <div className="h-3 w-3 -translate-y-[3px] rounded-full border-2 border-background bg-white shadow" style={{ marginLeft: `calc(${Math.max(0, Math.min(100, sentimentValue))}% - 6px)` }} />
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1.5">CoinMarketCap Fear &amp; Greed index</p>
+          <span className={`text-[10px] font-bold tabular-nums shrink-0 ${sentimentColor(sentimentValue)}`}>
+            {snapshot.fear_greed.value_classification} · {sentimentValue}
+          </span>
         </div>
       )}
 

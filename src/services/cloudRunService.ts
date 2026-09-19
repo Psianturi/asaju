@@ -252,13 +252,16 @@ export interface Airdrop {
     name: string
     symbol: string
   }
-  status?: string
+  status?: 'ONGOING' | 'UPCOMING' | 'ENDED' | string
   start_date?: string
   end_date?: string
   airdrop_type?: string
-  total_prize?: number
+  total_prize?: number | string
   prize_currency?: string
+  prize_pool_usd?: number
+  winner_count?: number
   description?: string
+  link?: string
 }
 
 export interface GlobalMetrics {

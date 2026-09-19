@@ -101,6 +101,21 @@ function AirdropItem({ airdrop, index }: { airdrop: Airdrop; index: number }) {
   const daysLeft = airdrop.end_date
     ? Math.max(0, Math.ceil((new Date(airdrop.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null
+  const status = (airdrop.status ?? '').toUpperCase()
+  const statusClasses =
+    status === 'ONGOING' ? 'bg-emerald-400/15 text-emerald-300 border-emerald-400/30'
+    : status === 'UPCOMING' ? 'bg-cyan-400/15 text-cyan-300 border-cyan-400/30'
+    : status === 'ENDED' ? 'bg-muted/40 text-muted-foreground/60 border-muted/40'
+    : 'bg-amber-400/15 text-amber-300 border-amber-400/30'
+
+  const prizeNum = typeof airdrop.total_prize === 'string' ? Number(airdrop.total_prize) : airdrop.total_prize
+  const hasPrize = isFiniteNum(prizeNum)
+  const prizeText = hasPrize
+    ? airdrop.prize_currency
+      ? `${fmtInt(prizeNum as number)} ${airdrop.prize_currency}`
+      : `$${fmtInt(prizeNum as number)}`
+    : null
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -113,15 +128,24 @@ function AirdropItem({ airdrop, index }: { airdrop: Airdrop; index: number }) {
           <Gift size={12} className="text-amber-300" weight="duotone" />
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-semibold truncate leading-tight">{symbol} Airdrop</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-semibold truncate leading-tight">{symbol} Airdrop</p>
+            {status && (
+              <span className={`text-[8px] font-mono font-bold uppercase px-1 py-0.5 rounded border ${statusClasses}`}>
+                {status}
+              </span>
+            )}
+          </div>
           <p className="text-[10px] text-muted-foreground tabular-nums">
-            {airdrop.total_prize != null && isFiniteNum(airdrop.total_prize)
-              ? `Prize ${fmtPrize(airdrop.total_prize, airdrop.prize_currency ?? '')}`
-              : 'Tap to learn more'}
+            {prizeText
+              ? `Prize ${prizeText}${airdrop.winner_count ? ` · ${fmtInt(airdrop.winner_count)} winners` : ''}`
+              : airdrop.winner_count
+                ? `${fmtInt(airdrop.winner_count)} winners`
+                : 'Tap to learn more'}
           </p>
         </div>
       </div>
-      {daysLeft != null && daysLeft > 0 && (
+      {daysLeft != null && daysLeft > 0 && status !== 'ENDED' && (
         <span className="text-[10px] font-mono font-semibold text-amber-300 shrink-0 tabular-nums">
           {daysLeft}d left
         </span>
@@ -271,7 +295,7 @@ export function MarketIntelligencePanel() {
                     </button>
                   )}
                 </div>
-                <div className="space-y-1">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
                   {visibleGainers.map((coin, i) => (
                     <PulseItem key={coin.id ?? i} coin={coin} index={i} />
                   ))}
