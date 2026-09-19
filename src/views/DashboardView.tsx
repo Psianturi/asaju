@@ -11,6 +11,7 @@ import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
 import { AgentInsightsSection } from '@/components/AgentInsightsSection'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
+import { RetroBackdrop } from '@/components/RetroBackdrop'
 
 interface DashboardViewProps {
   agents: Agent[]
@@ -140,6 +141,7 @@ export function DashboardView({
 
   return (
     <div className="space-y-4">
+      <RetroBackdrop />
       <section>
         {isConnected ? (
           urgentAction ? (

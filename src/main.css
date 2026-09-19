@@ -270,3 +270,195 @@
     animation: none !important;
   }
 }
+
+/*
+  ── RetroBackdrop (CSS-first, retro-futuristik) ─────────────────────────────
+  4-layer decorative background: sky → sun → orbits → grid + stars + noise.
+  All elements fixed/absolute, low opacity, content sits above with backdrop-blur.
+  Reduced motion respected via @media guard below.
+*/
+.retro-backdrop {
+  z-index: 0;
+}
+
+.retro-layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* Layer 1: sky gradient — top deep navy, bottom warm violet */
+.retro-sky {
+  background:
+    linear-gradient(180deg,
+      #070915 0%,
+      #0a0d22 30%,
+      #0d0b23 60%,
+      #1a0a2e 100%
+    );
+}
+
+/* Layer 2: sun orb with synthwave strip cuts */
+.retro-sun-wrap {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  inset: auto 0 22vh 0;
+}
+.retro-sun-halo {
+  position: absolute;
+  bottom: 18vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60vw;
+  height: 60vw;
+  max-width: 720px;
+  max-height: 720px;
+  background: radial-gradient(circle,
+    rgba(255, 46, 151, 0.18) 0%,
+    rgba(157, 78, 221, 0.10) 30%,
+    transparent 70%
+  );
+  filter: blur(40px);
+  pointer-events: none;
+}
+.retro-sun {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  border-radius: 9999px;
+  background:
+    linear-gradient(180deg,
+      #ff2e97 0%,
+      #ff6b4a 35%,
+      #ffaa3d 65%,
+      #ffd166 100%
+    );
+  box-shadow:
+    0 0 80px rgba(255, 107, 74, 0.45),
+    inset 0 -40px 60px rgba(157, 0, 255, 0.30);
+  /* Synthwave horizontal strip cuts */
+  -webkit-mask-image:
+    linear-gradient(180deg,
+      #000 0%, #000 55%,
+      transparent 56%, transparent 58%,
+      #000 59%, #000 70%,
+      transparent 71%, transparent 73%,
+      #000 74%, #000 84%,
+      transparent 85%, transparent 87%,
+      #000 88%, #000 100%
+    );
+          mask-image:
+    linear-gradient(180deg,
+      #000 0%, #000 55%,
+      transparent 56%, transparent 58%,
+      #000 59%, #000 70%,
+      transparent 71%, transparent 73%,
+      #000 74%, #000 84%,
+      transparent 85%, transparent 87%,
+      #000 88%, #000 100%
+    );
+}
+
+/* Layer 3: orbital rings — concentric, fading outward */
+.retro-orbit-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.retro-orbit {
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 240, 255, 0.30);
+  pointer-events: none;
+}
+.retro-orbit-1 {
+  width: 360px; height: 360px;
+  border-color: rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.20);
+}
+.retro-orbit-2 {
+  width: 560px; height: 560px;
+  border-color: rgba(157, 78, 221, 0.30);
+  border-style: dashed;
+}
+.retro-orbit-3 {
+  width: 820px; height: 820px;
+  border-color: rgba(0, 240, 255, 0.18);
+  opacity: 0.7;
+}
+
+/* Layer 4: perspective grid (bottom half) */
+.retro-grid-wrap {
+  top: 55%;
+}
+.retro-grid {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(0, 240, 255, 0.10) 0px,
+      transparent 1px,
+      transparent 80px,
+      rgba(0, 240, 255, 0.10) 81px
+    ),
+    repeating-linear-gradient(0deg,
+      rgba(0, 240, 255, 0.10) 0px,
+      transparent 1px,
+      transparent 50px,
+      rgba(0, 240, 255, 0.10) 51px
+    );
+  transform: perspective(500px) rotateX(55deg);
+  transform-origin: center top;
+  opacity: 0.55;
+}
+.retro-grid-mask {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, transparent 30%, var(--background, #070915) 100%);
+  pointer-events: none;
+}
+
+/* Layer 5: star field — radial dots positioned via radial-gradient */
+.retro-stars {
+  background:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 209, 102, 0.6), transparent 50%),
+    radial-gradient(1px 1px at 28% 8%, rgba(0, 240, 255, 0.5), transparent 50%),
+    radial-gradient(1.5px 1.5px at 45% 22%, rgba(255, 209, 102, 0.55), transparent 50%),
+    radial-gradient(1px 1px at 60% 5%, rgba(255, 255, 255, 0.6), transparent 50%),
+    radial-gradient(1px 1px at 75% 14%, rgba(0, 240, 255, 0.45), transparent 50%),
+    radial-gradient(1.5px 1.5px at 88% 28%, rgba(255, 209, 102, 0.50), transparent 50%),
+    radial-gradient(1px 1px at 8% 38%, rgba(255, 255, 255, 0.4), transparent 50%),
+    radial-gradient(1px 1px at 32% 44%, rgba(157, 78, 221, 0.55), transparent 50%),
+    radial-gradient(1px 1px at 68% 35%, rgba(255, 255, 255, 0.45), transparent 50%),
+    radial-gradient(1px 1px at 92% 42%, rgba(0, 240, 255, 0.4), transparent 50%);
+  opacity: 0.85;
+}
+
+/* Layer 6: noise texture (SVG inline data-URI, ~3% opacity) */
+.retro-noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+}
+
+/* Layer 7: edge vignette — subtle darkening at corners */
+.retro-vignette {
+  background: radial-gradient(ellipse at center,
+    transparent 50%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+}
+
+/* Reduced motion: disable sun-halo drift + orbit-rotation if user prefers */
+@media (prefers-reduced-motion: reduce) {
+  .retro-backdrop * {
+    animation: none !important;
+  }
+}
+
+/* Mobile: smaller sun, fewer rings, lighter overall (battery friendly) */
+@media (max-width: 640px) {
+  .retro-sun { width: 180px; height: 180px; }
+  .retro-sun-halo { width: 80vw; height: 80vw; }
+  .retro-orbit-3 { display: none; }
+}
