@@ -26,6 +26,7 @@ from web3 import Web3
 from core.config import get_chain_config
 from core.database import get_db
 from core.kms_service import decrypt_private_key, encrypt_private_key
+from services.comprehension_service import build_live_scout_log, compute_comprehension
 from services.llm_service import chat_with_agent, generate_lineage_biography, generate_wisdom_report
 from services.market_data_service import get_market_snapshot
 from services.web3_service import web3_service
@@ -208,17 +209,54 @@ class SpawnResponse(BaseModel):
     agent_gas_balance: float | None = None
     chain_id: int = 5003
     skill_scores: dict[str, int] | None = None
+    # Comprehension is a derived view from the agent's event history, recomputed
+    # on every read. Includes a progress bar toward the next mint milestone so
+    # the owner can see *how far along* the agent is, not just *where it is*.
+    comprehension_score: int = 0
+    comprehension_coverage: int = 0
+    comprehension_depth: int = 0
+    comprehension_density: int = 0
+    comprehension_next_milestone: int | None = 20
+    comprehension_progress_to_next: int = 20
+    comprehension_sampled_niches: list[str] = []
+    recent_scout_log: list[dict] = []
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _to_response(data: dict, needs_funding: bool) -> SpawnResponse:
-    """Convert a Firestore document dict to SpawnResponse (strips private_key).
+async def _build_agent_response(data: dict, needs_funding: bool) -> SpawnResponse:
+    """Build a SpawnResponse from a Firestore doc dict, computing comprehension
+    and the recent scout log on demand. Best-effort: if the comprehension query
+    fails or the agent has no events, the response still builds with defaults
+    so a single broken Firestore query can't break the whole agent endpoint."""
+    agent_id = data["agent_id"]
+    comprehension = {
+        "score": 0, "coverage": 0, "depth": 0, "density": 0,
+        "next_milestone": 20, "progress_to_next": 20,
+        "sampled_niches": [],
+    }
+    recent_log: list[dict] = []
+    try:
+        db = get_db()
+        # Pull only the fields we need to keep the read light — Firestore still
+        # transfers the full doc, but a dedicated `select` would shave bytes.
+        events = []
+        async for ev_doc in (
+            db.collection(EVENTS_COLLECTION)
+            .where(filter=FieldFilter("agent_id", "==", agent_id))
+            .stream()
+        ):
+            ev = ev_doc.to_dict() or {}
+            ev["doc_id"] = ev_doc.id
+            events.append(ev)
+        comprehension = compute_comprehension(events)
+        recent_log = await build_live_scout_log(events, limit=5)
+    except Exception as exc:
+        # Never fail the whole endpoint because comprehension can't compute —
+        # fall back to defaults and log.
+        logger.warning("Comprehension computation failed for agent %s: %s", agent_id, exc)
 
-    Uses explicit .get(field, default) for every optional field so legacy Firestore
-    documents missing new fields never cause a KeyError or Pydantic validation failure.
-    """
     return SpawnResponse(
         agent_id=data["agent_id"],
         agent_wallet=data["agent_wallet"],
@@ -237,6 +275,7 @@ def _to_response(data: dict, needs_funding: bool) -> SpawnResponse:
         custom_agenda=data.get("custom_agenda"),
         generation=data.get("generation"),
         parent_ids=data.get("parent_ids"),
+        parent_names=data.get("parent_names"),
         breeding_count=data.get("breeding_count"),
         max_breedings=data.get("max_breedings"),
         genetic_traits=data.get("genetic_traits"),
@@ -244,7 +283,54 @@ def _to_response(data: dict, needs_funding: bool) -> SpawnResponse:
         breeding_cooldown_hours=data.get("breeding_cooldown_hours"),
         autonomous_signatures=data.get("autonomous_signatures", 0),
         wisdom_heritage_score=data.get("wisdom_heritage_score"),
+        lineage_biography=data.get("lineage_biography"),
+        spawned_on_v4=data.get("spawned_on_v4", False),
+        ownership_status=data.get("ownership_status"),
+        agent_gas_balance=data.get("agent_gas_balance"),
+        chain_id=data.get("chain_id", 5003),
+        skill_scores=data.get("skill_scores"),
+        # Comprehension + scout log — see comprehension_service.py for scoring.
+        comprehension_score=comprehension["score"],
+        comprehension_coverage=comprehension["coverage"],
+        comprehension_depth=comprehension["depth"],
+        comprehension_density=comprehension["density"],
+        comprehension_next_milestone=comprehension["next_milestone"],
+        comprehension_progress_to_next=comprehension["progress_to_next"],
+        comprehension_sampled_niches=comprehension["sampled_niches"],
+        recent_scout_log=recent_log,
+    )
+
+
+def _to_response(data: dict, needs_funding: bool) -> SpawnResponse:
+    """Sync wrapper kept for callers that already have all data locally.
+    Comprehension falls back to zeros — use _build_agent_response when
+    freshness matters (always for API requests)."""
+    return SpawnResponse(
+        agent_id=data["agent_id"],
+        agent_wallet=data["agent_wallet"],
+        agent_name=data["agent_name"],
+        niche=data["niche"],
+        user_wallet=data["user_wallet"],
+        level=data.get("level", 1),
+        total_events=data.get("total_events", 0),
+        created_at=data.get("created_at", 0.0),
+        needs_funding=needs_funding,
+        personality=data.get("personality"),
+        custom_instructions=data.get("custom_instructions"),
+        auto_scout_enabled=data.get("auto_scout_enabled", False),
+        scout_interval_hours=data.get("scout_interval_hours", 6),
+        last_scout_at=data.get("last_scout_at"),
+        custom_agenda=data.get("custom_agenda"),
+        generation=data.get("generation"),
+        parent_ids=data.get("parent_ids"),
         parent_names=data.get("parent_names"),
+        breeding_count=data.get("breeding_count"),
+        max_breedings=data.get("max_breedings"),
+        genetic_traits=data.get("genetic_traits"),
+        last_breeding_time=data.get("last_breeding_time"),
+        breeding_cooldown_hours=data.get("breeding_cooldown_hours"),
+        autonomous_signatures=data.get("autonomous_signatures", 0),
+        wisdom_heritage_score=data.get("wisdom_heritage_score"),
         lineage_biography=data.get("lineage_biography"),
         spawned_on_v4=data.get("spawned_on_v4", False),
         ownership_status=data.get("ownership_status"),
@@ -993,7 +1079,8 @@ async def get_current_insight(agent_id: str) -> CurrentInsightResponse:
 
 @router.get("/{agent_id}", response_model=SpawnResponse)
 async def get_agent(agent_id: str) -> SpawnResponse:
-    """Retrieve agent info by agent_id."""
+    """Retrieve agent info by agent_id. Comprehension score and recent scout
+    log are computed live from the event history on every call."""
     db = get_db()
 
     try:
@@ -1005,8 +1092,8 @@ async def get_agent(agent_id: str) -> SpawnResponse:
     if not doc.exists:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
-    data = doc.to_dict()
-    return _to_response(data, needs_funding=not data.get("funded", False))
+    data = doc.to_dict() or {}
+    return await _build_agent_response(data, needs_funding=not data.get("funded", False))
 
 
 @router.post("/{agent_id}/retry-spawn")
