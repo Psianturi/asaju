@@ -62,8 +62,46 @@ def symbol_to_cmc_id(symbol: str) -> int | None:
     return _CMC_ID_MAP.get(symbol.upper())
 
 
-async def _cached(key: str, ttl_seconds: int, fetch):
-    """Return cached payload if fresh, otherwise call fetch() and persist the result."""
+def _normalize_cmc_quote(coin: dict) -> dict:
+    """CMC v1 endpoints return `quote = {USD: {...}}` (object), v3 returns array.
+    Frontend expects an array uniformly. Convert object→array, preserving every field.
+    Pass-through if shape is already an array or empty.
+    """
+    if not isinstance(coin, dict):
+        return coin
+    quote = coin.get("quote")
+    if isinstance(quote, dict):
+        # Convert {USD: {price: ..., ...}, BTC: {...}} → [{symbol: 'USD', ...}, ...]
+        coin["quote"] = [
+            {"symbol": sym, **vals} if isinstance(vals, dict) else {"symbol": sym, "value": vals}
+            for sym, vals in quote.items()
+        ]
+    elif quote is None:
+        coin["quote"] = []
+    return coin
+
+
+def _normalize_cmc_payload(payload: object) -> object:
+    """Recursively normalize every coin in the CMC response array/object."""
+    if isinstance(payload, list):
+        return [_normalize_cmc_coin(c) for c in payload]
+    if isinstance(payload, dict):
+        # If this looks like a single coin (has id/name/symbol + quote), normalize it
+        if "quote" in payload and ("id" in payload or "name" in payload or "symbol" in payload):
+            return _normalize_cmc_quote(payload)
+        # Otherwise recurse into values (covers {"data": [...]}, {BTC: {...}}, etc.)
+        return {k: _normalize_cmc_payload(v) for k, v in payload.items()}
+    return payload
+
+
+def _normalize_cmc_coin(coin: object) -> object:
+    return _normalize_cmc_quote(coin) if isinstance(coin, dict) else coin
+
+
+async def _cached(key: str, ttl_seconds: int, fetch, normalize: bool = False):
+    """Return cached payload if fresh, otherwise call fetch() and persist the result.
+    Set normalize=True to apply CMC quote-shape normalization (object→array).
+    """
     db = get_db()
     doc_ref = db.collection(_CACHE_COLLECTION).document(key)
     now = time.time()
@@ -72,12 +110,17 @@ async def _cached(key: str, ttl_seconds: int, fetch):
         snapshot = await doc_ref.get()
         if snapshot.exists:
             data = snapshot.to_dict() or {}
+            payload = data.get("payload")
+            if normalize and payload is not None:
+                payload = _normalize_cmc_payload(payload)
             if now - data.get("fetched_at", 0) < ttl_seconds:
-                return data.get("payload")
+                return payload
     except Exception as exc:
         logger.warning("Market cache read failed for '%s': %s", key, exc)
 
     payload = await fetch()
+    if normalize:
+        payload = _normalize_cmc_payload(payload)
 
     try:
         await doc_ref.set({"payload": payload, "fetched_at": now})
@@ -225,7 +268,7 @@ async def get_trending_gainers_losers(time_period: str = "24h", limit: int = 10)
             logger.warning("CMC trending gainers/losers fetch failed: %s", exc)
             return []
 
-    return await _cached(key, _TTL_TRENDING, fetch)
+    return await _cached(key, _TTL_TRENDING, fetch, normalize=True)
 
 
 async def get_trending_latest(time_period: str = "24h", limit: int = 10) -> list:
@@ -243,7 +286,7 @@ async def get_trending_latest(time_period: str = "24h", limit: int = 10) -> list
             logger.warning("CMC trending latest fetch failed: %s", exc)
             return []
 
-    return await _cached(key, _TTL_TRENDING, fetch)
+    return await _cached(key, _TTL_TRENDING, fetch, normalize=True)
 
 
 async def get_new_listings(limit: int = 10) -> list:
@@ -258,7 +301,7 @@ async def get_new_listings(limit: int = 10) -> list:
             logger.warning("CMC new listings fetch failed: %s", exc)
             return []
 
-    return await _cached(key, _TTL_NEW_LISTINGS, fetch)
+    return await _cached(key, _TTL_NEW_LISTINGS, fetch, normalize=True)
 
 
 async def get_airdrops(limit: int = 10) -> list:
@@ -273,20 +316,7 @@ async def get_airdrops(limit: int = 10) -> list:
             logger.warning("CMC airdrops fetch failed: %s", exc)
             return []
 
-    return await _cached(key, _TTL_AIRDROPS, fetch)
-
-
-async def get_global_metrics() -> dict | None:
-    """Total market cap, BTC/ETH dominance — macro context for proposals. Cached 10 min."""
-    async def fetch():
-        try:
-            data = await _cmc_get("/v1/global-metrics/quotes/latest")
-            return data.get("data")
-        except Exception as exc:
-            logger.warning("CMC global metrics fetch failed: %s", exc)
-            return None
-
-    return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
+    return await _cached(key, _TTL_AIRDROPS, fetch, normalize=True)
 
 
 async def get_most_visited(limit: int = 10) -> list:
@@ -301,7 +331,7 @@ async def get_most_visited(limit: int = 10) -> list:
             logger.warning("CMC most visited fetch failed: %s", exc)
             return []
 
-    return await _cached(key, _TTL_MOST_VISITED, fetch)
+    return await _cached(key, _TTL_MOST_VISITED, fetch, normalize=True)
 
 
 async def get_categories() -> list:
@@ -315,6 +345,20 @@ async def get_categories() -> list:
             return []
 
     return await _cached("categories", _TTL_CATEGORIES, fetch)
+
+
+async def get_global_metrics() -> dict | None:
+    """Total market cap, BTC/ETH dominance — macro context for proposals. Cached 10 min."""
+    async def fetch():
+        try:
+            data = await _cmc_get("/v1/global-metrics/quotes/latest")
+            return data.get("data")
+        except Exception as exc:
+            logger.warning("CMC global metrics fetch failed: %s", exc)
+            return None
+
+    # Not normalizing — global metrics has no `quote` array (btc_dominance/eth_dominance live at top level).
+    return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
 
 
 async def get_market_snapshot(coin_ids: list[str] | None = None) -> dict:
