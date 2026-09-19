@@ -267,63 +267,6 @@
   .animate-blink,
   .animate-float,
   .hologram {
-    animation: none !important;
+  animation: none !important;
   }
-}
-
-/*
-  ── SubtleBackdrop (minimal, productive-friendly) ────────────────────────────
-  Replaces an earlier more decorative retro backdrop that was distracting from
-  dashboard content. Only 3 layers, all very low opacity:
-    1. Radial gradient mesh (top-left cyan + bottom-right violet glow)
-    2. Sparse star dots
-    3. Edge vignette for soft framing
-  No sun, no grid, no orbits — content readability is the priority.
-*/
-.subtle-backdrop {
-  z-index: 0;
-}
-
-.subtle-layer {
-  position: absolute;
-  inset: 0;
-}
-
-/* Layer 1: subtle gradient mesh — two corner glows at very low opacity */
-.subtle-mesh {
-  background:
-    radial-gradient(ellipse 60vw 50vh at 8% 6%,
-      rgba(0, 240, 255, 0.05) 0%,
-      transparent 60%
-    ),
-    radial-gradient(ellipse 50vw 40vh at 95% 95%,
-      rgba(157, 78, 221, 0.05) 0%,
-      transparent 60%
-    ),
-    radial-gradient(ellipse 40vw 35vh at 50% 40%,
-      rgba(255, 46, 151, 0.025) 0%,
-      transparent 70%
-    );
-}
-
-/* Layer 2: very sparse stars (low opacity, ~10 dots) */
-.subtle-stars {
-  background:
-    radial-gradient(1px 1px at 15% 20%, rgba(255, 209, 102, 0.35), transparent 50%),
-    radial-gradient(1px 1px at 38% 12%, rgba(0, 240, 255, 0.30), transparent 50%),
-    radial-gradient(1px 1px at 62% 18%, rgba(255, 255, 255, 0.35), transparent 50%),
-    radial-gradient(1px 1px at 82% 8%, rgba(0, 240, 255, 0.25), transparent 50%),
-    radial-gradient(1px 1px at 25% 35%, rgba(255, 209, 102, 0.30), transparent 50%),
-    radial-gradient(1px 1px at 75% 32%, rgba(255, 255, 255, 0.30), transparent 50%),
-    radial-gradient(1px 1px at 8% 48%, rgba(157, 78, 221, 0.30), transparent 50%),
-    radial-gradient(1px 1px at 92% 45%, rgba(0, 240, 255, 0.25), transparent 50%);
-  opacity: 0.6;
-}
-
-/* Layer 3: soft edge vignette */
-.subtle-vignette {
-  background: radial-gradient(ellipse at center,
-    transparent 65%,
-    rgba(0, 0, 0, 0.25) 100%
-  );
 }
