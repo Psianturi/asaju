@@ -212,6 +212,66 @@ export interface DexPool {
   }
 }
 
+export interface TrendingCoin {
+  id: number
+  name: string
+  symbol: string
+  slug?: string
+  cmc_rank?: number
+  quote?: Array<{
+    price: number
+    percent_change_24h?: number
+    percent_change_1h?: number
+    percent_change_7d?: number
+    market_cap?: number
+    volume_24h?: number
+  }>
+}
+
+export interface NewListing {
+  id: number
+  name: string
+  symbol: string
+  slug?: string
+  date_added?: string
+  cmc_rank?: number
+  quote?: Array<{
+    price?: number
+    percent_change_24h?: number
+    market_cap?: number
+    volume_24h?: number
+  }>
+}
+
+export interface Airdrop {
+  id: number
+  name: string
+  coin_id?: number
+  coin?: {
+    id: number
+    name: string
+    symbol: string
+  }
+  status?: string
+  start_date?: string
+  end_date?: string
+  airdrop_type?: string
+  total_prize?: number
+  prize_currency?: string
+  description?: string
+}
+
+export interface GlobalMetrics {
+  total_market_cap?: number
+  total_volume_24h?: number
+  total_market_cap_yesterday_percentage_change?: number
+  btc_dominance?: number
+  eth_dominance?: number
+  defi_volume_24h?: number
+  stablecoin_volume_24h?: number
+  last_updated?: string
+}
+
 export class CloudRunAPIError extends Error {
   constructor(
     message: string,
@@ -1162,6 +1222,46 @@ export const cloudRunService = {
       { method: 'GET' },
     )
     return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
+  },
+
+  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5): Promise<{ time_period: string; results: TrendingCoin[] }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<{ time_period: string; results: TrendingCoin[] }>(response)
+  },
+
+  async getNewListings(limit = 5): Promise<{ results: NewListing[] }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/market/listings/new?limit=${limit}`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<{ results: NewListing[] }>(response)
+  },
+
+  async getAirdrops(limit = 5): Promise<{ results: Airdrop[] }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/market/airdrops?limit=${limit}`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<{ results: Airdrop[] }>(response)
+  },
+
+  async getGlobalMetrics(): Promise<{ metrics: GlobalMetrics | null }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/market/global-metrics`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<{ metrics: GlobalMetrics | null }>(response)
+  },
+
+  async getMostVisited(limit = 5): Promise<{ results: TrendingCoin[] }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/market/most-visited?limit=${limit}`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<{ results: TrendingCoin[] }>(response)
   },
 
   async getOwnerInbox(wallet: string): Promise<{

@@ -9,6 +9,7 @@ import { cloudRunService } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
+import { MarketIntelligencePanel } from '@/components/MarketIntelligencePanel'
 
 interface DashboardViewProps {
   agents: Agent[]
@@ -245,6 +246,9 @@ export function DashboardView({
           </div>
         </section>
       )}
+
+      {/* ── Market intelligence — eye-catching live pulse (top, pre/post connect) ─── */}
+      <MarketIntelligencePanel />
 
       {/* ── Market context — supplementary, never blocks the page ──────── */}
       <MarketSnapshotCard />
