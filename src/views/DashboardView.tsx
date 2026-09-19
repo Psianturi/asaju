@@ -308,8 +308,8 @@ function HeroConnect({ onConnect, agents, platformCount }: { onConnect: () => vo
             {count > 0 ? `${count} agent${count === 1 ? '' : 's'} live on the platform.` : 'Be the first to spawn an agent.'}
           </p>
         </div>
-        <Button onClick={onConnect} size="sm" className="bg-gradient-to-r from-secondary to-accent hover:opacity-90 shrink-0 self-start sm:self-auto">
-          <ShieldCheck size={14} className="mr-1.5" />
+        <Button onClick={onConnect} size="sm" className="bg-gradient-to-r from-primary via-secondary to-accent hover:opacity-95 shadow-lg shadow-primary/30 text-white shrink-0 self-start sm:self-auto">
+          <ShieldCheck size={14} className="mr-1.5" weight="bold" />
           Connect wallet
         </Button>
       </div>

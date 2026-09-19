@@ -17,10 +17,27 @@ import { Card } from '@/components/ui/card'
 import { cloudRunService, Airdrop, GlobalMetrics, NewListing, TrendingCoin } from '@/services/cloudRunService'
 import { fmtCompactUsd, fmtPct, fmtPrice, fmtPrize, fmtTimeAgo, isFiniteNum } from '@/lib/format'
 
+/**
+ * Defensive accessor for CMC quote field.
+ * v1 endpoints return `{USD: {...}}` (object), v3 returns `[{...}]` (array).
+ * Backend normalizer (commit b772135) converts v1 to array; this helper
+ * handles the array form with one extra safety net for any direct cache reads
+ * that pre-date the fix.
+ */
+function getQuote<T = any>(coin: { quote?: unknown }): T | undefined {
+  const q = coin.quote
+  if (Array.isArray(q) && q.length > 0) return q[0] as T
+  if (q && typeof q === 'object') {
+    const vals = Object.values(q as Record<string, unknown>)
+    if (vals.length > 0) return vals[0] as T
+  }
+  return undefined
+}
+
 const REFRESH_MS = 5 * 60 * 1000
 
 function PulseItem({ coin, index }: { coin: TrendingCoin; index: number }) {
-  const quote = coin.quote?.[0]
+  const quote = getQuote(coin)
   const hasPrice = isFiniteNum(quote?.price)
   const hasChange = isFiniteNum(quote?.percent_change_24h)
   if (!hasPrice && !hasChange) return null
@@ -169,7 +186,7 @@ export function MarketIntelligencePanel() {
   const down = failedSources >= 4
 
   return (
-    <Card className="relative overflow-hidden border-cyan-400/20 bg-gradient-to-br from-cyan-400/[0.04] via-transparent to-violet-400/[0.04]">
+    <Card className="relative overflow-hidden border-cyan-400/30 bg-slate-950/60 backdrop-blur-md shadow-2xl shadow-black/40">
       <div className="h-[3px] bg-gradient-to-r from-cyan-400 via-violet-400 to-emerald-400" />
 
       <div className="p-4">
