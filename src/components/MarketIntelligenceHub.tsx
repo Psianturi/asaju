@@ -52,17 +52,15 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
       initial={{ opacity: 0, x: -6 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(index * 0.03, 0.2), duration: 0.25 }}
-      className="group grid grid-cols-[24px_1fr_auto_auto] items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0"
+      className="group grid grid-cols-[20px_1fr_90px_64px] items-center gap-3 px-3 py-1 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 h-9"
     >
-      <span className="text-[10px] font-mono tabular-nums text-muted-foreground/60">{index + 1}</span>
-      <div className="min-w-0">
-        <div className="flex items-center gap-1.5 font-semibold text-sm">
-          <span className="truncate">{coin.symbol}</span>
-          {coin.cmc_rank && (
-            <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">#{coin.cmc_rank}</span>
-          )}
-        </div>
-        <span className="text-[10px] text-muted-foreground truncate block leading-tight">{coin.name}</span>
+      <span className="text-[10px] font-mono tabular-nums text-muted-foreground/60 w-5">{index + 1}</span>
+      <div className="min-w-0 flex items-baseline gap-1.5">
+        <span className="font-semibold text-sm shrink-0">{coin.symbol}</span>
+        {coin.cmc_rank && (
+          <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">#{coin.cmc_rank}</span>
+        )}
+        <span className="text-[10px] text-muted-foreground truncate hidden md:inline">{coin.name}</span>
       </div>
       <div className="text-sm font-mono tabular-nums text-right">{fmtPrice(quote?.price)}</div>
       {change != null ? (
@@ -75,7 +73,6 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
     </motion.div>
   )
 }
-
 function ListingChip({ coin, index }: { coin: NewListing; index: number }) {
   const addedDate = coin.date_added
     ? new Date(coin.date_added).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -88,12 +85,12 @@ function ListingChip({ coin, index }: { coin: NewListing; index: number }) {
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: index * 0.04 }}
-      className="flex items-center justify-between gap-3 px-3 py-2 rounded-md hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0"
+      className="flex items-center justify-between gap-3 px-3 py-1 rounded-md hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 h-9"
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <Rocket size={12} className="text-violet-300 shrink-0" weight="duotone" />
-        <span className="font-semibold text-sm">{coin.symbol}</span>
-        <span className="text-[10px] text-muted-foreground truncate max-w-[120px] hidden sm:inline">{coin.name}</span>
+      <div className="flex items-baseline gap-2 min-w-0 flex-1">
+        <Rocket size={12} className="text-violet-300 shrink-0 self-center" weight="duotone" />
+        <span className="font-semibold text-sm shrink-0">{coin.symbol}</span>
+        <span className="text-[10px] text-muted-foreground truncate hidden md:inline">{coin.name}</span>
       </div>
       <div className="flex items-center gap-3 shrink-0">
         {change != null && (
@@ -106,27 +103,26 @@ function ListingChip({ coin, index }: { coin: NewListing; index: number }) {
     </motion.div>
   )
 }
-
 function AirdropRow({ airdrop, index }: { airdrop: Airdrop; index: number }) {
   const symbol = airdrop.coin?.symbol ?? airdrop.name?.split(' ')[0] ?? '?'
   const daysLeft = airdrop.end_date
     ? Math.max(0, Math.ceil((new Date(airdrop.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null
+  const status = airdrop.status ?? 'ONGOING'
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.04 }}
-      className="flex items-center justify-between gap-3 px-3 py-2 rounded-md hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0"
+      className="flex items-center justify-between gap-3 px-3 py-1 rounded-md hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 h-9"
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <Gift size={13} className="text-amber-300 shrink-0" weight="duotone" />
-        <div className="min-w-0">
-          <p className="font-semibold text-sm truncate">{symbol}</p>
-          <p className="text-[10px] text-muted-foreground tabular-nums truncate max-w-[180px]">
-            {isFiniteNum(airdrop.total_prize) ? fmtPrize(airdrop.total_prize, airdrop.prize_currency ?? '') : 'Learn more →'}
-          </p>
-        </div>
+      <div className="flex items-baseline gap-2 min-w-0 flex-1">
+        <Gift size={13} className="text-amber-300 shrink-0 self-center" weight="duotone" />
+        <span className="font-semibold text-sm shrink-0">{symbol}</span>
+        <span className="text-[9px] font-mono text-muted-foreground/60 uppercase">{status.toLowerCase()}</span>
+        <span className="text-[10px] text-muted-foreground tabular-nums truncate hidden md:inline">
+          {isFiniteNum(airdrop.total_prize) ? fmtPrize(airdrop.total_prize, airdrop.prize_currency ?? '') : 'Learn more'}
+        </span>
       </div>
       {daysLeft != null && daysLeft > 0 && (
         <span className="text-[10px] font-mono font-semibold text-amber-300 tabular-nums shrink-0">
@@ -210,10 +206,10 @@ export function MarketIntelligenceHub() {
       {/* Hero strip — macro pulse */}
       <div className="border-b border-white/10 bg-white/[0.02]">
         <div className="grid grid-cols-3 divide-x divide-white/5">
-          <div className="px-4 py-3">
+          <div className="px-4 py-2">
             <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-mono mb-0.5">Total mcap</p>
             <div className="flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-base font-bold">{fmtCompactUsd(state.metrics?.total_market_cap)}</span>
+              <span className="text-sm font-bold">{fmtCompactUsd(state.metrics?.total_market_cap)}</span>
               {mcapChange != null && (
                 <span className={`text-[11px] ${mcapChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {fmtPct(mcapChange, 2)}
@@ -221,18 +217,18 @@ export function MarketIntelligenceHub() {
               )}
             </div>
           </div>
-          <div className="px-4 py-3">
+          <div className="px-4 py-2">
             <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-mono mb-0.5">BTC dominance</p>
             <div className="flex items-baseline gap-1 font-mono tabular-nums">
-              <span className="text-base font-bold">
+              <span className="text-sm font-bold">
                 {isFiniteNum(state.metrics?.btc_dominance) ? `${state.metrics!.btc_dominance!.toFixed(1)}%` : '—'}
               </span>
             </div>
           </div>
-          <div className="px-4 py-3">
+          <div className="px-4 py-2">
             <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-mono mb-0.5">Fear & Greed</p>
             <div className="flex items-baseline gap-1 font-mono tabular-nums">
-              <span className="text-base font-bold">—</span>
+              <span className="text-sm font-bold">—</span>
               <span className="text-[10px] text-muted-foreground/70">in snapshot</span>
             </div>
           </div>
@@ -240,7 +236,7 @@ export function MarketIntelligenceHub() {
       </div>
 
       {/* Header + tabs */}
-      <div className="px-4 pt-3 pb-0">
+      <div className="px-4 pt-2.5 pb-0">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
             <Sparkle size={15} className="text-amber-300" weight="fill" />
@@ -289,7 +285,7 @@ export function MarketIntelligenceHub() {
       </div>
 
       {/* Content */}
-      <div className="px-1 py-1">
+      <div>
         {state.loading ? (
           <div className="space-y-1 px-3">
             {Array.from({ length: 6 }).map((_, i) => (
