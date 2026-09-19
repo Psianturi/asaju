@@ -33,6 +33,33 @@ _TTL_FEAR_GREED = 3600  # 1 hour
 _TTL_NEWS = 1800        # 30 min
 _TTL_TRENDING = 600     # 10 min — matches CMC's own update cadence for these endpoints
 _TTL_NEW_LISTINGS = 3600  # 1 hour — new listings don't churn minute to minute
+_TTL_AIRDROPS = 3600    # 1 hour
+_TTL_GLOBAL_METRICS = 600  # 10 min — total mcap/BTC dominance updates frequently
+_TTL_MOST_VISITED = 600    # 10 min
+_TTL_CATEGORIES = 86400    # 24h — category list rarely changes
+
+
+# CMC best practice: use stable IDs, not symbols (symbols can clash or rebrand).
+# Populated lazily from /cryptocurrency/map; falls back to known-good IDs.
+_CMC_ID_MAP: dict[str, int] = {
+    "BTC": 1,
+    "ETH": 1027,
+    "USDT": 825,
+    "USDC": 3408,
+    "BNB": 1839,
+    "SOL": 5426,
+    "XRP": 52,
+    "ADA": 2010,
+    "DOGE": 74,
+    "MATIC": 3890,
+    "MNT": 27075,
+    "ARB": 11841,
+}
+
+
+def symbol_to_cmc_id(symbol: str) -> int | None:
+    """Best-effort symbol → CMC id lookup. Returns None if not in fallback map."""
+    return _CMC_ID_MAP.get(symbol.upper())
 
 
 async def _cached(key: str, ttl_seconds: int, fetch):
@@ -232,6 +259,62 @@ async def get_new_listings(limit: int = 10) -> list:
             return []
 
     return await _cached(key, _TTL_NEW_LISTINGS, fetch)
+
+
+async def get_airdrops(limit: int = 10) -> list:
+    """Active and upcoming airdrops — unique to CMC, no CoinGecko equivalent. Cached 1 hour."""
+    key = f"airdrops:{limit}"
+
+    async def fetch():
+        try:
+            data = await _cmc_get("/v1/cryptocurrency/airdrops", {"limit": limit})
+            return data.get("data", [])
+        except Exception as exc:
+            logger.warning("CMC airdrops fetch failed: %s", exc)
+            return []
+
+    return await _cached(key, _TTL_AIRDROPS, fetch)
+
+
+async def get_global_metrics() -> dict | None:
+    """Total market cap, BTC/ETH dominance — macro context for proposals. Cached 10 min."""
+    async def fetch():
+        try:
+            data = await _cmc_get("/v1/global-metrics/quotes/latest")
+            return data.get("data")
+        except Exception as exc:
+            logger.warning("CMC global metrics fetch failed: %s", exc)
+            return None
+
+    return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
+
+
+async def get_most_visited(limit: int = 10) -> list:
+    """Trending tokens by traffic — useful for the pre-connect 'Hot right now' panel."""
+    key = f"most_visited:{limit}"
+
+    async def fetch():
+        try:
+            data = await _cmc_get("/v1/cryptocurrency/trending/most-visited", {"limit": limit})
+            return data.get("data", [])
+        except Exception as exc:
+            logger.warning("CMC most visited fetch failed: %s", exc)
+            return []
+
+    return await _cached(key, _TTL_MOST_VISITED, fetch)
+
+
+async def get_categories() -> list:
+    """All CMC categories (DeFi, AI, RWA, etc.) — useful for filtering proposals by sector."""
+    async def fetch():
+        try:
+            data = await _cmc_get("/v1/cryptocurrency/categories", {"limit": 100})
+            return data.get("data", [])
+        except Exception as exc:
+            logger.warning("CMC categories fetch failed: %s", exc)
+            return []
+
+    return await _cached("categories", _TTL_CATEGORIES, fetch)
 
 
 async def get_market_snapshot(coin_ids: list[str] | None = None) -> dict:
