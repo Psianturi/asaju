@@ -115,7 +115,10 @@ async def fetch_cmc_derivatives(symbol: str = "BTC", limit: int = 10) -> dict:
     Returns funding_rate, open_interest, and 24h volume per pair.
 
     Endpoint: GET /v5/cryptocurrency/derivatives/market-pairs/list/latest
-    Plan requirement: Free (matches our Startup CMC plan)."""
+    Plan requirement: Free (matches our Startup CMC plan).
+
+    Uses CMC id when possible (more stable than symbol per CMC best practices).
+    """
     try:
         api_key = get_coinmarketcap_api_key()
     except RuntimeError as exc:
@@ -125,9 +128,17 @@ async def fetch_cmc_derivatives(symbol: str = "BTC", limit: int = 10) -> dict:
     if not sym:
         return {"status": "error", "source": "coinmarketcap:derivatives", "message": "missing symbol"}
 
+    from services.market_data_service import symbol_to_cmc_id
+    cmc_id = symbol_to_cmc_id(sym)
+    # Prefer id when known — CMC best practice recommends stable IDs over symbols.
+    params = {"limit": min(limit, 100), "convert": "USD"}
+    if cmc_id is not None:
+        params["id"] = cmc_id
+    else:
+        params["symbol"] = sym
+
     url = "https://pro-api.coinmarketcap.com/v5/cryptocurrency/derivatives/market-pairs/list/latest"
     headers = {"X-CMC_PRO_API_KEY": api_key, "Accept": "application/json"}
-    params = {"symbol": sym, "limit": min(limit, 100), "convert": "USD"}
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:

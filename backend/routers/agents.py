@@ -1237,7 +1237,9 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
             from services.tools_registry import run_niche_tool
 
             niche_value = data.get("niche", "Blockchain/DeFi")
-            symbol_hint = "BTC"  # default; could be parsed from message later
+            # TODO: parse symbol from message text instead of hardcoded "BTC"
+            # The derivatives tool now resolves CMC id internally (best practice).
+            symbol_hint = "BTC"
             tool_result = await run_niche_tool(
                 niche=niche_value,
                 tool_name="fetch_cmc_derivatives",
