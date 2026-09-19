@@ -8,7 +8,7 @@ import { cloudRunService } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
-import { MarketIntelligencePanel } from '@/components/MarketIntelligencePanel'
+import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
 
 interface DashboardViewProps {
@@ -209,7 +209,7 @@ export function DashboardView({
         />
       )}
 
-      <MarketIntelligencePanel />
+      <MarketIntelligenceHub />
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
         <ActionTile

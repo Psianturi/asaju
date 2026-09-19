@@ -1,4 +1,4 @@
-import { Agent, BackendProposal, Event, Niche, Personality, SubAgentType } from '@/lib/types'
+﻿import { Agent, BackendProposal, Event, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
 
 export const GCP_BACKEND_URL =
@@ -131,7 +131,7 @@ export interface AttendEventRequest {
 
 export interface AttendEventResponse {
   success: boolean
-  /** False when this video was below the next milestone — analyzed and
+  /** False when this video was below the next milestone â€” analyzed and
    * recorded, but no on-chain NFT was minted for it this time. */
   minted: boolean
   txHash: string
@@ -299,7 +299,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   try {
-    // SECURITY: URL is validated against GCP_BACKEND_URL hostname above — SSRF is mitigated
+    // SECURITY: URL is validated against GCP_BACKEND_URL hostname above â€” SSRF is mitigated
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
@@ -361,7 +361,7 @@ export const cloudRunService = {
         throw new CloudRunAPIError('Wallet must be connected before spawning an agent.', 400)
       }
 
-      // Backend field names differ from frontend: name→agent_name, userWallet→user_wallet
+      // Backend field names differ from frontend: nameâ†’agent_name, userWalletâ†’user_wallet
       const backendPayload = {
         agent_name: request.name,
         niche: request.niche,
@@ -390,7 +390,7 @@ export const cloudRunService = {
         chain_id?: number
       }>(response)
 
-      // Map backend snake_case → frontend camelCase
+      // Map backend snake_case â†’ frontend camelCase
       return {
         success: true,
         agentId: raw.agent_id,
@@ -684,7 +684,7 @@ export const cloudRunService = {
     }
   },
 
-  // ── Real backend: AI summary + Mantle NFT mint (Mode A or B) ───────────────
+  // â”€â”€ Real backend: AI summary + Mantle NFT mint (Mode A or B) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async attendEvent(request: AttendEventRequest): Promise<AttendEventResponse> {
     const urlCheck = validateEventUrl(request.eventUrl)
     if (!urlCheck.valid) {
@@ -707,7 +707,7 @@ export const cloudRunService = {
       const response = await fetchWithTimeout(
         `${GCP_BACKEND_URL}/api/v1/event/attend`,
         { method: 'POST', body: JSON.stringify(backendPayload) },
-        90000  // 90s — Gemini + Mantle tx
+        90000  // 90s â€” Gemini + Mantle tx
       )
 
       const raw = await handleAPIResponse<{
@@ -776,7 +776,7 @@ export const cloudRunService = {
       const response = await fetchWithTimeout(
         `${GCP_BACKEND_URL}/api/v1/agent/${agentId}/scout`,
         { method: 'POST' },
-        120000  // 120s — YouTube search + Gemini filter + Mantle tx
+        120000  // 120s â€” YouTube search + Gemini filter + Mantle tx
       )
       return handleAPIResponse(response)
     } catch (error) {
@@ -944,7 +944,7 @@ export const cloudRunService = {
     }
   },
 
-  // ── Public endpoints (no auth required) ────────────────────────────────────
+  // â”€â”€ Public endpoints (no auth required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getPublicMetrics() {
     try {
@@ -1093,7 +1093,7 @@ export const cloudRunService = {
     }
   },
 
-  // ── Agent Management ────────────────────────────────────────────────────────
+  // â”€â”€ Agent Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async deleteAgent(agentId: string, walletAddress: string): Promise<void> {
     const response = await fetchWithTimeout(
@@ -1111,7 +1111,7 @@ export const cloudRunService = {
     return handleAPIResponse<{ status: string }>(response)
   },
 
-  // ── HITL Proposals ──────────────────────────────────────────────────────────
+  // â”€â”€ HITL Proposals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async generateProposal(agentId: string): Promise<BackendProposal> {
     const response = await fetchWithTimeout(
@@ -1227,12 +1227,12 @@ export const cloudRunService = {
     return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
   },
 
-  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5): Promise<{ time_period: string; results: TrendingCoin[] }> {
+  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5, sortDir: 'asc' | 'desc' = 'desc'): Promise<{ time_period: string; sort_dir?: string; results: TrendingCoin[] }> {
     const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}`,
+      `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}&sort_dir=${sortDir}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ time_period: string; results: TrendingCoin[] }>(response)
+    return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] }>(response)
   },
 
   async getNewListings(limit = 5): Promise<{ results: NewListing[] }> {

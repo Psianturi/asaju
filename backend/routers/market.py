@@ -1,5 +1,5 @@
-"""
-GET /api/v1/market/snapshot — Cached market context (price, sentiment, news)
+﻿"""
+GET /api/v1/market/snapshot â€” Cached market context (price, sentiment, news)
 for agent research. See services/market_data_service.py for provider details.
 """
 
@@ -65,9 +65,10 @@ async def market_dex_pools_all() -> dict:
 async def market_trending_gainers_losers(
     time_period: str = Query("24h", pattern="^(1h|24h|7d|30d)$"),
     limit: int = Query(5, ge=1, le=50),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> dict:
-    """Top movers over the requested window. Powered by CMC, cached 10 min."""
-    return {"time_period": time_period, "results": await get_trending_gainers_losers(time_period, limit)}
+    """Top movers over the requested window. sort_dir=desc → gainers (default), asc → losers."""
+    return {"time_period": time_period, "sort_dir": sort_dir, "results": await get_trending_gainers_losers(time_period, limit, sort_dir)}
 
 
 @router.get("/trending/latest")
@@ -81,13 +82,13 @@ async def market_trending_latest(
 
 @router.get("/listings/new")
 async def market_new_listings(limit: int = Query(5, ge=1, le=50)) -> dict:
-    """Most recently listed tokens on CMC. Cached 1 hour — low churn."""
+    """Most recently listed tokens on CMC. Cached 1 hour â€” low churn."""
     return {"results": await get_new_listings(limit)}
 
 
 @router.get("/airdrops")
 async def market_airdrops(limit: int = Query(5, ge=1, le=50)) -> dict:
-    """Active airdrops — unique to CMC. Compact list, ready for pre-connect surfacing."""
+    """Active airdrops â€” unique to CMC. Compact list, ready for pre-connect surfacing."""
     return {"results": await get_airdrops(limit)}
 
 
@@ -100,18 +101,18 @@ async def market_global_metrics() -> dict:
 
 @router.get("/most-visited")
 async def market_most_visited(limit: int = Query(5, ge=1, le=50)) -> dict:
-    """Trending tokens by traffic — useful for the pre-connect 'Hot right now' panel."""
+    """Trending tokens by traffic â€” useful for the pre-connect 'Hot right now' panel."""
     return {"results": await get_most_visited(limit)}
 
 
 @router.get("/categories")
 async def market_categories() -> dict:
-    """All CMC categories — DeFi, AI, RWA, etc. Cached 24h."""
+    """All CMC categories â€” DeFi, AI, RWA, etc. Cached 24h."""
     return {"results": await get_categories()}
 
 
 @router.get("/symbol/{symbol}/cmc-id")
 async def market_symbol_to_cmc_id(symbol: str) -> dict:
-    """Best-effort symbol → stable CMC id lookup. Use IDs, not symbols, in production code."""
+    """Best-effort symbol â†’ stable CMC id lookup. Use IDs, not symbols, in production code."""
     cmc_id = symbol_to_cmc_id(symbol)
     return {"symbol": symbol.upper(), "cmc_id": cmc_id}

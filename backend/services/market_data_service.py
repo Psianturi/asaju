@@ -1,8 +1,8 @@
-"""
+﻿"""
 Market data service: CoinGecko (price/OHLC/DEX) + CoinMarketCap (sentiment/news),
 shared across all agents via a Firestore-backed cache.
 
-CoinGecko and CoinMarketCap are complementary, not redundant — verified by hand:
+CoinGecko and CoinMarketCap are complementary, not redundant â€” verified by hand:
 CoinGecko covers price/OHLC/on-chain DEX pools; CMC's OHLCV is locked on this plan,
 but it uniquely offers the Fear & Greed index and asset-tagged news.
 
@@ -31,12 +31,12 @@ _TTL_PRICE = 300        # 5 min
 _TTL_OHLC = 900         # 15 min
 _TTL_FEAR_GREED = 3600  # 1 hour
 _TTL_NEWS = 1800        # 30 min
-_TTL_TRENDING = 600     # 10 min — matches CMC's own update cadence for these endpoints
-_TTL_NEW_LISTINGS = 3600  # 1 hour — new listings don't churn minute to minute
+_TTL_TRENDING = 600     # 10 min â€” matches CMC's own update cadence for these endpoints
+_TTL_NEW_LISTINGS = 3600  # 1 hour â€” new listings don't churn minute to minute
 _TTL_AIRDROPS = 3600    # 1 hour
-_TTL_GLOBAL_METRICS = 600  # 10 min — total mcap/BTC dominance updates frequently
+_TTL_GLOBAL_METRICS = 600  # 10 min â€” total mcap/BTC dominance updates frequently
 _TTL_MOST_VISITED = 600    # 10 min
-_TTL_CATEGORIES = 86400    # 24h — category list rarely changes
+_TTL_CATEGORIES = 86400    # 24h â€” category list rarely changes
 
 
 # CMC best practice: use stable IDs, not symbols (symbols can clash or rebrand).
@@ -58,20 +58,20 @@ _CMC_ID_MAP: dict[str, int] = {
 
 
 def symbol_to_cmc_id(symbol: str) -> int | None:
-    """Best-effort symbol → CMC id lookup. Returns None if not in fallback map."""
+    """Best-effort symbol â†’ CMC id lookup. Returns None if not in fallback map."""
     return _CMC_ID_MAP.get(symbol.upper())
 
 
 def _normalize_cmc_quote(coin: dict) -> dict:
     """CMC v1 endpoints return `quote = {USD: {...}}` (object), v3 returns array.
-    Frontend expects an array uniformly. Convert object→array, preserving every field.
+    Frontend expects an array uniformly. Convert objectâ†’array, preserving every field.
     Pass-through if shape is already an array or empty.
     """
     if not isinstance(coin, dict):
         return coin
     quote = coin.get("quote")
     if isinstance(quote, dict):
-        # Convert {USD: {price: ..., ...}, BTC: {...}} → [{symbol: 'USD', ...}, ...]
+        # Convert {USD: {price: ..., ...}, BTC: {...}} â†’ [{symbol: 'USD', ...}, ...]
         coin["quote"] = [
             {"symbol": sym, **vals} if isinstance(vals, dict) else {"symbol": sym, "value": vals}
             for sym, vals in quote.items()
@@ -100,7 +100,7 @@ def _normalize_cmc_coin(coin: object) -> object:
 
 async def _cached(key: str, ttl_seconds: int, fetch, normalize: bool = False):
     """Return cached payload if fresh, otherwise call fetch() and persist the result.
-    Set normalize=True to apply CMC quote-shape normalization (object→array).
+    Set normalize=True to apply CMC quote-shape normalization (objectâ†’array).
     """
     db = get_db()
     doc_ref = db.collection(_CACHE_COLLECTION).document(key)
@@ -226,7 +226,7 @@ async def get_dex_pools_multi(networks: list[str] | None = None) -> dict:
 
 
 async def get_fear_greed_index() -> dict | None:
-    """CMC Fear & Greed index — no CoinGecko equivalent exists. Cached 1 hour."""
+    """CMC Fear & Greed index â€” no CoinGecko equivalent exists. Cached 1 hour."""
     async def fetch():
         try:
             data = await _cmc_get("/v3/fear-and-greed/latest")
@@ -239,7 +239,7 @@ async def get_fear_greed_index() -> dict | None:
 
 
 async def get_asset_news(limit: int = 5) -> list:
-    """CMC news tagged to specific assets — CoinGecko free tier has no news endpoint. Cached 30 min."""
+    """CMC news tagged to specific assets â€” CoinGecko free tier has no news endpoint. Cached 30 min."""
     key = f"news:{limit}"
 
     async def fetch():
@@ -253,15 +253,18 @@ async def get_asset_news(limit: int = 5) -> list:
     return await _cached(key, _TTL_NEWS, fetch)
 
 
-async def get_trending_gainers_losers(time_period: str = "24h", limit: int = 10) -> list:
-    """Biggest % movers (up or down) over time_period (1h/24h/7d/30d). Startup-tier endpoint. Cached 10 min."""
-    key = f"trending_gl:{time_period}:{limit}"
+async def get_trending_gainers_losers(
+    time_period: str = "24h", limit: int = 10, sort_dir: str = "desc"
+) -> list:
+    """Biggest % movers (up or down) over time_period (1h/24h/7d/30d). Startup-tier endpoint. Cached 10 min.
+    sort_dir=desc → gainers; sort_dir=asc → losers."""
+    key = f"trending_gl:{time_period}:{sort_dir}:{limit}"
 
     async def fetch():
         try:
             data = await _cmc_get(
                 "/v1/cryptocurrency/trending/gainers-losers",
-                {"time_period": time_period, "limit": limit},
+                {"time_period": time_period, "limit": limit, "sort_dir": sort_dir},
             )
             return data.get("data", [])
         except Exception as exc:
@@ -290,7 +293,7 @@ async def get_trending_latest(time_period: str = "24h", limit: int = 10) -> list
 
 
 async def get_new_listings(limit: int = 10) -> list:
-    """Most recently listed cryptocurrencies on CMC. Startup-tier endpoint. Cached 1 hour — low churn."""
+    """Most recently listed cryptocurrencies on CMC. Startup-tier endpoint. Cached 1 hour â€” low churn."""
     key = f"new_listings:{limit}"
 
     async def fetch():
@@ -305,7 +308,7 @@ async def get_new_listings(limit: int = 10) -> list:
 
 
 async def get_airdrops(limit: int = 10) -> list:
-    """Active and upcoming airdrops — unique to CMC, no CoinGecko equivalent. Cached 1 hour."""
+    """Active and upcoming airdrops â€” unique to CMC, no CoinGecko equivalent. Cached 1 hour."""
     key = f"airdrops:{limit}"
 
     async def fetch():
@@ -320,7 +323,7 @@ async def get_airdrops(limit: int = 10) -> list:
 
 
 async def get_most_visited(limit: int = 10) -> list:
-    """Trending tokens by traffic — useful for the pre-connect 'Hot right now' panel."""
+    """Trending tokens by traffic â€” useful for the pre-connect 'Hot right now' panel."""
     key = f"most_visited:{limit}"
 
     async def fetch():
@@ -335,7 +338,7 @@ async def get_most_visited(limit: int = 10) -> list:
 
 
 async def get_categories() -> list:
-    """All CMC categories (DeFi, AI, RWA, etc.) — useful for filtering proposals by sector."""
+    """All CMC categories (DeFi, AI, RWA, etc.) â€” useful for filtering proposals by sector."""
     async def fetch():
         try:
             data = await _cmc_get("/v1/cryptocurrency/categories", {"limit": 100})
@@ -348,7 +351,7 @@ async def get_categories() -> list:
 
 
 async def get_global_metrics() -> dict | None:
-    """Total market cap, BTC/ETH dominance — macro context for proposals. Cached 10 min."""
+    """Total market cap, BTC/ETH dominance â€” macro context for proposals. Cached 10 min."""
     async def fetch():
         try:
             data = await _cmc_get("/v1/global-metrics/quotes/latest")
@@ -357,7 +360,7 @@ async def get_global_metrics() -> dict | None:
             logger.warning("CMC global metrics fetch failed: %s", exc)
             return None
 
-    # Not normalizing — global metrics has no `quote` array (btc_dominance/eth_dominance live at top level).
+    # Not normalizing â€” global metrics has no `quote` array (btc_dominance/eth_dominance live at top level).
     return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
 
 
