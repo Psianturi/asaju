@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText } from '@phosphor-icons/react'
+import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article } from '@phosphor-icons/react'
 import { Agent, Event, NFT } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligencePanel } from '@/components/MarketIntelligencePanel'
+import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
 
 interface DashboardViewProps {
   agents: Agent[]
@@ -33,6 +33,16 @@ interface InboxPayload {
   low_gas_agents: Array<{ agent_id: string; agent_name: string; agent_gas_balance: number }>
   paused_agents: Array<{ agent_id: string; agent_name: string; reason: string }>
   recent_mints: Array<{ agent_id: string; log_id: string; candidate_title: string | null; score: number | null; run_at: number | null }>
+}
+
+interface PublicMetrics {
+  total_agents: number
+  total_wisdom_nfts: number
+  total_events_attended: number
+  average_agent_level: number
+  global_wisdom_index: number
+  total_bred_agents: number
+  total_proposals_approved: number
 }
 
 const EMPTY_INBOX: InboxPayload = {
@@ -62,6 +72,10 @@ export function DashboardView({
   const address = walletAddress
   const [inbox, setInbox] = useState<InboxPayload>(EMPTY_INBOX)
   const [inboxLoading, setInboxLoading] = useState(false)
+  const [publicMetrics, setPublicMetrics] = useState<PublicMetrics | null>(null)
+  const [publicMetricsLoading, setPublicMetricsLoading] = useState(false)
+  const [featuredWisdom, setFeaturedWisdom] = useState<WisdomFeedItem[]>([])
+  const [featuredLoading, setFeaturedLoading] = useState(false)
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -78,55 +92,53 @@ export function DashboardView({
     return () => { cancelled = true }
   }, [address, isConnected])
 
-  // Hero question: derive the ONE thing the owner should look at next.
+  useEffect(() => {
+    if (isConnected) return
+    let cancelled = false
+    setPublicMetricsLoading(true)
+    setFeaturedLoading(true)
+    cloudRunService.getPublicMetrics()
+      .then(m => { if (!cancelled) setPublicMetrics(m as PublicMetrics) })
+      .catch(() => { if (!cancelled) setPublicMetrics(null) })
+      .finally(() => { if (!cancelled) setPublicMetricsLoading(false) })
+    cloudRunService.getPublicFeaturedWisdom()
+      .then(items => { if (!cancelled) setFeaturedWisdom(Array.isArray(items) ? items.slice(0, 3) : []) })
+      .catch(() => { if (!cancelled) setFeaturedWisdom([]) })
+      .finally(() => { if (!cancelled) setFeaturedLoading(false) })
+    return () => { cancelled = true }
+  }, [isConnected])
+
   const urgentAction = useMemo(() => {
     if (!isConnected) return null
     const firstProposal = inbox.pending_proposals[0]
     if (firstProposal) {
       const ownerAgent = agents.find(a => a.id === firstProposal.agent_id)
-      return {
-        kind: 'pending-proposal' as const,
-        agent: ownerAgent,
-        proposal: firstProposal,
-        cta: 'Review proposal',
-      }
+      return { kind: 'pending-proposal' as const, agent: ownerAgent, proposal: firstProposal, cta: 'Review proposal' }
     }
     const firstPaused = inbox.paused_agents[0]
     if (firstPaused) {
       const ownerAgent = agents.find(a => a.id === firstPaused.agent_id)
-      return {
-        kind: 'paused-agent' as const,
-        agent: ownerAgent,
-        paused: firstPaused,
-        cta: 'Re-enable scout',
-      }
+      return { kind: 'paused-agent' as const, agent: ownerAgent, paused: firstPaused, cta: 'Re-enable scout' }
     }
     const firstLowGas = inbox.low_gas_agents[0]
     if (firstLowGas) {
       const ownerAgent = agents.find(a => a.id === firstLowGas.agent_id)
-      return {
-        kind: 'low-gas' as const,
-        agent: ownerAgent,
-        gas: firstLowGas,
-        cta: 'Top up gas',
-      }
+      return { kind: 'low-gas' as const, agent: ownerAgent, gas: firstLowGas, cta: 'Top up gas' }
     }
     return null
   }, [inbox, agents, isConnected])
 
-  // Compressed stats — the only KPI a glance should land on.
   const stats = useMemo(() => ({
     totalAgents: agents.length,
     autoScouting: agents.filter(isAgentAutoScouting).length,
-    videosAnalyzed: isPlatformView
-      ? events.length
-      : countActualVideosAnalyzed(agents, events),
+    videosAnalyzed: isPlatformView ? events.length : countActualVideosAnalyzed(agents, events),
     pendingProposals: inbox.counts.pending_proposals,
   }), [agents, events, isPlatformView, inbox.counts.pending_proposals])
 
+  const visitorStatsLoading = !isConnected && publicMetricsLoading && publicMetrics == null
+
   return (
-    <div className="space-y-5">
-      {/* ── Hero: One question, one answer ───────────────────────────────── */}
+    <div className="space-y-4">
       <section>
         {isConnected ? (
           urgentAction ? (
@@ -135,54 +147,58 @@ export function DashboardView({
             <HeroReadyStats agents={agents} stats={stats} />
           )
         ) : (
-          <HeroConnect onConnect={onConnectWallet} agents={agents} />
+          <HeroConnect onConnect={onConnectWallet} agents={agents} platformCount={publicMetrics?.total_agents ?? null} />
         )}
       </section>
 
-      {/* ── Compact stat strip ──────────────────────────────────────────── */}
       <section>
-        {!dataLoaded ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i} className="glass-card-hover p-4">
-                <div className="h-2.5 w-16 rounded bg-muted/40 mb-2 animate-pulse" />
-                <div className="h-6 w-12 rounded bg-muted/40 animate-pulse" />
-              </Card>
-            ))}
-          </div>
+        {isConnected ? (
+          !dataLoaded ? (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="p-3">
+                  <div className="h-2.5 w-16 rounded bg-muted/40 mb-2 animate-pulse" />
+                  <div className="h-6 w-12 rounded bg-muted/40 animate-pulse" />
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={14} />} tone="primary" />
+              <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
+              <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={14} />} tone="accent" />
+              <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={14} />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
+            </div>
+          )
         ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <CompactStat
-              label={isPlatformView ? 'Platform agents' : 'Your agents'}
-              value={stats.totalAgents}
-              icon={<Robot size={16} />}
-              tone="primary"
-            />
-            <CompactStat
-              label="Auto-scouting"
-              value={stats.autoScouting}
-              icon={<Lightning size={16} />}
-              tone="emerald"
-              sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'}
-            />
-            <CompactStat
-              label="Videos analyzed"
-              value={stats.videosAnalyzed}
-              icon={<FileText size={16} />}
-              tone="accent"
-            />
-            <CompactStat
-              label="Pending proposals"
-              value={stats.pendingProposals}
-              icon={<Clock size={16} />}
-              tone={stats.pendingProposals > 0 ? 'amber' : 'slate'}
-              sublabel={stats.pendingProposals > 0 ? 'need your approval' : 'all clear'}
-            />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <VisitorStat label="Platform agents" value={publicMetrics?.total_agents ?? null} icon={<Robot size={14} />} loading={visitorStatsLoading} tone="primary" />
+            <VisitorStat label="Videos analyzed" value={publicMetrics?.total_events_attended ?? null} icon={<FileText size={14} />} loading={visitorStatsLoading} tone="accent" />
+            <VisitorStat label="Wisdom NFTs" value={publicMetrics?.total_wisdom_nfts ?? null} icon={<Medal size={14} />} loading={visitorStatsLoading} tone="emerald" />
+            <VisitorStat label="Avg agent level" value={publicMetrics != null ? Math.round(publicMetrics.average_agent_level * 10) / 10 : null} icon={<GlobeHemisphereEast size={14} />} loading={visitorStatsLoading} tone="amber" decimals={1} />
           </div>
         )}
       </section>
 
-      {/* ── Pending inbox body (was hidden behind bell icon) ───────────── */}
+      {!isConnected && (featuredLoading || featuredWisdom.length > 0) && (
+        <section>
+          <div className="flex items-center justify-between mb-2 px-1">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Article size={13} weight="duotone" className="text-cyan-300" />
+              Featured agent wisdom
+            </h2>
+          </div>
+          <FeaturedWisdomFeed
+            items={featuredWisdom}
+            loading={featuredLoading}
+            explorerBase="https://explorer.sepolia.mantle.xyz"
+            onRateWisdom={() => onConnectWallet()}
+            ratedMap={{}}
+            userWallet={undefined}
+          />
+        </section>
+      )}
+
       {isConnected && inbox.counts.total > 0 && (
         <InboxBody
           inbox={inbox}
@@ -193,16 +209,17 @@ export function DashboardView({
         />
       )}
 
-      {/* ── Action row: spawn / analyze ──────────────────────────────── */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <MarketIntelligencePanel />
+
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
         <ActionTile
-          icon={<Plus size={18} weight="bold" />}
+          icon={<Plus size={16} weight="bold" />}
           title="Spawn an agent"
           subtitle="Trading, DeFi, or Tech niche"
           onClick={isConnected ? onSpawnAgent : onConnectWallet}
         />
         <ActionTile
-          icon={<Robot size={18} weight="duotone" />}
+          icon={<Robot size={16} weight="duotone" />}
           title="Analyze YouTube URL"
           subtitle={agents[0] ? `With ${agents[0].name}` : 'Need at least one agent'}
           onClick={() => onSelectAgent(agents[0] ?? null)}
@@ -210,11 +227,10 @@ export function DashboardView({
         />
       </section>
 
-      {/* ── Agent roster — compact list, not grid ──────────────────────── */}
       {isConnected && agents.length > 0 && (
         <section>
-          <div className="flex items-center justify-between mb-3 px-1">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Your agents
             </h2>
             <button
@@ -224,7 +240,7 @@ export function DashboardView({
               Open workspace <FlowArrow size={12} />
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             {agents.slice(0, 4).map(agent => (
               <button
                 key={agent.id}
@@ -247,10 +263,12 @@ export function DashboardView({
         </section>
       )}
 
-      {/* ── Market intelligence — eye-catching live pulse (top, pre/post connect) ─── */}
-      <MarketIntelligencePanel />
+      <div className="flex items-center gap-2 px-1 pt-1">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/60 to-transparent" />
+        <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 font-mono">Context</p>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/60 to-transparent" />
+      </div>
 
-      {/* ── Market context — supplementary, never blocks the page ──────── */}
       <MarketSnapshotCard />
     </div>
   )
@@ -258,11 +276,11 @@ export function DashboardView({
 
 function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgents: number; autoScouting: number; videosAnalyzed: number; pendingProposals: number } }) {
   return (
-    <Card className="glass-card-hover p-5 border border-primary/20">
+    <Card className="p-4 border border-primary/20 bg-gradient-to-br from-primary/[0.04] to-transparent">
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-1">
         Mission control
       </p>
-      <h1 className="text-xl font-bold mb-1">
+      <h1 className="text-lg font-bold mb-1">
         {stats.pendingProposals > 0
           ? `${stats.pendingProposals} proposal${stats.pendingProposals === 1 ? '' : 's'} need your approval`
           : stats.autoScouting > 0
@@ -276,20 +294,25 @@ function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgen
   )
 }
 
-function HeroConnect({ onConnect, agents }: { onConnect: () => void; agents: Agent[] }) {
+function HeroConnect({ onConnect, agents, platformCount }: { onConnect: () => void; agents: Agent[]; platformCount: number | null }) {
+  const count = platformCount ?? agents.length
   return (
-    <Card className="glass-card-hover p-5 border border-primary/20">
+    <Card className="p-4 border border-primary/20 bg-gradient-to-br from-primary/[0.05] to-transparent">
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-1">
         Get started
       </p>
-      <h1 className="text-xl font-bold mb-1">Connect your wallet to manage your agents</h1>
-      <p className="text-xs text-muted-foreground mb-3">
-        Meanwhile, here's what's happening on the platform — {agents.length} example agents live.
-      </p>
-      <Button onClick={onConnect} className="bg-gradient-to-r from-secondary to-accent hover:opacity-90">
-        <ShieldCheck size={15} className="mr-2" />
-        Connect wallet
-      </Button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold mb-1">Connect your wallet to manage your agents</h1>
+          <p className="text-xs text-muted-foreground">
+            {count > 0 ? `${count} agent${count === 1 ? '' : 's'} live on the platform.` : 'Be the first to spawn an agent.'}
+          </p>
+        </div>
+        <Button onClick={onConnect} size="sm" className="bg-gradient-to-r from-secondary to-accent hover:opacity-90 shrink-0 self-start sm:self-auto">
+          <ShieldCheck size={14} className="mr-1.5" />
+          Connect wallet
+        </Button>
+      </div>
     </Card>
   )
 }
@@ -301,11 +324,24 @@ function UrgentActionBanner({
   action: UrgentAction
   onOpenAgent: (a: Agent) => void
 }) {
-  const accent = {
-    'pending-proposal': { tone: 'amber', label: 'Pending proposal' },
-    'paused-agent':     { tone: 'red',   label: 'Auto Scout paused' },
-    'low-gas':          { tone: 'amber', label: 'Low gas' },
-  }[action.kind]
+  const ACCENT: Record<UrgentAction['kind'], { label: string; card: string; badge: string }> = {
+    'pending-proposal': {
+      label: 'Pending proposal',
+      card: 'border-amber-500/30 bg-amber-500/5',
+      badge: 'border-amber-500/40 text-amber-400',
+    },
+    'paused-agent': {
+      label: 'Auto Scout paused',
+      card: 'border-red-500/30 bg-red-500/5',
+      badge: 'border-red-500/40 text-red-400',
+    },
+    'low-gas': {
+      label: 'Low gas',
+      card: 'border-amber-500/30 bg-amber-500/5',
+      badge: 'border-amber-500/40 text-amber-400',
+    },
+  }
+  const accent = ACCENT[action.kind]
 
   const detail = action.kind === 'pending-proposal'
     ? `${action.proposal.title} · ${action.proposal.category}`
@@ -314,19 +350,20 @@ function UrgentActionBanner({
       : `Balance: ${action.gas.agent_gas_balance?.toFixed(4) ?? '?'} MNT`
 
   return (
-    <Card className={`glass-card-hover p-5 border-${accent.tone}-500/30 bg-${accent.tone}-500/5`}>
-      <div className="flex items-start gap-4">
+    <Card className={`p-4 border ${accent.card}`}>
+      <div className="flex items-start gap-3">
         {action.agent && <NicheAvatar agent={action.agent} size="lg" />}
         <div className="flex-1 min-w-0">
-          <Badge variant="outline" className={`text-[10px] border-${accent.tone}-500/40 text-${accent.tone}-400 mb-2`}>
+          <Badge variant="outline" className={`text-[10px] ${accent.badge} mb-1.5`}>
             {accent.label}
           </Badge>
-          <h2 className="text-lg font-bold mb-1">{action.agent?.name ?? 'Agent'}</h2>
+          <h2 className="text-base font-bold mb-0.5">{action.agent?.name ?? 'Agent'}</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">{detail}</p>
         </div>
         <Button
           onClick={() => action.agent && onOpenAgent(action.agent)}
           disabled={!action.agent}
+          size="sm"
           className="bg-gradient-to-r from-primary to-accent hover:opacity-90 shrink-0"
         >
           {action.cta}
@@ -337,24 +374,9 @@ function UrgentActionBanner({
 }
 
 type UrgentAction =
-  | {
-      kind: 'pending-proposal'
-      agent?: Agent
-      proposal: { proposal_id: string; agent_id: string; title: string; category: string }
-      cta: string
-    }
-  | {
-      kind: 'paused-agent'
-      agent?: Agent
-      paused: { agent_id: string; agent_name: string; reason: string }
-      cta: string
-    }
-  | {
-      kind: 'low-gas'
-      agent?: Agent
-      gas: { agent_id: string; agent_name: string; agent_gas_balance: number }
-      cta: string
-    }
+  | { kind: 'pending-proposal'; agent?: Agent; proposal: { proposal_id: string; agent_id: string; title: string; category: string }; cta: string }
+  | { kind: 'paused-agent'; agent?: Agent; paused: { agent_id: string; agent_name: string; reason: string }; cta: string }
+  | { kind: 'low-gas'; agent?: Agent; gas: { agent_id: string; agent_name: string; agent_gas_balance: number }; cta: string }
 
 function CompactStat({
   label,
@@ -370,23 +392,66 @@ function CompactStat({
   sublabel?: string
 }) {
   const toneClass = {
-    primary: 'text-primary border-primary/30',
-    emerald: 'text-emerald-400 border-emerald-500/30',
-    accent: 'text-accent border-accent/30',
-    amber: 'text-amber-400 border-amber-500/30',
+    primary: 'text-primary border-primary/25',
+    emerald: 'text-emerald-400 border-emerald-500/25',
+    accent: 'text-accent border-accent/25',
+    amber: 'text-amber-400 border-amber-500/25',
     slate: 'text-muted-foreground border-border/30',
   }[tone]
   return (
-    <Card className={`p-3.5 border ${toneClass}`}>
-      <div className="flex items-start justify-between mb-1.5">
-        <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+    <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
+      <div className="flex items-start justify-between mb-1">
+        <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">
           {label}
         </p>
         {icon}
       </div>
-      <p className="text-2xl font-bold font-mono">{value}</p>
+      <p className="text-xl font-bold font-mono tabular-nums">{value}</p>
       {sublabel && (
-        <p className="text-[10px] text-muted-foreground/70 mt-0.5">{sublabel}</p>
+        <p className="text-[9px] text-muted-foreground/70 mt-0.5">{sublabel}</p>
+      )}
+    </Card>
+  )
+}
+
+function VisitorStat({
+  label,
+  value,
+  icon,
+  loading,
+  tone,
+  decimals = 0,
+}: {
+  label: string
+  value: number | null
+  icon: React.ReactNode
+  loading: boolean
+  tone: 'primary' | 'emerald' | 'accent' | 'amber'
+  decimals?: number
+}) {
+  const toneClass = {
+    primary: 'text-primary border-primary/25',
+    emerald: 'text-emerald-400 border-emerald-500/25',
+    accent: 'text-accent border-accent/25',
+    amber: 'text-amber-400 border-amber-500/25',
+  }[tone]
+  const display = value == null
+    ? '—'
+    : decimals > 0
+      ? value.toFixed(decimals)
+      : Math.round(value).toLocaleString('en-US')
+  return (
+    <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
+      <div className="flex items-start justify-between mb-1">
+        <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">
+          {label}
+        </p>
+        {icon}
+      </div>
+      {loading ? (
+        <div className="h-7 w-16 rounded bg-muted/40 animate-pulse" />
+      ) : (
+        <p className="text-xl font-bold font-mono tabular-nums">{display}</p>
       )}
     </Card>
   )
@@ -412,8 +477,8 @@ function InboxBody({
   }, [agents])
 
   return (
-    <Card className="glass-card-hover p-4 border border-amber-500/25 bg-amber-500/5">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="p-3.5 border border-amber-500/25 bg-amber-500/5">
+      <div className="flex items-center justify-between mb-2.5">
         <div>
           <p className="text-[10px] uppercase tracking-widest text-amber-400 font-mono">
             Needs your attention
@@ -429,7 +494,7 @@ function InboxBody({
           View all <FlowArrow size={12} />
         </button>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {loading ? (
           <p className="text-xs text-muted-foreground">Loading…</p>
         ) : (
@@ -530,10 +595,10 @@ function ActionTile({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="text-left p-4 rounded-xl border border-border/40 bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+      className="text-left p-3.5 rounded-lg border border-border/40 bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
     >
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center group-hover:bg-primary/15 transition-colors">
+        <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center group-hover:bg-primary/15 transition-colors">
           {icon}
         </div>
         <div className="flex-1 min-w-0">
