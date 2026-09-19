@@ -150,6 +150,7 @@ MAEF_ABI: list[dict] = [
             {"indexed": True,  "internalType": "bytes32", "name": "proposalHash",           "type": "bytes32"},
             {"indexed": False, "internalType": "uint256", "name": "proposalsApprovedTotal", "type": "uint256"},
             {"indexed": False, "internalType": "uint256", "name": "heritageScoreAfter",     "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp",              "type": "uint256"},
         ],
         "name": "ProposalExecuted",
         "type": "event",
