@@ -1135,6 +1135,22 @@ export const cloudRunService = {
     return handleAPIResponse<BackendProposal>(response)
   },
 
+  /**
+   * Force the backend to run the full data → prompt → reasoning → decision
+   * pipeline synchronously without persisting anything. Designed for hackathon
+   * demos: one click and the entire agent evaluation happens in front of the
+   * user. Returns the same BackendProposal shape as `generateProposal`, but
+   * the `proposal_id` will be 'ephemeral' and `status === 'ephemeral'` to
+   * signal that Approve/Reject actions should not be rendered.
+   */
+  async forceEvaluate(agentId: string): Promise<BackendProposal> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}/force-evaluate`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    )
+    return handleAPIResponse<BackendProposal>(response)
+  },
+
   async getAgentProposals(agentId: string): Promise<BackendProposal[]> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}/proposals`,

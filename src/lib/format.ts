@@ -61,3 +61,12 @@ export function fmtTimeAgo(ts: number | Date | null | undefined): string {
   if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`
   return `${Math.round(diff / 86_400_000)}d ago`
 }
+
+export function fmtAgeSeconds(seconds: number | null | undefined): string {
+  if (seconds == null) return '—'
+  if (seconds < 0) return 'just now'
+  if (seconds < 60) return `${Math.round(seconds)}s ago`
+  if (seconds < 3_600) return `${Math.round(seconds / 60)}m ago`
+  if (seconds < 86_400) return `${(seconds / 3_600).toFixed(1)}h ago`
+  return `${(seconds / 86_400).toFixed(1)}d ago`
+}

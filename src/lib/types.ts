@@ -107,7 +107,7 @@ export interface BackendProposal {
   description: string
   category: 'defi' | 'governance' | 'education' | 'community'
   proposal_hash: string
-  status: 'pending' | 'approving' | 'approved' | 'rejected' | 'expired'
+  status: 'pending' | 'approving' | 'approved' | 'rejected' | 'expired' | 'ephemeral'
   created_at: number
   expires_at: number
   tx_hash?: string
@@ -123,6 +123,21 @@ export interface BackendProposal {
     generated_at: number
   } | null
   market_context_status?: 'available' | 'stale' | 'unavailable'
+  // Reasoning trace — surfaced in the "View AI Reasoning" slide-over so the
+  // proposal isn't a black box. `reasoning_prompt` is only present on POST
+  // responses (it isn't persisted to Firestore to keep the doc small).
+  reasoning?: {
+    context_summary?: {
+      niche?: string
+      level?: number
+      events_count?: number
+      market_snapshot_age_seconds?: number | null
+      cmc_signals_present?: string[]
+    }
+    raw_response?: string
+    ephemeral?: boolean
+  }
+  reasoning_prompt?: string
 }
 
 export interface Event {

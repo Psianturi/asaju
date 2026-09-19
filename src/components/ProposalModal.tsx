@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Agent, BackendProposal } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
 import { MarketContextPanel } from '@/components/MarketSnapshotCard'
+import { ReasoningSlideOver } from '@/components/ReasoningSlideOver'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -27,6 +28,7 @@ import {
   Vault,
   Wallet,
   ArrowsDownUp,
+  Eye,
 } from '@phosphor-icons/react'
 
 interface ProposalModalProps {
@@ -87,6 +89,7 @@ function ProposalCard({
   executingId,
   actioningId,
   autonomousExecutionEnabled,
+  onShowReasoning,
 }: {
   proposal: BackendProposal
   onApprove: (p: BackendProposal) => void
@@ -95,6 +98,7 @@ function ProposalCard({
   executingId: string | null
   actioningId: string | null
   autonomousExecutionEnabled: boolean
+  onShowReasoning: (p: BackendProposal) => void
 }) {
   const cat = CATEGORY_CONFIG[proposal.category] ?? CATEGORY_CONFIG.community
   const CatIcon = cat.Icon
@@ -104,6 +108,7 @@ function ProposalCard({
   const isExpired = proposal.status === 'expired'
   const isPending = proposal.status === 'pending'
   const isApproving = proposal.status === 'approving'
+  const isEphemeral = proposal.status === 'ephemeral'
 
   return (
     <motion.div
@@ -308,6 +313,20 @@ function ProposalCard({
           </Button>
         </div>
       )}
+
+      {/* "View AI Reasoning" — always available so the user can inspect the
+          data the agent saw + what it told Gemini, even on rejected/approved proposals. */}
+      <button
+        type="button"
+        onClick={() => onShowReasoning(proposal)}
+        className="mt-2 w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors group"
+      >
+        <Eye size={12} weight="duotone" className="group-hover:text-primary transition-colors" />
+        View AI Reasoning
+        <span className="text-[9px] text-muted-foreground/60 ml-1 font-mono">
+          {proposal.reasoning?.context_summary?.cmc_signals_present?.length ?? 0} signals
+        </span>
+      </button>
     </motion.div>
   )
 }
@@ -352,6 +371,9 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
   const [executingId, setExecutingId] = useState<string | null>(null)
   const [executionPreview, setExecutionPreview] = useState<{ nonce: string; message: string; expires_at: number; parsed: ParsedExecutionDetails } | null>(null)
   const [pendingExecutionProposal, setPendingExecutionProposal] = useState<BackendProposal | null>(null)
+  const [reasoningProposal, setReasoningProposal] = useState<BackendProposal | null>(null)
+  const [ephemeralProposal, setEphemeralProposal] = useState<BackendProposal | null>(null)
+  const [forceEvaluating, setForceEvaluating] = useState(false)
 
   const pendingCount = proposals.filter(p => p.status === 'pending').length
 
@@ -416,6 +438,23 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       }
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const handleForceEvaluate = async () => {
+    setForceEvaluating(true)
+    try {
+      const ephemeral = await cloudRunService.forceEvaluate(agent.id)
+      setEphemeralProposal(ephemeral)
+      setReasoningProposal(ephemeral)
+      toast.success('Ephemeral preview generated', {
+        description: 'This was a demo run — nothing was persisted. Open "View AI Reasoning" to see the full pipeline.',
+      })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Force-evaluate failed'
+      toast.error('Force-evaluate failed', { description: msg })
+    } finally {
+      setForceEvaluating(false)
     }
   }
 
@@ -561,6 +600,20 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
             </div>
           ) : (
             <AnimatePresence mode="popLayout">
+              {/* Show ephemeral (force-evaluate) preview first if present, distinct from persisted proposals */}
+              {ephemeralProposal && (
+                <ProposalCard
+                  key="ephemeral-preview"
+                  proposal={ephemeralProposal}
+                  onApprove={() => toast.info('Ephemeral proposals cannot be approved — they were not persisted.')}
+                  onReject={() => setEphemeralProposal(null)}
+                  onExecute={() => toast.info('Ephemeral proposals cannot be executed.')}
+                  executingId={executingId}
+                  actioningId={actioningId}
+                  autonomousExecutionEnabled={false}
+                  onShowReasoning={() => setReasoningProposal(ephemeralProposal)}
+                />
+              )}
               {proposals.map(p => (
                 <ProposalCard
                   key={p.proposal_id}
@@ -571,6 +624,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   executingId={executingId}
                   actioningId={actioningId}
                   autonomousExecutionEnabled={autonomousExecutionEnabled}
+                  onShowReasoning={() => setReasoningProposal(p)}
                 />
               ))}
             </AnimatePresence>
@@ -578,23 +632,39 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
         </div>
 
         <div className="flex-shrink-0 pt-4 border-t border-border/30 space-y-2">
-          <Button
-            onClick={handleGenerate}
-            disabled={generating || loading || !!actioningId}
-            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold shadow-lg shadow-amber-500/20 disabled:opacity-50"
-          >
-            {generating ? (
-              <>
-                <SpinnerGap size={16} className="animate-spin mr-2" />
-                Consulting Gemini...
-              </>
-            ) : (
-              <>
-                <Lightbulb size={16} weight="duotone" className="mr-2" />
-                Request Strategic Consult
-              </>
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleGenerate}
+              disabled={generating || forceEvaluating || loading || !!actioningId}
+              className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold shadow-lg shadow-amber-500/20 disabled:opacity-50"
+            >
+              {generating ? (
+                <>
+                  <SpinnerGap size={16} className="animate-spin mr-2" />
+                  Consulting Gemini...
+                </>
+              ) : (
+                <>
+                  <Lightbulb size={16} weight="duotone" className="mr-2" />
+                  Request Strategic Consult
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleForceEvaluate}
+              disabled={generating || forceEvaluating || loading || !!actioningId}
+              variant="outline"
+              className="shrink-0 gap-1.5 border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10 hover:text-cyan-200 disabled:opacity-50"
+              title="Run the full data → prompt → reasoning → decision pipeline without persisting anything. Use this to show the agent's evaluation to a jury or stakeholder in real time."
+            >
+              {forceEvaluating ? (
+                <SpinnerGap size={14} className="animate-spin" />
+              ) : (
+                <Lightning size={14} weight="bold" />
+              )}
+              Force Evaluate
+            </Button>
+          </div>
           {pendingCount > 0 && (
             <div className="flex items-center gap-1.5 justify-center">
               <Warning size={11} className="text-amber-400" weight="fill" />
@@ -687,6 +757,12 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ReasoningSlideOver
+        proposal={reasoningProposal}
+        open={!!reasoningProposal}
+        onClose={() => setReasoningProposal(null)}
+      />
     </Dialog>
   )
 }
