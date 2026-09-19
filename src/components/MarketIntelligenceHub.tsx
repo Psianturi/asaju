@@ -56,19 +56,19 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
     >
       <span className="text-[10px] font-mono tabular-nums text-muted-foreground/60 w-5">{index + 1}</span>
       <div className="min-w-0 flex items-baseline gap-1.5">
-        <span className="font-semibold text-sm shrink-0">{coin.symbol}</span>
+        <span className="font-bold text-base text-foreground shrink-0">{coin.symbol}</span>
         {coin.cmc_rank && (
-          <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">#{coin.cmc_rank}</span>
+          <span className="text-[9px] font-mono text-muted-foreground/60 shrink-0">#{coin.cmc_rank}</span>
         )}
-        <span className="text-[10px] text-muted-foreground truncate hidden md:inline">{coin.name}</span>
+        <span className="text-[11px] text-gray-300 truncate hidden md:inline">{coin.name}</span>
       </div>
-      <div className="text-sm font-mono tabular-nums text-right">{fmtPrice(quote?.price)}</div>
+      <div className="text-base font-mono font-semibold tabular-nums text-right text-white">{fmtPrice(quote?.price)}</div>
       {change != null ? (
-        <span className={`text-[11px] font-mono tabular-nums w-16 text-right ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
-          {up ? '+' : ''}{change.toFixed(1)}%
+        <span className={`text-[13px] font-mono font-bold tabular-nums w-16 text-right ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
+          {up ? '▲ +' : '▼ '}{Math.abs(change).toFixed(1)}%
         </span>
       ) : (
-        <span className="text-[11px] text-muted-foreground/40 w-16 text-right">—</span>
+        <span className="text-[13px] text-muted-foreground/40 w-16 text-right">—</span>
       )}
     </motion.div>
   )
@@ -89,16 +89,16 @@ function ListingChip({ coin, index }: { coin: NewListing; index: number }) {
     >
       <div className="flex items-baseline gap-2 min-w-0 flex-1">
         <Rocket size={12} className="text-violet-300 shrink-0 self-center" weight="duotone" />
-        <span className="font-semibold text-sm shrink-0">{coin.symbol}</span>
-        <span className="text-[10px] text-muted-foreground truncate hidden md:inline">{coin.name}</span>
+        <span className="font-bold text-sm text-foreground shrink-0">{coin.symbol}</span>
+        <span className="text-[10px] text-gray-300 truncate hidden md:inline">{coin.name}</span>
       </div>
       <div className="flex items-center gap-3 shrink-0">
         {change != null && (
-          <span className={`text-[11px] font-mono tabular-nums ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
-            {up ? '+' : ''}{change.toFixed(1)}%
+          <span className={`text-[12px] font-mono font-bold tabular-nums ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
+            {up ? '▲ +' : '▼ '}{Math.abs(change).toFixed(1)}%
           </span>
         )}
-        <span className="text-[10px] text-muted-foreground/70 font-mono tabular-nums">{addedDate}</span>
+        <span className="text-[10px] text-muted-foreground/80 font-mono tabular-nums">{addedDate}</span>
       </div>
     </motion.div>
   )

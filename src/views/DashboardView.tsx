@@ -2,7 +2,7 @@
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article } from '@phosphor-icons/react'
+import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article, ArrowRight } from '@phosphor-icons/react'
 import { Agent, Event, NFT } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
@@ -293,18 +293,18 @@ export function DashboardView({
 
 function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgents: number; autoScouting: number; videosAnalyzed: number; pendingProposals: number } }) {
   return (
-    <Card className="p-4 border border-primary/20 bg-gradient-to-br from-primary/[0.04] to-transparent">
-      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-1">
+    <Card className="p-5 border border-primary/30 bg-gradient-to-br from-primary/[0.08] to-transparent shadow-lg shadow-primary/5">
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-2">
         Mission control
       </p>
-      <h1 className="text-lg font-bold mb-1">
+      <h1 className="text-2xl font-bold mb-2 text-foreground leading-tight">
         {stats.pendingProposals > 0
           ? `${stats.pendingProposals} proposal${stats.pendingProposals === 1 ? '' : 's'} need your approval`
           : stats.autoScouting > 0
             ? `${stats.autoScouting} agent${stats.autoScouting === 1 ? '' : 's'} auto-scouting`
             : 'All agents idle'}
       </h1>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-sm text-gray-300 leading-relaxed">
         {agents.length} agent{agents.length === 1 ? '' : 's'} · {stats.videosAnalyzed} videos analyzed
       </p>
     </Card>
@@ -428,14 +428,14 @@ function CompactStat({
   return (
     <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
       <div className="flex items-start justify-between mb-1">
-        <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">
+        <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-300">
           {label}
         </p>
         {icon}
       </div>
-      <p className="text-xl font-bold font-mono tabular-nums">{value}</p>
+      <p className="text-3xl font-bold font-mono tabular-nums text-foreground leading-none">{value}</p>
       {sublabel && (
-        <p className="text-[9px] text-muted-foreground/70 mt-0.5">{sublabel}</p>
+        <p className="text-[10px] text-muted-foreground mt-1.5">{sublabel}</p>
       )}
     </Card>
   )
@@ -622,16 +622,17 @@ function ActionTile({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="action-tile-hover text-left p-3.5 rounded-lg border border-border/40 bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+      className="action-tile-hover text-left p-4 rounded-lg border border-primary/40 bg-primary/[0.08] hover:border-primary/70 hover:bg-primary/[0.12] hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
     >
-      <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center group-hover:bg-primary/15 transition-colors">
+      <div className="flex items-center gap-3">
+        <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-primary/30 to-secondary/30 border border-primary/50 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md shadow-primary/20">
           {icon}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm">{title}</p>
-          <p className="text-[10px] text-muted-foreground">{subtitle}</p>
+          <p className="font-bold text-base text-foreground leading-tight">{title}</p>
+          <p className="text-xs text-gray-300 mt-0.5 leading-snug">{subtitle}</p>
         </div>
+        <ArrowRight size={16} className="text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0" weight="bold" />
       </div>
     </button>
   )

@@ -158,13 +158,13 @@ function PreviewPill({ icon: Icon, label, hint, color }: PreviewPillProps) {
               transition={{ duration: 0.25 }}
               className="mt-2 space-y-1.5"
             >
-              <p className="text-xs leading-relaxed text-foreground/90">
-                <span className="text-muted-foreground font-medium">Watching:</span> {insight.watching}
+              <p className="text-sm leading-relaxed text-gray-100 mt-3">
+                <span className="text-muted-foreground font-medium uppercase tracking-wider text-[10px] mr-1.5">Watching:</span>{insight.watching}
               </p>
-              <p className="text-xs leading-relaxed">
-                <span className="text-amber-300/90 font-medium">Suggested:</span> {insight.suggested_action}
+              <p className="text-sm leading-relaxed mt-2 text-gray-100">
+                <span className="text-amber-300 font-semibold uppercase tracking-wider text-[10px] mr-1.5">Suggested:</span>{insight.suggested_action}
               </p>
-              <p className="text-[9px] text-muted-foreground/60 font-mono">
+              <p className="text-[10px] text-muted-foreground/70 font-mono mt-2">
                 Sources: {insight.sources.join(' · ')}
               </p>
             </motion.div>
