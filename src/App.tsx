@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, startTransition } from 'react'
+﻿import { useState, useEffect, useCallback, startTransition } from 'react'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -289,7 +289,7 @@ function App() {
     setBackendStatus('live')
   }
 
-  // Silent background health check on mount — no blocking popup
+  // Silent background health check on mount â€” no blocking popup
   useEffect(() => {
     cloudRunService.healthCheck()
       .then((health) => {
@@ -640,7 +640,7 @@ function App() {
     setActiveAgentId(agent.id)
     startWorkflow()
 
-    // ── Real backend flow ─────────────────────────────────────────────────
+    // â”€â”€ Real backend flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
       addLog(agent.id, 'secretary', `[${agent.name} - Secretary] Connecting to Agent Engine (Cloud Run)...`, 'info')
       await new Promise(resolve => setTimeout(resolve, 400))
@@ -669,20 +669,20 @@ function App() {
       addLog(agent.id, 'scribe', `[${agent.name} - Scribe] Wisdom generated: "${result.wisdomSummary.slice(0, 80)}..."`, 'success')
 
       // Milestone-gated minting: most videos are analyzed and recorded without
-      // spending gas on an NFT — only a level-up mints one. Never claim a mint
+      // spending gas on an NFT â€” only a level-up mints one. Never claim a mint
       // that didn't happen.
       if (result.minted) {
         addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Transaction signed by ${signingMode}. TX: ${result.txHash.slice(0, 18)}...`, 'info')
-        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Milestone reached — NFT minted on ${agentChain?.shortName ?? 'chain'}! Token #${result.tokenId} | Block ${result.blockNumber}`, 'success')
+        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Milestone reached â€” NFT minted on ${agentChain?.shortName ?? 'chain'}! Token #${result.tokenId} | Block ${result.blockNumber}`, 'success')
         addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Gas used: ${Number(result.gasUsed || 0).toLocaleString()} units`, 'info')
 
         const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Health #Wellness #Web3'
-        const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + '…' : result.wisdomSummary
+        const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + 'â€¦' : result.wisdomSummary
         const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #MAEF`
         setLastSocialPost({ agentId: agent.id, text: socialPostText, eventTitle: resolvedTitle })
         addLog(agent.id, 'social-lite', `[${agent.name} - Social-Lite] Post draft ready for "${resolvedTitle}"`, 'success')
       } else {
-        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Video analyzed and recorded — no NFT minted this time, saving gas until the next milestone.`, 'info')
+        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Video analyzed and recorded â€” no NFT minted this time, saving gas until the next milestone.`, 'info')
       }
 
       const newEvent: Event = {
@@ -753,14 +753,14 @@ function App() {
         })
       } else {
         toast.success('Video analyzed', {
-          description: 'Recorded — no NFT minted this time. The agent mints at level-up milestones to save gas.',
+          description: 'Recorded â€” no NFT minted this time. The agent mints at level-up milestones to save gas.',
           duration: 6000,
         })
       }
 
       if (newEventsAttended >= 5 && !agent.wisdomUnlocked) {
         setTimeout(() => {
-          toast.success('🎉 Wisdom Unlocked!', { description: 'Generate your Wisdom Report now!', duration: 5000 })
+          toast.success('ðŸŽ‰ Wisdom Unlocked!', { description: 'Generate your Wisdom Report now!', duration: 5000 })
         }, 1200)
       }
     } catch (error) {
@@ -959,7 +959,7 @@ function App() {
         toast.success(`Agent attended: ${discovered?.title}`, {
           description: attend_result.minted
             ? `NFT minted. TX: ${attend_result.tx_hash?.slice(0, 10)}...`
-            : 'Video analyzed and recorded — no NFT minted this time (below the next milestone).',
+            : 'Video analyzed and recorded â€” no NFT minted this time (below the next milestone).',
         })
         // Update agent stats in local state from scout result
         if (attend_result.new_total_events != null || attend_result.new_level != null) {
@@ -1091,7 +1091,7 @@ function App() {
         setAgents(current => (current ?? []).map(a => a.id === agent.id ? { ...a, spawnedOnV4: true } : a))
       } else {
         toast.success(`Spawn retry initiated for ${agent.name}`, {
-          description: 'V4 activation TX sent — check back in ~30s'
+          description: 'V4 activation TX sent â€” check back in ~30s'
         })
       }
     } catch (err: unknown) {
@@ -1149,7 +1149,7 @@ function App() {
 
     const agent = agents?.find(a => a.id === agentId)
 
-    toast.success('⚡ Neural Recovery Complete!', {
+    toast.success('âš¡ Neural Recovery Complete!', {
       description: `${agent?.name} is now ready for fusion. Cooldown bypassed.`,
       duration: 4000
     })
@@ -1178,7 +1178,7 @@ function App() {
   const isViewOnly = !walletConnected
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
+    <div className="min-h-screen bg-background relative">
       <DataFlowBackground />
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(0,243,255,0.15),transparent_50%),radial-gradient(ellipse_at_bottom_right,rgba(157,0,255,0.15),transparent_50%),radial-gradient(ellipse_at_center,rgba(100,100,255,0.05),transparent_70%)]" />
       <div className="fixed inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSA2MCAwIEwgMCAwIDAgNjAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgwLDI0MywyNTUsMC4wNSkiIHN0cm9rZS13aWR0aD0iMSIvPjwvcGF0dGVybj48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0idXJsKCNncmlkKSIvPjwvc3ZnPg==')] opacity-30" />
@@ -1220,7 +1220,7 @@ function App() {
                 </div>
               </div>
 
-              {/* Nav — center */}
+              {/* Nav â€” center */}
               <nav className="flex items-center gap-0.5 flex-1 justify-center">
                 {([
                   { view: 'dashboard', label: 'Dashboard', icon: Robot, color: 'primary' },
@@ -1237,7 +1237,7 @@ function App() {
                     className={cn(
                       'px-3 h-8 text-sm font-medium transition-all duration-200',
                       mainView === view
-                        ? `bg-${color}/10 text-${color} border border-${color}/40`
+                        ? 'bg-primary/10 text-primary border border-primary/40'
                         : `text-muted-foreground hover:text-foreground hover:bg-white/5`
                     )}
                   >
@@ -1247,9 +1247,9 @@ function App() {
                 ))}
               </nav>
 
-              {/* Right — status + wallet */}
+              {/* Right â€” status + wallet */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Backend status pill — status only, no public toggle */}
+                {/* Backend status pill â€” status only, no public toggle */}
                 <div
                   className={cn(
                     'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono',
@@ -1302,7 +1302,7 @@ function App() {
             />
           )}
 
-          {/* ── My Agents ─────────────────────────────── */}
+          {/* â”€â”€ My Agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           {!agentDetailId && mainView === 'my-agents' && (
             <MyAgentsView
               agents={displayedAgents}
@@ -1327,12 +1327,12 @@ function App() {
             />
           )}
 
-          {/* ── Analytics ─────────────────────────────── */}
+          {/* â”€â”€ Analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           {!agentDetailId && mainView === 'analytics' && (
             <AnalyticsView agents={displayedAgents} events={displayedEvents} nfts={displayedNFTs} />
           )}
 
-          {/* ── NFT Vault ─────────────────────────────── */}
+          {/* â”€â”€ NFT Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           {/* -- NFT Vault ------------------------------- */}
           {!agentDetailId && mainView === 'vault' && (
             <VaultView
