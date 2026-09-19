@@ -129,6 +129,11 @@ class ProposalResponse(BaseModel):
     autonomous_transfer_amount_mnt: float | None = None
     market_context: dict | None = None
     market_context_status: Literal["available", "stale", "unavailable"] = "unavailable"
+    # Reasoning trace — surfaced in the "View AI Reasoning" slide-over.
+    # `reasoning` is persisted in Firestore (small); `reasoning_prompt` is the
+    # full prompt text returned only on POST and not persisted.
+    reasoning: dict | None = None
+    reasoning_prompt: str | None = None
 
 
 class ApprovalChallengeResponse(BaseModel):
@@ -311,6 +316,11 @@ def _doc_to_response(doc_id: str, data: dict) -> ProposalResponse:
         autonomous_transfer_amount_mnt=data.get("autonomous_transfer_amount_mnt"),
         market_context=data.get("market_context"),
         market_context_status=data.get("market_context_status", "unavailable"),
+        # Reasoning trace fields — surfaced in the "View AI Reasoning" slide-over.
+        # `_prompt` is intentionally NOT persisted in Firestore (returned only on
+        # the POST response so the slide-over can show it once).
+        reasoning=data.get("reasoning"),
+        reasoning_prompt=data.get("_reasoning_prompt"),
     )
 
 
@@ -530,6 +540,16 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         "expires_at": now + PROPOSAL_TTL_SECONDS,
         "market_context": market_context,
         "market_context_status": market_context_status,
+        # Reasoning trace — what data the agent saw + the exact prompt + raw response.
+        # Surfaced in the frontend via "View AI Reasoning" so the proposal is not a
+        # black box. Sized reasonably to keep the Firestore document under 1 MB.
+        "reasoning": {
+            "context_summary": proposal_data.get("_reasoning", {}).get("context_summary", {}),
+            "raw_response": proposal_data.get("_reasoning", {}).get("raw_response", "")[:2000],
+            # Full prompt intentionally NOT persisted — returned once on POST and
+            # cached by the client. Kept out of Firestore to avoid duplication.
+        },
+        "_reasoning_prompt": proposal_data.get("_reasoning", {}).get("prompt", ""),
     }
 
     try:
@@ -556,6 +576,154 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         },
     )
     return _doc_to_response(doc_ref.id, proposal_doc)
+
+
+@router.post("/api/v1/agent/{agent_id}/force-evaluate", response_model=ProposalResponse)
+async def force_evaluate(agent_id: str) -> ProposalResponse:
+    """Generate a proposal synchronously, immediately, without persisting it.
+    Designed for hackathon demos and power-user previews: the juri (or owner)
+    clicks one button and watches the full Data → Prompt → Reasoning → Decision
+    pipeline execute end-to-end in front of them. The result is returned in the
+    response body only — nothing is written to Firestore until the owner chooses
+    to formally propose it via the normal POST /propose flow.
+
+    Reuses the same data fetch + Gemini call as `generate_proposal` so the
+    reasoning trace is identical to what a real proposal would have.
+    """
+    db = get_db()
+
+    try:
+        agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    except Exception as exc:
+        logger.error("Firestore fetch failed for force-evaluate (agent %s): %s", agent_id, exc)
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not agent_doc.exists:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    agent_data = agent_doc.to_dict() or {}
+    agent_wallet = agent_data.get("agent_wallet")
+    if not agent_wallet:
+        raise HTTPException(status_code=400, detail="Agent has no wallet address")
+
+    agent_name = agent_data.get("agent_name") or agent_data.get("name") or "Agent"
+    niche = agent_data.get("niche", "General")
+    level = agent_data.get("level", 1)
+    generation = agent_data.get("generation", 1)
+    genetic_traits = agent_data.get("genetic_traits") or []
+
+    # Pull event history — same logic as generate_proposal.
+    event_summaries: list[str] = []
+    try:
+        async for ev_doc in (
+            db.collection(EVENTS_COLLECTION)
+            .where(filter=FieldFilter("agent_id", "==", agent_id))
+            .stream()
+        ):
+            ev = ev_doc.to_dict() or {}
+            title = ev.get("event_title", "")
+            summary = ev.get("wisdom_summary", "")
+            if title and summary:
+                event_summaries.append(f"{title}: {summary}")
+    except Exception as exc:
+        logger.warning("Could not fetch event history for force-evaluate: %s", exc)
+
+    market_context: dict | None = None
+    market_context_status = "unavailable"
+    try:
+        market_context = await get_market_snapshot()
+        market_context_status = _market_context_status(market_context)
+    except Exception as exc:
+        logger.warning("Market snapshot unavailable for force-evaluate: %s", exc)
+
+    from services.market_data_service import (
+        get_airdrops,
+        get_global_metrics,
+        get_most_visited,
+        get_new_listings,
+        get_trending_gainers_losers,
+    )
+
+    async def _safe(coro, default=None):
+        try:
+            return await coro
+        except Exception as exc:
+            logger.warning("CMC signal fetch failed for force-evaluate: %s", exc)
+            return default
+
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops = (
+        await asyncio.gather(
+            _safe(get_trending_gainers_losers("24h", 5), default=[]),
+            _safe(get_trending_gainers_losers("24h", 5, sort_dir="asc"), default=[]),
+            _safe(get_new_listings(5), default=[]),
+            _safe(get_most_visited(5), default=[]),
+            _safe(get_global_metrics(), default=None),
+            _safe(get_airdrops(5), default=[]),
+        )
+    )
+
+    if not new_listings and most_visited:
+        new_listings = most_visited
+
+    custom_instructions = (agent_data.get("custom_instructions") or "").strip() or None
+    custom_agenda = (agent_data.get("custom_agenda") or "").strip() or None
+    user_wallet = agent_data.get("user_wallet")
+
+    owner_chat_topics: list[dict] = []
+    if user_wallet:
+        try:
+            from services.wisdom_cache import recall_chat_topics
+            owner_chat_topics = await recall_chat_topics(agent_id=agent_id, user_wallet=user_wallet, limit=3)
+        except Exception:
+            pass
+
+    try:
+        proposal_data = await generate_agent_proposal(
+            agent_name=agent_name,
+            niche=niche,
+            level=level,
+            generation=generation,
+            genetic_traits=genetic_traits,
+            event_summaries=event_summaries[:6],
+            market_context=market_context,
+            custom_instructions=custom_instructions,
+            custom_agenda=custom_agenda,
+            chat_topics=owner_chat_topics,
+            trending_gainers=trending_gainers or None,
+            trending_losers=trending_losers or None,
+            new_listings=new_listings or None,
+            active_airdrops=active_airdrops or None,
+            global_metrics=global_metrics,
+        )
+    except Exception as exc:
+        logger.error("Gemini force-evaluate failed for agent %s: %s", agent_id, exc)
+        raise HTTPException(status_code=503, detail="Force-evaluate failed — LLM unavailable")
+
+    # Build an ephemeral proposal doc — same shape as a persisted one, but no
+    # proposal_hash / audit / persistence. The reasoning fields are populated
+    # so the frontend slide-over can show the full pipeline trace.
+    now = time.time()
+    ephemeral = {
+        "agent_id": agent_id,
+        "agent_wallet": agent_wallet,
+        "title": proposal_data["title"],
+        "description": proposal_data["description"],
+        "category": proposal_data["category"],
+        "proposal_hash": "",  # not a real proposal
+        "status": "ephemeral",  # marker so UI knows not to render Approve/Reject
+        "created_at": now,
+        "expires_at": now,
+        "market_context": market_context,
+        "market_context_status": market_context_status,
+        "reasoning": {
+            "context_summary": proposal_data.get("_reasoning", {}).get("context_summary", {}),
+            "raw_response": proposal_data.get("_reasoning", {}).get("raw_response", "")[:2000],
+            "ephemeral": True,  # signals "this was a force-evaluate, not a saved proposal"
+        },
+        "_reasoning_prompt": proposal_data.get("_reasoning", {}).get("prompt", ""),
+    }
+
+    return _doc_to_response("ephemeral", ephemeral)
 
 
 @router.get("/api/v1/agent/{agent_id}/proposals", response_model=list[ProposalResponse])

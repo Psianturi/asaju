@@ -940,7 +940,19 @@ async def generate_agent_proposal(
 ) -> dict:
     """
     Gemini generates a strategic proposal for the agent based on its history.
-    Returns: { title, description, category }
+    Returns:
+      {
+        "title", "description", "category",
+        "_reasoning": {
+            "prompt": "<exact prompt text sent to Gemini>",
+            "raw_response": "<raw Gemini response text>",
+            "context_summary": {
+                "niche": ..., "level": ..., "events_count": ...,
+                "market_snapshot_age_seconds": ...,
+                "cmc_signals_present": [...],  # which sections were populated
+            }
+        }
+      }
     Raises ProposalGenerationError if LLM is unavailable or API call fails.
     Router must catch this and return 503.
     """
@@ -1032,10 +1044,44 @@ Respond ONLY with valid JSON in this exact format:
         category = parsed.get("category", "education")
         if category not in _PROPOSAL_CATEGORIES:
             category = "education"
+
+        # Build a structured reasoning trace so the UI can show what data the
+        # agent had, what it said in the prompt, and what it returned. This is
+        # the "View AI Reasoning" surface that closes the black-box gap.
+        cmc_signals_present: list[str] = []
+        if trending_gainers:
+            cmc_signals_present.append("top_gainers")
+        if trending_losers:
+            cmc_signals_present.append("top_losers")
+        if new_listings:
+            cmc_signals_present.append("new_listings")
+        if active_airdrops:
+            cmc_signals_present.append("active_airdrops")
+        if global_metrics:
+            cmc_signals_present.append("global_metrics")
+        if market_context and (market_context.get("prices") or market_context.get("fear_greed")):
+            cmc_signals_present.append("market_snapshot")
+
+        market_snapshot_age_seconds: int | None = None
+        if market_context and market_context.get("generated_at"):
+            import time as _time
+            market_snapshot_age_seconds = int(_time.time() - market_context["generated_at"])
+
         return {
             "title": str(parsed.get("title", "Strategic Proposal"))[:80],
             "description": str(parsed.get("description", "")),
             "category": category,
+            "_reasoning": {
+                "prompt": prompt,
+                "raw_response": raw,
+                "context_summary": {
+                    "niche": niche,
+                    "level": level,
+                    "events_count": len(event_summaries),
+                    "market_snapshot_age_seconds": market_snapshot_age_seconds,
+                    "cmc_signals_present": cmc_signals_present,
+                },
+            },
         }
     except Exception as exc:
         raise ProposalGenerationError(f"Gemini API call failed: {exc}") from exc
