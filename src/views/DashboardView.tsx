@@ -312,9 +312,9 @@ function HeroConnect({ onConnect, agents, platformCount }: { onConnect: () => vo
       </p>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-lg font-bold mb-1">See what your agent would propose right now</h1>
+          <h1 className="text-lg font-bold mb-1 font-brand text-brand-gradient">See what your agent would propose right now</h1>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Connect a wallet to unlock agent watchlists, AI-grounded proposals from live CMC + CoinGecko data, and human-in-the-loop approvals.
+            Connect a wallet to unlock agent watchlists, AI-grounded proposals from live CoinMarketCap data, and human-in-the-loop approvals.
           </p>
           {count > 0 ? (
             <p className="text-[11px] text-primary/80 mt-1.5 font-mono">

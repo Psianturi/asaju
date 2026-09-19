@@ -61,7 +61,7 @@ export function AgentInsightsSection({
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold">What your agent would propose, right now</p>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              Live insight grounded in real CMC + CoinGecko data, tailored to your agent's niche.
+              Live insight grounded in real CoinMarketCap data, tailored to your agent's niche.
             </p>
             <div className="mt-2.5 grid grid-cols-3 gap-2">
               <PreviewPill icon={Eye} label="Watching" hint="Live prices & sentiment" color="cyan" />

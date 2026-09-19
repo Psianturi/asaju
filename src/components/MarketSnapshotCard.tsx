@@ -51,11 +51,11 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[9px] font-mono text-cyan-200">
-          <Database size={9} /> CoinGecko
-        </span>
         <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[9px] font-mono text-amber-200">
           <ShieldCheck size={9} /> CoinMarketCap
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-mono text-emerald-200">
+          <Database size={9} /> On-chain liquidity
         </span>
       </div>
 
@@ -98,7 +98,7 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Mantle liquidity watch</p>
-            <span className="text-[9px] text-muted-foreground/60">CoinGecko on-chain</span>
+            <span className="text-[9px] text-muted-foreground/60">On-chain</span>
           </div>
           <div className="space-y-1">
             {pools.map((pool, index) => {

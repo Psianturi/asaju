@@ -362,7 +362,7 @@ export function MarketIntelligencePanel() {
 
         <p className="text-[9px] text-muted-foreground/60 mt-3 pt-2.5 border-t border-border/20 flex items-center gap-1.5">
           <span className="w-1 h-1 rounded-full bg-cyan-400" />
-          CoinMarketCap (listings, sentiment) + CoinGecko (price, DEX) · refreshes every 5 min.
+          Sources: CoinMarketCap — listings, sentiment, trending, news · refreshes every 5 min.
         </p>
       </div>
     </Card>

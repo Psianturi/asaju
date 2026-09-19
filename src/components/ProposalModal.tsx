@@ -169,7 +169,7 @@ function ProposalCard({
           <MarketContextPanel snapshot={proposal.market_context} compact />
           <div className="mt-2 pt-2 border-t border-cyan-400/10 flex items-center justify-between">
             <span className="text-[9px] text-cyan-400/40 font-mono">
-              Sources: CoinGecko / CoinMarketCap Fear &amp; Greed + News
+              Sources: CoinMarketCap Fear &amp; Greed + News, on-chain liquidity
             </span>
             {proposal.market_context.generated_at && (
               <span className="text-[9px] text-cyan-400/30 font-mono">

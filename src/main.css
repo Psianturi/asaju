@@ -184,3 +184,89 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+  ── Spektra-inspired retro accents (synthwave/futurist, refined) ──────────────
+  Adopted: palette tokens, neon glow on hover, Orbitron font utility, blink/shimmer.
+  Skipped: scanlines overlay (counterproductive for productive dashboards),
+           perspective grid (off-brand), glitch (over-the-top).
+*/
+
+.font-brand {
+  font-family: 'Orbitron', monospace;
+  letter-spacing: 0.04em;
+}
+
+/* ── Glow pulses ─────────────────────────────────────────────────────────── */
+@keyframes glow-pulse-cyan {
+  0%, 100% { box-shadow: 0 0 14px rgba(0, 243, 255, 0.35), 0 0 28px rgba(0, 243, 255, 0.15); }
+  50%      { box-shadow: 0 0 24px rgba(0, 243, 255, 0.55), 0 0 48px rgba(0, 243, 255, 0.25); }
+}
+@keyframes glow-pulse-violet {
+  0%, 100% { box-shadow: 0 0 14px rgba(157, 0, 255, 0.35), 0 0 28px rgba(157, 0, 255, 0.15); }
+  50%      { box-shadow: 0 0 24px rgba(157, 0, 255, 0.55), 0 0 48px rgba(157, 0, 255, 0.25); }
+}
+@keyframes glow-pulse-pink {
+  0%, 100% { box-shadow: 0 0 14px rgba(255, 0, 128, 0.30), 0 0 28px rgba(255, 0, 128, 0.12); }
+  50%      { box-shadow: 0 0 24px rgba(255, 0, 128, 0.50), 0 0 48px rgba(255, 0, 128, 0.20); }
+}
+@keyframes terminal-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.35; }
+}
+@keyframes shimmer-sweep {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+.animate-glow-cyan   { animation: glow-pulse-cyan 2.2s ease-in-out infinite; }
+.animate-glow-violet { animation: glow-pulse-violet 2.5s ease-in-out infinite; }
+.animate-glow-pink   { animation: glow-pulse-pink 2.6s ease-in-out infinite; }
+.animate-blink       { animation: terminal-blink 1s step-end infinite; }
+.animate-float       { animation: float-y 3.5s ease-in-out infinite; }
+
+/* ── Neon text accents (use sparingly, not for body text) ─────────────────── */
+.text-neon-cyan   { color: #00f3ff; text-shadow: 0 0 12px rgba(0, 243, 255, 0.6); }
+.text-neon-violet { color: #9d00ff; text-shadow: 0 0 12px rgba(157, 0, 255, 0.6); }
+.text-neon-pink   { color: #ff0080; text-shadow: 0 0 12px rgba(255, 0, 128, 0.5); }
+.text-neon-gold   { color: #ffd700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+
+/* ── Brand gradient (cyan → violet → pink) ────────────────────────────────── */
+.bg-brand-gradient {
+  background: linear-gradient(90deg, #00f3ff, #9d00ff, #ff0080);
+}
+.text-brand-gradient {
+  background: linear-gradient(90deg, #00f3ff, #9d00ff, #ff0080);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ── Hologram shimmer for loading states / live badges ────────────────────── */
+.hologram {
+  background: linear-gradient(90deg, transparent 0%, rgba(0, 243, 255, 0.25) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer-sweep 2.8s linear infinite;
+}
+
+/* ── Neon border utilities (subtle, refined) ──────────────────────────────── */
+.neon-cyan   { box-shadow: 0 0 14px rgba(0, 243, 255, 0.25), inset 0 0 8px rgba(0, 243, 255, 0.08); }
+.neon-violet { box-shadow: 0 0 14px rgba(157, 0, 255, 0.25), inset 0 0 8px rgba(157, 0, 255, 0.08); }
+.neon-pink   { box-shadow: 0 0 14px rgba(255, 0, 128, 0.20), inset 0 0 8px rgba(255, 0, 128, 0.06); }
+
+/* ── Reduced motion guard (WCAG 2.1 SC 2.3.3) ─────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-glow-cyan,
+  .animate-glow-violet,
+  .animate-glow-pink,
+  .animate-blink,
+  .animate-float,
+  .hologram {
+    animation: none !important;
+  }
+}
