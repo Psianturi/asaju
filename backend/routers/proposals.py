@@ -432,6 +432,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
     # in trending, new listings, airdrops, and global metrics beyond the basic
     # price/sentiment snapshot. Same fail-soft policy as market_context.
     from services.market_data_service import (
+        get_airdrops,
         get_global_metrics,
         get_most_visited,
         get_new_listings,
@@ -450,11 +451,14 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
     listings_task = _safe(get_new_listings(5), default=[])
     visited_task = _safe(get_most_visited(5), default=[])
     global_task = _safe(get_global_metrics(), default=None)
+    airdrops_task = _safe(get_airdrops(5), default=[])
 
-    # Airdrops are static (no separate sort_dir or window); reuse the trending call's
-    # shape — we already have get_new_listings + get_most_visited for breadth.
-    trending_gainers, trending_losers, new_listings, most_visited, global_metrics = await asyncio.gather(
-        gainers_task, losers_task, listings_task, visited_task, global_task
+    # Fetch all advanced CMC signals in parallel — fail-soft, one slow endpoint
+    # cannot stall the proposal.
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops = (
+        await asyncio.gather(
+            gainers_task, losers_task, listings_task, visited_task, global_task, airdrops_task
+        )
     )
 
     # Treat most-visited as a "new listings" supplement when new listings is sparse,
@@ -496,7 +500,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
             trending_gainers=trending_gainers or None,
             trending_losers=trending_losers or None,
             new_listings=new_listings or None,
-            active_airdrops=None,  # not yet exposed in proposal router — surface in dashboard for now
+            active_airdrops=active_airdrops or None,
             global_metrics=global_metrics,
         )
     except Exception as exc:

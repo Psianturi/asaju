@@ -200,3 +200,42 @@ def test_format_cmc_signals_empty_input_returns_empty_string():
     """If nothing supplied, helper returns '' so the prompt doesn't gain stray newlines."""
     assert _format_cmc_signals() == ""
     assert _format_cmc_signals(trending_gainers=[], new_listings=[], global_metrics={}) == ""
+
+
+async def test_prompt_includes_active_airdrops_when_provided(monkeypatch):
+    captured: dict = {}
+
+    async def fake_gemini(api_key, payload, **_):
+        captured["prompt"] = payload["contents"][0]["parts"][0]["text"]
+        return {"candidates": [{"content": {"parts": [{"text": '{"title":"x","description":"y","category":"defi"}'}]}}]}
+
+    monkeypatch.setattr("services.llm_service._call_gemini_with_retry", fake_gemini)
+    monkeypatch.setattr("services.llm_service.get_llm_api_key", lambda: "test-key")
+
+    from services.llm_service import generate_agent_proposal
+
+    await generate_agent_proposal(
+        agent_name="TestAgent",
+        niche="Trading/Investment",
+        level=2,
+        generation=1,
+        genetic_traits=[],
+        event_summaries=[],
+        market_context=None,
+        active_airdrops=[
+            {
+                "id": 1,
+                "name": "USDC Airdrop",
+                "coin": {"id": 3408, "name": "USDC", "symbol": "USDC"},
+                "status": "ONGOING",
+                "end_date": "2026-10-01T00:00:00Z",
+                "total_prize": 100000,
+                "prize_currency": "USDC",
+            },
+        ],
+    )
+
+    assert "CoinMarketCap active airdrops" in captured["prompt"]
+    assert "USDC" in captured["prompt"]
+    assert "ONGOING" in captured["prompt"]
+    assert "100,000 USDC" in captured["prompt"]
