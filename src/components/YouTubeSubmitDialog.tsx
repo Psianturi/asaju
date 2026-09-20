@@ -221,7 +221,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="glass-card max-w-md w-full border-cyan-400/30">
+      <DialogContent className="glass-card max-w-lg w-full border-cyan-400/30">
         <DialogHeader className="flex-shrink-0 pb-4 border-b border-border/30">
           <DialogTitle className="flex items-center gap-2.5 text-base font-bold">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-rose-500/30 to-amber-500/30 border border-rose-500/40 flex items-center justify-center">
@@ -287,7 +287,12 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
                   )}
                 </>
               ) : (
-                <span className="text-muted-foreground/70">Auto-Scout off</span>
+                <span
+                  className="text-muted-foreground/70"
+                  title="Auto-Scout can be enabled on the agent detail page. While off, this manual override is the only way the agent learns."
+                >
+                  Auto-Scout off
+                </span>
               )}
             </span>
             {isFiniteNum(selectedAgent.comprehensionScore) && (
@@ -351,6 +356,43 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
                     }}
                   />
                 </div>
+
+                {/* How this works — a plain-English block explaining what the
+                    agent actually does with the URL. New users often think
+                    this just "opens the video" or "saves it" — make clear that
+                    the transcript is read, distilled by Gemini, scored, and
+                    only minted on-chain if the milestone threshold is met. */}
+                <details className="group rounded-md border border-border/30 bg-background/30 open:bg-background/50 transition-colors">
+                  <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground px-2.5 py-1.5 list-none flex items-center justify-between gap-1 select-none">
+                    <span className="flex items-center gap-1.5">
+                      <Lightning size={11} weight="duotone" className="text-amber-300" />
+                      What happens when I click Analyze now?
+                    </span>
+                    <CaretDown size={11} weight="bold" className="transition-transform group-open:rotate-180 opacity-60" />
+                  </summary>
+                  <div className="px-2.5 pb-2.5 pt-1 space-y-1.5 text-[11px] text-gray-300 leading-relaxed">
+                    <p>
+                      <span className="text-cyan-300 font-semibold">1. Read the video.</span>{' '}
+                      The agent pulls the YouTube transcript + title — no API key needed.
+                    </p>
+                    <p>
+                      <span className="text-amber-300 font-semibold">2. Distill the lesson.</span>{' '}
+                      Gemini summarises the video into a 3-paragraph insight tailored to the agent's niche.
+                    </p>
+                    <p>
+                      <span className="text-violet-300 font-semibold">3. Score novelty.</span>{' '}
+                      Compare against past learnings. If the lesson is novel AND niche-relevant, the comprehension score climbs.
+                    </p>
+                    <p>
+                      <span className="text-emerald-300 font-semibold">4. Mint on Mantle.</span>{' '}
+                      Cross a milestone (every 20 comprehension points) and a learning NFT is minted on-chain — your agent signs, gas paid by the agent's own balance.
+                    </p>
+                    <p className="text-muted-foreground/70 italic text-[10px] pt-1">
+                      No mint? Wisdom is still recorded — the agent learns, just doesn't lock a new NFT.
+                    </p>
+                  </div>
+                </details>
+
                 <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
                   Markets move fast. Manually wake your agent to analyze the current video immediately — no need to wait for the next Auto-Scout cycle.
                 </p>

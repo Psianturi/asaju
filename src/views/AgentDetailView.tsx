@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -10,6 +10,7 @@ import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { getChain } from '@/lib/blockchain/chains'
 import { AgentLineageTree } from '@/components/AgentLineageTree'
+import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 
 interface AgentDetailViewProps {
   agent: Agent
@@ -111,6 +112,8 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
+
+  const [youtubeOpen, setYoutubeOpen] = useState(false)
 
   return (
     <motion.div
@@ -215,6 +218,15 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 Chat
               </Button>
             )}
+            <Button
+              onClick={() => setYoutubeOpen(true)}
+              variant="outline"
+              className="border-rose-500/40 hover:border-rose-400 hover:bg-rose-400/10 hover:text-rose-200 text-rose-300/90"
+              title="Manually wake this agent with a specific YouTube URL — same pipeline as Auto Scout but on demand."
+            >
+              <YoutubeLogo className="mr-2" weight="duotone" size={16} />
+              Learn from YouTube
+            </Button>
           </div>
         </div>
       </Card>
@@ -374,6 +386,12 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
       {allAgents.length > 0 && (
         <AgentLineageTree agent={agent} allAgents={allAgents} />
       )}
+      <YouTubeSubmitDialog
+        open={youtubeOpen}
+        onOpenChange={setYoutubeOpen}
+        agent={agent}
+        agents={[agent]}
+      />
     </motion.div>
   )
 }
