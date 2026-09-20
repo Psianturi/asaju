@@ -464,12 +464,12 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       const ephemeral = await cloudRunService.forceEvaluate(agent.id)
       setEphemeralProposal(ephemeral)
       setReasoningProposal(ephemeral)
-      toast.success('Ephemeral preview generated', {
-        description: 'This was a demo run — nothing was persisted. Open "View AI Reasoning" to see the full pipeline.',
+      toast.success('Market snapshot evaluated', {
+        description: 'Manual override ran the data → prompt → reasoning pipeline against the live CMC feed. Open "View AI Reasoning" to inspect.',
       })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Force-evaluate failed'
-      toast.error('Force-evaluate failed', { description: msg })
+      const msg = err instanceof Error ? err.message : 'Manual override failed'
+      toast.error('Manual override failed', { description: msg })
     } finally {
       setForceEvaluating(false)
     }
@@ -672,14 +672,14 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
               disabled={generating || forceEvaluating || loading || !!actioningId}
               variant="outline"
               className="shrink-0 gap-1.5 border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10 hover:text-cyan-200 disabled:opacity-50"
-              title="Run the full data → prompt → reasoning → decision pipeline without persisting anything. Use this to show the agent's evaluation to a jury or stakeholder in real time."
+              title="Markets move fast. Force your agent to re-evaluate right now against the latest CMC snapshot without waiting for the next Auto-Scout cycle."
             >
               {forceEvaluating ? (
                 <SpinnerGap size={14} className="animate-spin" />
               ) : (
                 <Lightning size={14} weight="bold" />
               )}
-              Force Evaluate
+              Manual override
             </Button>
           </div>
           {pendingCount > 0 && (

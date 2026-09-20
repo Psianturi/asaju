@@ -1166,12 +1166,14 @@ export const cloudRunService = {
   },
 
   /**
-   * Force the backend to run the full data → prompt → reasoning → decision
-   * pipeline synchronously without persisting anything. Designed for hackathon
-   * demos: one click and the entire agent evaluation happens in front of the
-   * user. Returns the same BackendProposal shape as `generateProposal`, but
-   * the `proposal_id` will be 'ephemeral' and `status === 'ephemeral'` to
-   * signal that Approve/Reject actions should not be rendered.
+   * Manual override — runs the full data → prompt → reasoning → decision
+   * pipeline synchronously against the live CMC snapshot without persisting
+   * anything. Markets move fast: this lets the owner wake their agent
+   * outside the Auto-Scout cycle when a high-priority signal appears (BTC
+   * flash crash, breaking news, airdrop launch, etc.). Returns the same
+   * BackendProposal shape as `generateProposal`, but `proposal_id` will be
+   * 'ephemeral' and `status === 'ephemeral'` so Approve/Reject actions are
+   * not rendered.
    */
   async forceEvaluate(agentId: string): Promise<BackendProposal> {
     const response = await fetchWithTimeout(

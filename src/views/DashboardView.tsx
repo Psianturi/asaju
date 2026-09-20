@@ -10,6 +10,7 @@ import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
 import { CmcAiSummaryCard } from '@/components/CmcAiSummaryCard'
+import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 import { AgentInsightsSection } from '@/components/AgentInsightsSection'
 import { LiveScoutLog } from '@/components/LiveScoutLog'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
@@ -80,6 +81,8 @@ export function DashboardView({
   const [publicMetricsLoading, setPublicMetricsLoading] = useState(false)
   const [featuredWisdom, setFeaturedWisdom] = useState<WisdomFeedItem[]>([])
   const [featuredLoading, setFeaturedLoading] = useState(false)
+  const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false)
+  const [youtubeAgent, setYoutubeAgent] = useState<Agent | null>(null)
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -244,11 +247,34 @@ export function DashboardView({
         <ActionTile
           icon={<Robot size={16} weight="duotone" />}
           title="Analyze YouTube URL"
-          subtitle={agents[0] ? `With ${agents[0].name}` : 'Need at least one agent'}
-          onClick={() => onSelectAgent(agents[0] ?? null)}
-          disabled={!isConnected || agents.length === 0}
+          subtitle={
+            !isConnected
+              ? 'Connect wallet first'
+              : agents.length === 0
+                ? 'Spawn an agent first'
+                : `Wake ${agents[0].name} now`
+          }
+          onClick={() => {
+            if (!isConnected) {
+              onConnectWallet()
+              return
+            }
+            if (agents.length === 0) {
+              onSpawnAgent()
+              return
+            }
+            setYoutubeAgent(agents[0])
+            setYoutubeDialogOpen(true)
+          }}
+          disabled={false}
         />
       </section>
+
+      <YouTubeSubmitDialog
+        open={youtubeDialogOpen}
+        onOpenChange={setYoutubeDialogOpen}
+        agent={youtubeAgent}
+      />
 
       {isConnected && agents.length > 0 && (
         <section>

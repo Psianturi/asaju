@@ -594,12 +594,14 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
 
 @router.post("/api/v1/agent/{agent_id}/force-evaluate", response_model=ProposalResponse)
 async def force_evaluate(agent_id: str) -> ProposalResponse:
-    """Generate a proposal synchronously, immediately, without persisting it.
-    Designed for hackathon demos and power-user previews: the juri (or owner)
-    clicks one button and watches the full Data → Prompt → Reasoning → Decision
-    pipeline execute end-to-end in front of them. The result is returned in the
-    response body only — nothing is written to Firestore until the owner chooses
-    to formally propose it via the normal POST /propose flow.
+    """Manual override: re-evaluate the agent synchronously against the latest
+    market snapshot, without persisting the result. Markets move fast — the
+    owner uses this to wake their agent outside the Auto-Scout cycle when a
+    high-priority signal appears (flash crash, breaking news, airdrop launch,
+    etc.). Returns the response body only — nothing is written to Firestore
+    until the owner chooses to formally propose it via the normal POST /propose
+    flow. Reuses the same data fetch + Gemini call as `generateProposal` so
+    the reasoning trace is identical to what a real proposal would have.
 
     Reuses the same data fetch + Gemini call as `generate_proposal` so the
     reasoning trace is identical to what a real proposal would have.
