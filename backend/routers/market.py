@@ -107,8 +107,20 @@ async def market_most_visited(limit: int = Query(5, ge=1, le=50)) -> dict:
 
 @router.get("/categories")
 async def market_categories() -> dict:
-    """All CMC categories â€” DeFi, AI, RWA, etc. Cached 24h."""
+    """All CMC categories â€" DeFi, AI, RWA, etc. Cached 24h."""
     return {"results": await get_categories()}
+
+
+@router.get("/cmc-ai-brief")
+async def market_cmc_ai_brief() -> dict:
+    """The CMC AI Market Thesis at a snapshot-friendly shape: tldr + thesis
+    + 5 top headlines + canonicalised sources. Refreshes ~30 min server-side
+    at CMC; cached here for the same window so dashboard reloads stay fast.
+    Returns an empty `summary` dict on transient provider errors — caller
+    should render a quiet "feed unavailable" state, never a hard error."""
+    from services.market_data_service import get_cmc_ai_summary
+    summary = await get_cmc_ai_summary()
+    return {"summary": summary or {}}
 
 
 @router.get("/symbol/{symbol}/cmc-id")

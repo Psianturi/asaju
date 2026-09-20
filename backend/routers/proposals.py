@@ -33,7 +33,7 @@ from core.database import get_db
 from core.kms_service import decrypt_private_key
 from google.cloud.firestore_v1.base_query import FieldFilter
 from services.llm_service import ProposalGenerationError, generate_agent_proposal
-from services.market_data_service import get_market_snapshot
+from services.market_data_service import get_cmc_ai_summary, get_market_snapshot
 from services.web3_service import web3_service
 
 AUDIT_COLLECTION = "audit_events"
@@ -134,6 +134,14 @@ class ProposalResponse(BaseModel):
     # full prompt text returned only on POST and not persisted.
     reasoning: dict | None = None
     reasoning_prompt: str | None = None
+    # Chain-of-thought trigger tags — which data points drove this proposal
+    # (CMC AI thesis, Fear & Greed level, top gainer, etc.). Rendered as chips
+    # under the proposal title so the owner can see *why* the agent acted.
+    trigger_tags: list[str] | None = None
+    # CMC AI thesis at the moment this proposal was generated. Rendered next
+    # to the proposal on the dashboard so the owner sees the exact context
+    # the agent consumed.
+    cmc_ai_summary: dict | None = None
 
 
 class ApprovalChallengeResponse(BaseModel):
@@ -321,6 +329,8 @@ def _doc_to_response(doc_id: str, data: dict) -> ProposalResponse:
         # the POST response so the slide-over can show it once).
         reasoning=data.get("reasoning"),
         reasoning_prompt=data.get("_reasoning_prompt"),
+        trigger_tags=data.get("trigger_tags"),
+        cmc_ai_summary=data.get("cmc_ai_summary"),
     )
 
 
@@ -462,12 +472,13 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
     visited_task = _safe(get_most_visited(5), default=[])
     global_task = _safe(get_global_metrics(), default=None)
     airdrops_task = _safe(get_airdrops(5), default=[])
+    cmc_ai_task = _safe(get_cmc_ai_summary(), default={"tldr": "", "thesis": "", "headlines": [], "sources": [], "generated_at": None})
 
     # Fetch all advanced CMC signals in parallel — fail-soft, one slow endpoint
     # cannot stall the proposal.
-    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops = (
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops, cmc_ai_summary = (
         await asyncio.gather(
-            gainers_task, losers_task, listings_task, visited_task, global_task, airdrops_task
+            gainers_task, losers_task, listings_task, visited_task, global_task, airdrops_task, cmc_ai_task
         )
     )
 
@@ -512,6 +523,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
             new_listings=new_listings or None,
             active_airdrops=active_airdrops or None,
             global_metrics=global_metrics,
+            cmc_ai_summary=cmc_ai_summary if isinstance(cmc_ai_summary, dict) else None,
         )
     except Exception as exc:
         logger.error("Gemini proposal generation failed for agent %s: %s", agent_id, exc)
@@ -550,6 +562,8 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
             # cached by the client. Kept out of Firestore to avoid duplication.
         },
         "_reasoning_prompt": proposal_data.get("_reasoning", {}).get("prompt", ""),
+        "trigger_tags": proposal_data.get("trigger_tags", []),
+        "cmc_ai_summary": cmc_ai_summary if isinstance(cmc_ai_summary, dict) and cmc_ai_summary.get("tldr") else None,
     }
 
     try:
@@ -694,6 +708,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             new_listings=new_listings or None,
             active_airdrops=active_airdrops or None,
             global_metrics=global_metrics,
+            cmc_ai_summary=cmc_ai_summary if isinstance(cmc_ai_summary, dict) else None,
         )
     except Exception as exc:
         logger.error("Gemini force-evaluate failed for agent %s: %s", agent_id, exc)
@@ -721,6 +736,8 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             "ephemeral": True,  # signals "this was a force-evaluate, not a saved proposal"
         },
         "_reasoning_prompt": proposal_data.get("_reasoning", {}).get("prompt", ""),
+        "trigger_tags": proposal_data.get("trigger_tags", []),
+        "cmc_ai_summary": cmc_ai_summary if isinstance(cmc_ai_summary, dict) and cmc_ai_summary.get("tldr") else None,
     }
 
     return _doc_to_response("ephemeral", ephemeral)

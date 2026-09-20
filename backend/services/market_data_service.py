@@ -364,6 +364,112 @@ async def get_global_metrics() -> dict | None:
     return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
 
 
+async def get_cmc_ai_market_brief() -> dict | None:
+    """Fetch CMC AI's pre-generated market feed (Phase 1, Enterprise plan).
+
+    The endpoint returns 26 items in one snapshot: 6 fixed market-wide questions
+    (trending narratives, top news headlines, market thesis, etc.) + 3 trending
+    questions + 17 top news items. Content is cached server-side by CMC and
+    refreshed every ~30 minutes, so we cache it on our side for the same window
+    and pull only what we actually use.
+
+    Returns None on a transient provider error — caller treats that as "AI feed
+    unavailable, fall back to plain text news".
+    """
+    async def fetch():
+        try:
+            data = await _cmc_get("/v5/cmc-ai/latest")
+            return data.get("data") or data
+        except Exception as exc:
+            logger.warning("CMC AI /latest fetch failed: %s", exc)
+            return None
+
+    # Cache 30 minutes (matches CMC's own refresh cadence). Use a sentinel
+    # empty dict so a true None (provider failure) doesn't poison the cache.
+    cached = await _cached("cmc_ai_latest", _TTL_TRENDING, fetch, normalize=False)
+    return cached or None
+
+
+def _extract_cmc_ai_summary(feed: dict | None, max_items: int = 6) -> dict:
+    """Reduce a CMC AI feed to a compact dict the LLM prompt and dashboard UI
+    can both consume. Returns:
+      - tldr: the first fixed_question's TLDR (or empty string)
+      - thesis: the first sentiment-style answer body (or empty string)
+      - headlines: top N news titles
+      - sources: top N source URLs (deduped)
+      - generated_at: epoch seconds from CMC, or None
+
+    Designed so a single call yields both a quick TLDR for the dashboard and a
+    richer prompt fragment for Gemini. Never invents content.
+    """
+    if not feed:
+        return {"tldr": "", "thesis": "", "headlines": [], "sources": [], "generated_at": None}
+
+    items = feed.get("insights") or feed.get("data") or []
+    if not isinstance(items, list):
+        items = []
+
+    tldr = ""
+    thesis = ""
+    headlines: list[str] = []
+    sources: list[str] = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        qk = item.get("question_key") or item.get("type") or ""
+        answer = item.get("answer") or {}
+        if isinstance(answer, dict):
+            t = (answer.get("tldr") or "").strip()
+            b = (answer.get("body") or "").strip()
+        else:
+            t, b = "", ""
+        item_sources = item.get("sources") or []
+        if isinstance(item_sources, list):
+            for s in item_sources:
+                if isinstance(s, dict):
+                    url = s.get("url")
+                else:
+                    url = s
+                if isinstance(url, str) and url and url not in sources:
+                    sources.append(url)
+        title = (item.get("title") or "").strip()
+        if qk in ("trending_narratives", "fixed_question", "overview"):
+            if not tldr and t:
+                tldr = t
+        if qk in ("sentiment", "market_thesis", "future_price"):
+            if not thesis and (b or t):
+                thesis = b or t
+        if title and len(headlines) < max_items:
+            headlines.append(title)
+
+    generated_at_str = feed.get("last_generated_at") or feed.get("generated_at")
+    generated_at: float | None = None
+    if isinstance(generated_at_str, (int, float)):
+        generated_at = float(generated_at_str)
+    elif isinstance(generated_at_str, str):
+        try:
+            from datetime import datetime
+            generated_at = datetime.fromisoformat(generated_at_str.replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            generated_at = None
+
+    return {
+        "tldr": tldr[:600],
+        "thesis": thesis[:1500],
+        "headlines": headlines[:max_items],
+        "sources": sources[:10],
+        "generated_at": generated_at,
+    }
+
+
+async def get_cmc_ai_summary() -> dict:
+    """Convenience wrapper used by the proposal router and the dashboard:
+    returns a flat dict suitable for both the LLM prompt and the UI card."""
+    feed = await get_cmc_ai_market_brief()
+    return _extract_cmc_ai_summary(feed)
+
+
 async def get_market_snapshot(coin_ids: list[str] | None = None) -> dict:
     """One combined read: prices + sentiment + news, each independently cached."""
     coin_ids = coin_ids or ["bitcoin", "ethereum", "mantle"]

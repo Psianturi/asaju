@@ -799,6 +799,7 @@ def _format_cmc_signals(
     new_listings: list | None = None,
     active_airdrops: list | None = None,
     global_metrics: dict | None = None,
+    cmc_ai_summary: dict | None = None,
 ) -> str:
     """Render advanced CoinMarketCap signals as prompt text.
     Empty string if nothing supplied — proposal generation must never fail because
@@ -910,6 +911,31 @@ def _format_cmc_signals(
         if lines:
             sections.append("CoinMarketCap global metrics:\n" + "\n".join(lines))
 
+    # CMC AI feed — pre-generated market thesis from CoinMarketCap's own AI.
+    # When present, this is the highest-leverage signal we inject — Gemini
+    # should treat it as the dominant context, since CMC's own model already
+    # aggregated prices + news + sentiment into a single thesis.
+    if cmc_ai_summary:
+        tldr = (cmc_ai_summary.get("tldr") or "").strip()
+        thesis = (cmc_ai_summary.get("thesis") or "").strip()
+        headlines = cmc_ai_summary.get("headlines") or []
+        if tldr or thesis:
+            cmc_ai_block_lines: list[str] = []
+            if tldr:
+                cmc_ai_block_lines.append(f"  TLDR: {tldr}")
+            if thesis:
+                # Thesis may be multi-paragraph; keep first paragraph for prompt budget.
+                first_para = thesis.split("\n\n", 1)[0].strip()
+                cmc_ai_block_lines.append(f"  Thesis: {first_para}")
+            if headlines:
+                cmc_ai_block_lines.append("  Trending headlines:")
+                for h in headlines[:5]:
+                    cmc_ai_block_lines.append(f"    - {h}")
+            sections.append(
+                "CoinMarketCap AI Market Thesis (highest-priority context):\n"
+                + "\n".join(cmc_ai_block_lines)
+            )
+
     if not sections:
         return ""
 
@@ -937,6 +963,7 @@ async def generate_agent_proposal(
     new_listings: list | None = None,
     active_airdrops: list | None = None,
     global_metrics: dict | None = None,
+    cmc_ai_summary: dict | None = None,
 ) -> dict:
     """
     Gemini generates a strategic proposal for the agent based on its history.
@@ -970,6 +997,7 @@ async def generate_agent_proposal(
         new_listings=new_listings,
         active_airdrops=active_airdrops,
         global_metrics=global_metrics,
+        cmc_ai_summary=cmc_ai_summary,
     )
 
     # Honor owner's standing instructions + current agenda + recent chat topics.
@@ -1061,16 +1089,58 @@ Respond ONLY with valid JSON in this exact format:
             cmc_signals_present.append("global_metrics")
         if market_context and (market_context.get("prices") or market_context.get("fear_greed")):
             cmc_signals_present.append("market_snapshot")
+        if cmc_ai_summary and (cmc_ai_summary.get("tldr") or cmc_ai_summary.get("thesis")):
+            cmc_signals_present.append("cmc_ai_thesis")
 
         market_snapshot_age_seconds: int | None = None
         if market_context and market_context.get("generated_at"):
             import time as _time
             market_snapshot_age_seconds = int(_time.time() - market_context["generated_at"])
 
+        # Build a flat list of human-readable trigger tags that drove the proposal.
+        # The frontend renders these as small chips under the proposal title so
+        # the owner can immediately see *why* the agent acted.
+        trigger_tags: list[str] = []
+        if cmc_ai_summary and (cmc_ai_summary.get("tldr") or cmc_ai_summary.get("thesis")):
+            trigger_tags.append("CMC AI thesis")
+        if market_context and market_context.get("fear_greed"):
+            fg = market_context["fear_greed"]
+            try:
+                v = int(fg.get("value") or 0)
+                label = (fg.get("value_classification") or "").strip()
+                if label:
+                    trigger_tags.append(f"Fear & Greed {label} ({v})")
+            except (TypeError, ValueError):
+                pass
+        if market_context and market_context.get("prices"):
+            for coin_id, p in list(market_context["prices"].items())[:2]:
+                ch = p.get("usd_24h_change") if isinstance(p, dict) else None
+                if ch is None:
+                    continue
+                sign = "▲" if ch >= 0 else "▼"
+                trigger_tags.append(f"{coin_id.upper()} {sign} {abs(ch):.1f}% / 24h")
+        if trending_gainers:
+            top = trending_gainers[0] if isinstance(trending_gainers[0], dict) else None
+            if top:
+                sym = top.get("symbol") or top.get("name")
+                if sym:
+                    trigger_tags.append(f"Top gainer: {sym}")
+        if active_airdrops:
+            sym = None
+            for ad in active_airdrops:
+                if not isinstance(ad, dict):
+                    continue
+                sym = (ad.get("coin") or {}).get("symbol") or ad.get("name")
+                if sym:
+                    break
+            if sym:
+                trigger_tags.append(f"Active airdrop: {sym}")
+
         return {
             "title": str(parsed.get("title", "Strategic Proposal"))[:80],
             "description": str(parsed.get("description", "")),
             "category": category,
+            "trigger_tags": trigger_tags[:6],
             "_reasoning": {
                 "prompt": prompt,
                 "raw_response": raw,
