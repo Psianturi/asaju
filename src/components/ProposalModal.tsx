@@ -29,6 +29,7 @@ import {
   Wallet,
   ArrowsDownUp,
   Eye,
+  Sparkle,
 } from '@phosphor-icons/react'
 
 interface ProposalModalProps {
@@ -162,6 +163,22 @@ function ProposalCard({
             )}
           </div>
           <h3 className="font-bold text-sm leading-tight">{proposal.title}</h3>
+          {/* Chain-of-thought trigger tags — the data points that drove this
+              proposal. Click any tag to focus the agent's sensory feed above. */}
+          {(proposal.trigger_tags ?? []).length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {proposal.trigger_tags!.map((tag, i) => (
+                <span
+                  key={`${tag}-${i}`}
+                  className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border border-cyan-400/25 bg-cyan-400/10 text-cyan-200"
+                  title={`Trigger #${i + 1} that drove this proposal`}
+                >
+                  <Sparkle size={8} weight="fill" className="text-cyan-300" />
+                  Trigger: {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

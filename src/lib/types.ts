@@ -158,6 +158,20 @@ export interface BackendProposal {
     ephemeral?: boolean
   }
   reasoning_prompt?: string
+  // Chain-of-thought trigger tags — short human-readable strings listing
+  // which data points drove this proposal (CMC AI thesis, Fear & Greed level,
+  // top gainer, etc.). Rendered as small chips under the proposal title so the
+  // owner can see *why* the agent acted.
+  trigger_tags?: string[]
+  // CMC AI thesis at the moment this proposal was generated. Rendered next to
+  // the proposal so the owner sees the exact context the agent consumed.
+  cmc_ai_summary?: {
+    tldr?: string
+    thesis?: string
+    headlines?: string[]
+    sources?: string[]
+    generated_at?: number | null
+  }
 }
 
 export interface Event {

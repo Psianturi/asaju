@@ -275,6 +275,14 @@ export interface GlobalMetrics {
   last_updated?: string
 }
 
+export interface CmcAiSummary {
+  tldr: string
+  thesis: string
+  headlines: string[]
+  sources: string[]
+  generated_at: number | null
+}
+
 export class CloudRunAPIError extends Error {
   constructor(
     message: string,
@@ -1317,6 +1325,20 @@ export const cloudRunService = {
       { method: 'GET' },
     )
     return handleAPIResponse<{ results: TrendingCoin[] }>(response)
+  },
+
+  /**
+   * CMC AI Market Thesis — the sponsor's own AI-generated market digest at
+   * /v5/cmc-ai/latest. Returns a compact dict the dashboard renders as the
+   * "CMC AI Market Summary" card and the proposal prompt uses as its
+   * highest-priority context. Falls back to `summary = {}` on transient errors.
+   */
+  async getCmcAiBrief(): Promise<{ summary: CmcAiSummary }> {
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/market/cmc-ai-brief`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<{ summary: CmcAiSummary }>(response)
   },
 
   async getOwnerInbox(wallet: string): Promise<{

@@ -10,6 +10,8 @@ import {
   Fire,
   WarningCircle,
   CaretDown,
+  Eye,
+  RadioButton,
 } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Card } from '@/components/ui/card'
@@ -235,12 +237,13 @@ export function MarketIntelligenceHub() {
         </div>
       </div>
 
-      {/* Header + tabs */}
-      <div className="px-4 pt-2.5 pb-0">
+      {/* Header — copy reframes this panel as the *agent's sensory feed*, not a
+          user-facing ticker. The scanning line + microcopy reinforce that. */}
+      <div className="px-4 pt-2.5 pb-0 relative overflow-hidden">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
-            <Sparkle size={15} className="text-amber-300" weight="fill" />
-            <span className="text-sm font-bold">Live market intelligence</span>
+            <Eye size={15} className="text-cyan-300" weight="duotone" />
+            <span className="text-sm font-bold">Agent's Real-Time Sensory Feed</span>
             <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-mono border ${
               down
                 ? 'bg-red-400/10 border-red-400/30 text-red-300'
@@ -248,18 +251,29 @@ export function MarketIntelligenceHub() {
                   ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
                   : 'bg-emerald-400/15 border-emerald-400/30 text-emerald-300'
             }`}>
-              <span className={`w-1 h-1 rounded-full ${down ? 'bg-red-400' : partial ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+              <RadioButton size={8} weight="fill" className={down ? '' : partial ? '' : 'animate-pulse'} />
               {down ? 'OFFLINE' : partial ? 'PARTIAL' : 'LIVE'}
             </span>
           </div>
-          {state.lastUpdated && (
-            <p className="text-[9px] font-mono text-muted-foreground/60 tabular-nums">
-              Updated {fmtTimeAgo(state.lastUpdated)}
+          <div className="flex flex-col items-end gap-0.5">
+            {state.lastUpdated && (
+              <p className="text-[9px] font-mono text-muted-foreground/60 tabular-nums">
+                Updated {fmtTimeAgo(state.lastUpdated)}
+              </p>
+            )}
+            <p className="text-[9px] font-mono text-cyan-300/70 tabular-nums animate-pulse">
+              [Agent syncing CMC endpoints...]
             </p>
-          )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-0.5 border-b border-white/5 -mx-4 px-4 pb-0">
+        {/* Scanning line — a thin vertical beam slowly sweeps the panel to
+            communicate "this feed is being consumed right now". Pure CSS
+            animation, respects prefers-reduced-motion via the .scanning-line
+            class in main.css. */}
+        <div className="scanning-line pointer-events-none absolute top-0 bottom-0 left-0 right-0" aria-hidden="true" />
+
+        <div className="flex items-center gap-0.5 border-b border-white/5 -mx-4 px-4 pb-0 relative z-10">
           {TABS.map(t => {
             const active = tab === t.key
             return (

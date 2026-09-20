@@ -9,6 +9,7 @@ import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
+import { CmcAiSummaryCard } from '@/components/CmcAiSummaryCard'
 import { AgentInsightsSection } from '@/components/AgentInsightsSection'
 import { LiveScoutLog } from '@/components/LiveScoutLog'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
@@ -214,6 +215,11 @@ export function DashboardView({
       )}
 
       <MarketIntelligenceHub />
+
+      {/* CMC AI Market Summary — CoinMarketCap's own AI digest, the highest
+          priority context the agent uses for proposals. Placed directly below
+          the Sensory Feed so the eye moves: data → AI digest → proposal. */}
+      <CmcAiSummaryCard />
 
       <AgentInsightsSection
         agents={agents}
