@@ -44,6 +44,7 @@ import maefLogo from '@/assets/maef-logo.png'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 import { useBlockchain } from '@/hooks/useBlockchain'
+import { useScoutLogListener } from '@/hooks/useScoutLogListener'
 import { useSubAgentTasks } from '@/hooks/useSubAgentTasks'
 import { CloudRunAPIError, cloudRunService, validateEventUrl } from '@/services/cloudRunService'
 import { ContractVerificationData, verificationService } from '@/lib/blockchain/verificationService'
@@ -62,6 +63,9 @@ function App() {
   }
 
   const [agents, setAgents] = useState<Agent[]>([])
+  const ownedAgentIds = agents.map((a) => a.id).filter(Boolean)
+  useScoutLogListener(ownedAgentIds)
+
   const [nfts, setNFTs] = useState<NFT[]>([])
   const [events, setEvents] = useState<Event[]>([])
   const [logs, setLogs] = useState<TerminalLog[]>([])

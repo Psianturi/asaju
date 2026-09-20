@@ -43,18 +43,62 @@ const TABS: Array<{ key: TabKey; label: string; hint: string }> = [
   { key: 'airdrops', label: 'Airdrops', hint: 'Active campaigns' },
 ]
 
+/**
+ * Sparkline — a tiny inline SVG line chart for the Sensory Feed table.
+ *
+ * Renders a 7-segment directional trend using the existing %change values:
+ * the line passes through (1h, 24h, 7d) data points, with the segment slope
+ * coloured by the 24h direction. If only one datapoint exists the line
+ * collapses to a flat stub at that value.
+ */
+function Sparkline({ pct1h, pct24h, pct7d }: { pct1h: number | null; pct24h: number | null; pct7d: number | null }) {
+  // Build a synthetic series: anchor at 0, then 1h, 24h, 7d in chronological
+  // order. If any point is missing, skip it (the polyline still connects the
+  // remaining points visually).
+  const series = [0, pct1h, pct24h, pct7d].filter(v => v != null && isFiniteNum(v)) as number[]
+  if (series.length < 2) {
+    return <div className="hidden md:flex w-14 h-6 items-center justify-center text-[9px] text-muted-foreground/40 font-mono">·</div>
+  }
+  const w = 56
+  const h = 24
+  const pad = 3
+  const min = Math.min(...series)
+  const max = Math.max(...series)
+  const range = Math.max(max - min, 0.001)
+  const stepX = (w - 2 * pad) / (series.length - 1)
+  const points = series.map((v, i) => {
+    const x = pad + i * stepX
+    const y = h - pad - ((v - min) / range) * (h - 2 * pad)
+    return [x, y] as const
+  })
+  const path = points.map(([x, y], i) => (i === 0 ? `M${x},${y}` : `L${x},${y}`)).join(' ')
+  const up = (pct24h ?? 0) >= 0
+  const stroke = up ? '#34d399' : '#fb7185'
+  const last = points[points.length - 1]
+  return (
+    <svg width={w} height={h} className="hidden md:block overflow-visible" aria-hidden="true">
+      <path d={path} fill="none" stroke={stroke} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+      <circle cx={last[0]} cy={last[1]} r={2} fill={stroke} />
+    </svg>
+  )
+}
+
 function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
   const quote = Array.isArray(coin.quote) ? coin.quote[0] : undefined
   const hasPrice = isFiniteNum(quote?.price)
   const change = isFiniteNum(quote?.percent_change_24h) ? (quote!.percent_change_24h as number) : null
   if (!hasPrice && change == null) return null
   const up = change != null && change >= 0
+  const volume24h = isFiniteNum(quote?.volume_24h) ? (quote!.volume_24h as number) : null
+  const marketCap = isFiniteNum(quote?.market_cap) ? (quote!.market_cap as number) : null
+  const pct1h = isFiniteNum(quote?.percent_change_1h) ? (quote!.percent_change_1h as number) : null
+  const pct7d = isFiniteNum(quote?.percent_change_7d) ? (quote!.percent_change_7d as number) : null
   return (
     <motion.div
       initial={{ opacity: 0, x: -6 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(index * 0.03, 0.2), duration: 0.25 }}
-      className="group grid grid-cols-[20px_1fr_90px_64px] items-center gap-3 px-3 py-1 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 h-9"
+      className="group grid grid-cols-[20px_1fr_56px_64px_60px_64px] items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 min-h-9"
     >
       <span className="text-[10px] font-mono tabular-nums text-muted-foreground/60 w-5">{index + 1}</span>
       <div className="min-w-0 flex items-baseline gap-1.5">
@@ -62,7 +106,12 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
         {coin.cmc_rank && (
           <span className="text-[9px] font-mono text-muted-foreground/60 shrink-0">#{coin.cmc_rank}</span>
         )}
-        <span className="text-[11px] text-gray-300 truncate hidden md:inline">{coin.name}</span>
+        <span className="text-[11px] text-gray-300 truncate hidden lg:inline">{coin.name}</span>
+      </div>
+      {/* 7-day sparkline — visualizes trend direction with no axis labels */}
+      <Sparkline pct1h={pct1h} pct24h={change} pct7d={pct7d} />
+      <div className="text-[12px] font-mono tabular-nums text-right text-muted-foreground/80 hidden md:block">
+        {volume24h != null ? fmtCompactUsd(volume24h) : '—'}
       </div>
       <div className="text-base font-mono font-semibold tabular-nums text-right text-white">{fmtPrice(quote?.price)}</div>
       {change != null ? (

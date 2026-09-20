@@ -65,17 +65,16 @@ export function CmcAiSummaryCard() {
   }
 
   if (error || !summary) {
+    // Compact 1-bar fallback so it doesn't displace critical content below.
     return (
-      <Card className="p-4 border border-violet-400/15 bg-violet-400/[0.015]">
-        <div className="flex items-center gap-2">
-          <Brain size={14} className="text-violet-300/60" weight="duotone" />
-          <p className="text-[11px] font-semibold text-violet-200/70 uppercase tracking-wider">CMC AI Market Summary</p>
-          <span className="ml-auto text-[10px] text-muted-foreground/50 font-mono italic">unavailable</span>
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-md border border-violet-400/15 bg-violet-400/[0.03] text-[11px]">
+        <div className="flex items-center gap-1.5">
+          <Brain size={12} weight="duotone" className="text-violet-300/60" />
+          <span className="font-semibold text-violet-200/80">CMC AI Market Summary</span>
+          <span className="text-muted-foreground/60">·</span>
+          <span className="text-muted-foreground/70 italic">feed unavailable — agent falls back to its own market signals</span>
         </div>
-        <p className="text-xs text-muted-foreground/70 mt-2 leading-relaxed">
-          CMC AI feed is temporarily unavailable — the agent falls back to its own market signals for now.
-        </p>
-      </Card>
+      </div>
     )
   }
 

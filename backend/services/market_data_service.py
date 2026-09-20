@@ -351,16 +351,32 @@ async def get_categories() -> list:
 
 
 async def get_global_metrics() -> dict | None:
-    """Total market cap, BTC/ETH dominance â€” macro context for proposals. Cached 10 min."""
+    """Total market cap, BTC/ETH dominance — macro context for proposals. Cached 10 min.
+
+    CMC nests `total_market_cap` inside `quote.USD` while exposing `btc_dominance` /
+    `eth_dominance` at the top level. We flatten so callers can read every field
+    uniformly.
+    """
     async def fetch():
         try:
             data = await _cmc_get("/v1/global-metrics/quotes/latest")
-            return data.get("data")
+            payload = data.get("data")
+            if isinstance(payload, dict):
+                # Flatten quote.USD → top level so `total_market_cap` is reachable
+                # without traversing into the nested quote object.
+                quote_usd = payload.get("quote")
+                if isinstance(quote_usd, dict):
+                    usd = quote_usd.get("USD") or quote_usd.get("usd")
+                    if isinstance(usd, dict):
+                        for k, v in usd.items():
+                            # Don't overwrite a top-level field if CMC sent both.
+                            payload.setdefault(k, v)
+                return payload
+            return payload
         except Exception as exc:
             logger.warning("CMC global metrics fetch failed: %s", exc)
             return None
 
-    # Not normalizing â€” global metrics has no `quote` array (btc_dominance/eth_dominance live at top level).
     return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
 
 

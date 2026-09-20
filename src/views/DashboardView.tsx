@@ -324,11 +324,23 @@ export function DashboardView({
 }
 
 function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgents: number; autoScouting: number; videosAnalyzed: number; pendingProposals: number } }) {
+  const autoAgents = agents.filter((a) => a.autoScoutEnabled)
   return (
     <Card className="p-5 border border-primary/30 bg-gradient-to-br from-primary/[0.08] to-transparent shadow-lg shadow-primary/5">
-      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-2">
-        Mission control
-      </p>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
+          Mission control
+        </p>
+        {autoAgents.length > 0 && (
+          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-400/40 bg-emerald-400/15 text-emerald-300 gap-1 shrink-0">
+            <span className="relative flex items-center justify-center w-1.5 h-1.5">
+              <span className="absolute inset-0 rounded-full bg-emerald-400/50 animate-ping" />
+              <span className="relative w-1 h-1 rounded-full bg-emerald-400" />
+            </span>
+            Auto-Scout active · {autoAgents.length}
+          </Badge>
+        )}
+      </div>
       <h1 className="text-2xl font-bold mb-2 text-foreground leading-tight">
         {stats.pendingProposals > 0
           ? `${stats.pendingProposals} proposal${stats.pendingProposals === 1 ? '' : 's'} need your approval`
@@ -338,6 +350,11 @@ function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgen
       </h1>
       <p className="text-sm text-gray-300 leading-relaxed">
         {agents.length} agent{agents.length === 1 ? '' : 's'} · {stats.videosAnalyzed} videos analyzed
+        {autoAgents.length > 0 && (
+          <span className="block text-[10px] font-mono text-emerald-300/80 mt-1">
+            Agent learns in the background — check the Inbox for what it did while you were away.
+          </span>
+        )}
       </p>
     </Card>
   )
