@@ -252,7 +252,9 @@ export function DashboardView({
               ? 'Connect wallet first'
               : agents.length === 0
                 ? 'Spawn an agent first'
-                : `Wake ${agents[0].name} now`
+                : agents.length === 1
+                  ? `Wake ${agents[0].name} now`
+                  : `Wake one of ${agents.length} agents`
           }
           onClick={() => {
             if (!isConnected) {
@@ -263,6 +265,7 @@ export function DashboardView({
               onSpawnAgent()
               return
             }
+            // Open dialog with first agent as default — user can switch inside.
             setYoutubeAgent(agents[0])
             setYoutubeDialogOpen(true)
           }}
@@ -274,6 +277,7 @@ export function DashboardView({
         open={youtubeDialogOpen}
         onOpenChange={setYoutubeDialogOpen}
         agent={youtubeAgent}
+        agents={agents}
       />
 
       {isConnected && agents.length > 0 && (

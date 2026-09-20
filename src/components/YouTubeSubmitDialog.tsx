@@ -9,19 +9,30 @@ import {
   ArrowRight,
   SpinnerGap,
   Coins,
+  Lightning,
+  CaretDown,
+  Clock,
+  ArrowSquareOut,
+  Robot,
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { Agent } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
 import { toast } from 'sonner'
+import { fmtAgeSeconds, isFiniteNum } from '@/lib/format'
 
 interface YouTubeSubmitDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   agent: Agent | null
+  /** All agents owned by the current wallet — used for the in-dialog agent
+   *  switcher so the user can route a single YouTube URL to any of their agents
+   *  rather than being hardcoded to whichever agent was last passed in. */
+  agents?: Agent[]
 }
 
 type Stage = 'input' | 'fetching' | 'summarizing' | 'scoring' | 'minting' | 'success' | 'error'
@@ -106,7 +117,16 @@ const ACCENT_CLASSES: Record<StageInfo['accent'], string> = {
  * met, the dialog shows "Done" without minting (and the wisdom summary is
  * still recorded on-chain as a non-NFT event).
  */
-export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmitDialogProps) {
+export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: YouTubeSubmitDialogProps) {
+  // Active agent for *this* submit. The `agent` prop is the suggestion from the
+  // caller (first agent), but the user can switch in-dialog if `agents` has
+  // more than one. The dialog owns this state so it survives re-renders.
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agent?.id ?? null)
+  useEffect(() => {
+    if (agent?.id && !selectedAgentId) setSelectedAgentId(agent.id)
+  }, [agent?.id, selectedAgentId])
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? agent
+
   const [url, setUrl] = useState('')
   const [stage, setStage] = useState<Stage>('input')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -130,7 +150,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
   }
 
   const handleSubmit = async () => {
-    if (!agent) return
+    if (!selectedAgent) return
     const trimmed = url.trim()
     if (!trimmed) {
       toast.error('YouTube URL required')
@@ -159,14 +179,14 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
     try {
       setStage('minting')
       const resp = await cloudRunService.attendEvent({
-        agentId: agent.id,
-        agentWallet: agent.walletAddress,
-        agentName: agent.name,
+        agentId: selectedAgent.id,
+        agentWallet: selectedAgent.walletAddress,
+        agentName: selectedAgent.name,
         eventUrl: trimmed,
         eventTitle: '',
         platform: 'YouTube',
-        niche: agent.niche,
-        chainId: agent.chainId ?? 5003,
+        niche: selectedAgent.niche,
+        chainId: selectedAgent.chainId ?? 5003,
       })
 
       setResult({
@@ -179,7 +199,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
 
       if (resp.minted) {
         toast.success('Milestone minted on Mantle', {
-          description: `Heritage Score +5 for ${agent.name}`,
+          description: `Heritage Score +5 for ${selectedAgent.name}`,
         })
       } else {
         toast.info('Wisdom recorded (no mint yet)', {
@@ -209,14 +229,75 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
             </div>
             <div className="flex-1 min-w-0">
               <div>Manual override — learn now</div>
-              {agent && (
-                <div className="text-xs font-normal text-muted-foreground">
-                  With {agent.name} · {agent.niche}
-                </div>
-              )}
+              <div className="text-xs font-normal text-muted-foreground mt-0.5">
+                One video · one agent · one on-chain milestone
+              </div>
             </div>
           </DialogTitle>
         </DialogHeader>
+
+        {/* Agent switcher — visible when the owner has more than one agent.
+            Replaces the previously hardcoded "With Naruto" subtitle. */}
+        {agents.length > 1 && stage === 'input' && (
+          <div className="mt-3 -mx-1 flex items-center gap-1 overflow-x-auto pb-1">
+            {agents.map((a) => {
+              const isActive = a.id === selectedAgentId
+              const isAutoScout = a.autoScoutEnabled === true
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setSelectedAgentId(a.id)}
+                  className={cn(
+                    'shrink-0 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-colors',
+                    isActive
+                      ? 'border-cyan-400/50 bg-cyan-400/15 text-cyan-200'
+                      : 'border-white/10 bg-white/[0.02] text-muted-foreground hover:border-white/20 hover:text-foreground'
+                  )}
+                >
+                  <span>{a.name}</span>
+                  <span className="ml-1.5 text-[9px] font-mono opacity-70">
+                    Lv {a.level ?? 1}
+                  </span>
+                  {isAutoScout && (
+                    <span className="ml-1 inline-flex w-1 h-1 rounded-full bg-emerald-400" title="Auto-Scout active" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Selected agent context strip — surfaces what Auto-Scout is doing
+            with this agent so the user understands the relationship between
+            this manual override and the background scheduler. */}
+        {selectedAgent && stage === 'input' && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-muted-foreground/80">
+            <span className="flex items-center gap-1">
+              <Robot size={10} weight="duotone" className="text-cyan-300" />
+              {selectedAgent.name} · {selectedAgent.niche} · Lv {selectedAgent.level ?? 1}
+            </span>
+            <span className="flex items-center gap-1">
+              {selectedAgent.autoScoutEnabled ? (
+                <>
+                  <span className="inline-flex w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-emerald-300">Auto-Scout active</span>
+                  {isFiniteNum(selectedAgent.lastScoutAt) && (
+                    <span>· last run {fmtAgeSeconds((Date.now() / 1000) - ((selectedAgent.lastScoutAt as number) / 1000))}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-muted-foreground/70">Auto-Scout off</span>
+              )}
+            </span>
+            {isFiniteNum(selectedAgent.comprehensionScore) && (
+              <span className="flex items-center gap-1">
+                <Lightning size={10} className="text-amber-300" />
+                <span>comprehension {selectedAgent.comprehensionScore}/100</span>
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="py-4 space-y-4">
           {/* Stage indicator */}
@@ -336,8 +417,34 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
                   )}
                 </div>
                 {result.txHash && (
-                  <p className="text-[10px] font-mono text-muted-foreground/70 break-all">
-                    tx: <span className="text-emerald-300">{result.txHash.slice(0, 12)}…</span>
+                  <a
+                    href={`https://explorer.sepolia.mantle.xyz/tx/${result.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/80 hover:text-emerald-300 transition-colors break-all"
+                  >
+                    <span>
+                      tx: <span className="text-emerald-300 underline-offset-2">{result.txHash.slice(0, 14)}…</span>
+                    </span>
+                    <ArrowSquareOut size={11} weight="bold" className="shrink-0" />
+                  </a>
+                )}
+                {result.tokenId && (
+                  <a
+                    href={`https://explorer.sepolia.mantle.xyz/token/0x66fD8b5411856D42c08D9356e879a6e7dF0c9419?type=nft&tokenId=${result.tokenId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] font-mono text-muted-foreground/60 hover:text-cyan-300 transition-colors"
+                  >
+                    View NFT on MantleScan →
+                  </a>
+                )}
+                {!result.minted && (
+                  <p className="text-[10px] text-amber-200/80 leading-relaxed bg-amber-400/[0.06] border border-amber-400/15 rounded-md px-2 py-1.5">
+                    <span className="font-semibold">No milestone this time.</span>{' '}
+                    Wisdom was recorded on-chain but no NFT was minted — the agent's
+                    comprehension score did not cross a milestone threshold. Try a more
+                    novel or niche-specific video to trigger the next mint.
                   </p>
                 )}
                 {result.wisdomSummary && (
