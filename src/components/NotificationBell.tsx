@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bell, ClipboardText, Lightning, Pause, Coins, X } from '@phosphor-icons/react'
+import { Bell, ClipboardText, Lightning, Pause, Coins, X, Eye, Target, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/sheet'
 import { cloudRunService } from '@/services/cloudRunService'
 import { useBlockchain } from '@/hooks/useBlockchain'
+import { fmtTimeAgo, isFiniteNum } from '@/lib/format'
 
 const STORAGE_KEY_PREFIX = 'asaju:inbox:dismissed:'
 const POLL_INTERVAL_MS = 30_000
@@ -23,6 +24,8 @@ interface OwnerInbox {
     low_gas_agents: number
     paused_agents: number
     recent_mints: number
+    recent_scout_runs: number
+    owned_agents: number
     total: number
   }
   pending_proposals: Array<{
@@ -51,6 +54,26 @@ interface OwnerInbox {
     run_at: number | null
     score: number | null
   }>
+  recent_scout_runs: Array<{
+    agent_id: string
+    log_id: string
+    action: 'MINTED' | 'SKIPPED' | string
+    reason_code: string | null
+    reason_description: string | null
+    candidate_title: string | null
+    run_at: number | null
+    score: number | null
+  }>
+  agent_progress: Array<{
+    agent_id: string
+    agent_name: string | null
+    comprehension_score: number
+    comprehension_next_milestone: number | null
+    comprehension_progress_to_next: number
+    last_scout_at: number | null
+    last_event_at: number | null
+    total_events: number
+  }>
 }
 
 export function NotificationBell() {
@@ -65,7 +88,7 @@ export function NotificationBell() {
     if (!silent) setLoading(true)
     try {
       const data = await cloudRunService.getOwnerInbox(address)
-      setInbox(data as OwnerInbox)
+      setInbox(data as unknown as OwnerInbox)
     } catch (err) {
       console.error('Inbox refresh failed', err)
     } finally {
@@ -124,6 +147,8 @@ export function NotificationBell() {
     inbox?.low_gas_agents?.filter(a => !dismissed.has(`gas:${a.agent_id}`)) ?? []
   const visibleRecentMints =
     inbox?.recent_mints?.filter(m => !dismissed.has(`mint:${m.log_id}`)) ?? []
+  const visibleRecentScoutRuns =
+    inbox?.recent_scout_runs?.filter(r => !dismissed.has(`run:${r.log_id}`)) ?? []
 
   const visibleTotal =
     visiblePendingProposals.length +
@@ -182,7 +207,7 @@ export function NotificationBell() {
               <Bell size={32} className="text-muted-foreground/40 mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">You're all caught up.</p>
               <p className="text-xs text-muted-foreground/60 mt-1">
-                Pending proposals, paused scouts, and recent mints will appear here.
+                Pending proposals, paused scouts, recent mints, and per-agent progress will appear here.
               </p>
             </div>
           )}
@@ -241,6 +266,76 @@ export function NotificationBell() {
                   onDismiss={() => dismissItem(`mint:${m.log_id}`)}
                 />
               ))}
+            </InboxSection>
+          )}
+
+          {/* Recent scout runs — every Auto Scout tick (Minted + Skipped) so the
+              owner can see what the agent did while they were away. The skipped
+              rate is itself a signal: a constant low-relevance stream means the
+              agent's niche keywords need tightening. */}
+          {visibleRecentScoutRuns.length > 0 && (
+            <InboxSection title="Recent Scout Runs" icon={<Eye size={14} />}>
+              {visibleRecentScoutRuns.slice(0, 8).map(r => {
+                const minted = r.action === 'MINTED'
+                return (
+                  <InboxItem
+                    key={r.log_id}
+                    title={r.candidate_title || (minted ? 'Minted (no title)' : 'Skipped run')}
+                    subtitle={`${r.agent_id.slice(0, 12)}… • ${isFiniteNum(r.run_at) ? fmtTimeAgo(r.run_at as number) : '—'} • ${r.reason_description || r.reason_code || 'no reason'}`}
+                    accent={minted ? 'green' : 'red'}
+                    href={undefined}
+                    onDismiss={() => dismissItem(`run:${r.log_id}`)}
+                  />
+                )
+              })}
+            </InboxSection>
+          )}
+
+          {/* Per-agent comprehension progress — shows *where each agent is* on
+              its learning arc. Critical for the "did my agent do anything while
+              I was away?" question: even with no notifications above this, the
+              owner can see comprehension bar movement + last scout timestamp. */}
+          {(inbox?.agent_progress ?? []).length > 0 && (
+            <InboxSection title="Agent Learning Progress" icon={<Target size={14} />}>
+              {inbox!.agent_progress.map(a => {
+                const score = a.comprehension_score ?? 0
+                const next = a.comprehension_next_milestone
+                const pct = next ? Math.min(100, (score / next) * 100) : 100
+                const lastScout = a.last_scout_at
+                const lastEvent = a.last_event_at
+                return (
+                  <motion.div
+                    key={a.agent_id}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-2.5 rounded-lg border border-cyan-400/20 bg-cyan-400/[0.03]"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="text-xs font-semibold truncate">{a.agent_name || a.agent_id}</span>
+                      <span className="text-[10px] font-mono text-cyan-300 tabular-nums shrink-0">
+                        {score}/100{next ? ` → ${next}` : ' ✓'}
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${pct}%` }}
+                        transition={{ duration: 0.7 }}
+                        className="h-full bg-gradient-to-r from-cyan-400 via-accent to-amber-400"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between mt-1 text-[9px] text-muted-foreground/70 font-mono">
+                      <span>
+                        {a.total_events ?? 0} event{(a.total_events ?? 0) === 1 ? '' : 's'}
+                      </span>
+                      <span>
+                        last scout{' '}
+                        {isFiniteNum(lastScout) ? fmtTimeAgo(lastScout as number) : 'never'}
+                      </span>
+                    </div>
+                  </motion.div>
+                )
+              })}
             </InboxSection>
           )}
         </div>
