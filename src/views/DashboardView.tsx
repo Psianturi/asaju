@@ -332,13 +332,23 @@ function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgen
           Mission control
         </p>
         {autoAgents.length > 0 && (
-          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-400/40 bg-emerald-400/15 text-emerald-300 gap-1 shrink-0">
-            <span className="relative flex items-center justify-center w-1.5 h-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              // Open the inbox bell programmatically — fall back to scrolling
+              // the bell into view so the click is never a no-op.
+              const trigger = document.querySelector<HTMLButtonElement>('[aria-label="Open inbox"]')
+              if (trigger) trigger.click()
+            }}
+            title="Open inbox to see what the agents are doing while you were away"
+            className="text-[9px] px-1.5 py-0.5 border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 rounded-full font-bold tracking-wide uppercase gap-1 shrink-0 hover:bg-emerald-400/25 transition-colors cursor-pointer"
+          >
+            <span className="relative inline-flex items-center justify-center w-1.5 h-1.5 mr-1">
               <span className="absolute inset-0 rounded-full bg-emerald-400/50 animate-ping" />
               <span className="relative w-1 h-1 rounded-full bg-emerald-400" />
             </span>
             Auto-Scout active · {autoAgents.length}
-          </Badge>
+          </button>
         )}
       </div>
       <h1 className="text-2xl font-bold mb-2 text-foreground leading-tight">

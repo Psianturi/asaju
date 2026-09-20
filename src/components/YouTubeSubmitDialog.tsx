@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -29,6 +29,7 @@ type Stage = 'input' | 'fetching' | 'summarizing' | 'scoring' | 'minting' | 'suc
 interface StageInfo {
   label: string
   detail: string
+  progress?: string[]
   icon: typeof YoutubeLogo
   accent: 'cyan' | 'amber' | 'emerald' | 'violet' | 'rose'
 }
@@ -43,36 +44,42 @@ const STAGES: Record<Stage, StageInfo> = {
   fetching: {
     label: 'Fetching transcript',
     detail: 'Reading captions + metadata from the video.',
+    progress: ['Connecting to YouTube…', 'Pulling caption tracks…', 'Reading video metadata…'],
     icon: Sparkle,
     accent: 'cyan',
   },
   summarizing: {
     label: 'Synthesizing wisdom',
     detail: 'Gemini is distilling the transcript into a 3-paragraph insight tailored to the agent\'s niche.',
+    progress: ['Feeding neural network…', 'Cross-referencing niche knowledge…', 'Distilling into wisdom…'],
     icon: Sparkle,
     accent: 'amber',
   },
   scoring: {
     label: 'Scoring milestone',
     detail: 'Comparing novelty + niche depth to your comprehension target.',
+    progress: ['Measuring novelty against past learnings…', 'Computing comprehension delta…'],
     icon: Sparkle,
     accent: 'violet',
   },
   minting: {
     label: 'Minting learning proof',
     detail: 'Milestone hit — signing + sending the mint transaction to Mantle.',
+    progress: ['Preparing mint transaction…', 'Signing with agent wallet…', 'Broadcasting to Mantle Sepolia…'],
     icon: Coins,
     accent: 'emerald',
   },
   success: {
     label: 'Done',
     detail: 'Wisdom recorded and (if milestone) NFT minted.',
+    progress: [],
     icon: CheckCircle,
     accent: 'emerald',
   },
   error: {
     label: 'Failed',
     detail: 'Something went wrong — see the error message below.',
+    progress: [],
     icon: WarningCircle,
     accent: 'rose',
   },
@@ -225,6 +232,11 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">{stageInfo.label}</p>
                 <p className="text-[11px] leading-relaxed opacity-90">{stageInfo.detail}</p>
+                {/* Rotating subtext — animates through the stage's progress messages
+                    so the user sees something changing rather than a static line. */}
+                {(stageInfo.progress ?? []).length > 0 && (
+                  <ProgressRotator messages={stageInfo.progress ?? []} active={isRunning} />
+                )}
               </div>
             </div>
           </div>
@@ -247,11 +259,11 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     placeholder="https://www.youtube.com/watch?v=..."
-                    disabled={!agent}
-                    className="font-mono text-sm"
+                    disabled={!agent || isRunning}
+                    className="font-mono text-sm disabled:opacity-60"
                     autoFocus
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !isRunning) {
                         e.preventDefault()
                         handleSubmit()
                       }
@@ -352,5 +364,28 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent }: YouTubeSubmit
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * ProgressRotator — cycles through messages while `active` is true so the
+ * dialog feels alive during the (potentially long) backend pipeline run.
+ * Pauses when `active` flips false (success / error / reset).
+ */
+function ProgressRotator({ messages, active }: { messages: string[]; active: boolean }) {
+  const [i, setI] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => {
+      setI((prev) => (prev + 1) % Math.max(messages.length, 1))
+    }, 1400)
+    return () => clearInterval(t)
+  }, [active, messages.length])
+  if (messages.length === 0) return null
+  const current = messages[Math.min(i, messages.length - 1)]
+  return (
+    <p key={current} className="text-[10px] font-mono mt-1 opacity-80 tabular-nums transition-opacity duration-200">
+      ▸ {current}
+    </p>
   )
 }

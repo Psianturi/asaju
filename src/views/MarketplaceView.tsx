@@ -70,7 +70,7 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
           </div>
           <div>
             <h2 className="text-xl font-bold">Agent Marketplace</h2>
-            <p className="text-sm text-muted-foreground">Buy pre-trained agents — identity wiped, wisdom inherited</p>
+            <p className="text-sm text-muted-foreground">Acquire autonomous agents — transfer ownership, wisdom carries forward</p>
           </div>
         </div>
         <div className="text-sm text-muted-foreground font-mono">

@@ -73,7 +73,10 @@ function Sparkline({ pct1h, pct24h, pct7d }: { pct1h: number | null; pct24h: num
   })
   const path = points.map(([x, y], i) => (i === 0 ? `M${x},${y}` : `L${x},${y}`)).join(' ')
   const up = (pct24h ?? 0) >= 0
-  const stroke = up ? '#34d399' : '#fb7185'
+  // Both colors are picked at similar perceived luminance so a green sparkline
+  // doesn't read as softer than a red one in the dark surface. Hex codes from
+  // the Tailwind 400–500 sweet spot for dark backgrounds.
+  const stroke = up ? '#10b981' : '#fb7185'
   const last = points[points.length - 1]
   return (
     <svg width={w} height={h} className="hidden md:block overflow-visible" aria-hidden="true">
