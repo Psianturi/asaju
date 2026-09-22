@@ -1378,6 +1378,7 @@ function App() {
                 onViewEvolution={handleViewEvolution}
                 onOpenWisdomReport={handleOpenWisdomReport}
                 onToggleAutoReplenish={handleToggleAutoReplenish}
+                onToggleScout={handleToggleScout}
                 pendingProposalCount={proposalCounts[agent.id] ?? 0}
                 onOpenProposals={(a) => setProposalModalAgent(a)}
                 onDeleteAgent={handleDeleteAgent}

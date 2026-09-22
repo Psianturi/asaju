@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Robot } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +25,7 @@ interface AgentDetailViewProps {
   onViewEvolution?: (agent: Agent) => void
   onOpenWisdomReport?: (agent: Agent) => void
   onToggleAutoReplenish?: (agent: Agent, enabled: boolean) => void
+  onToggleScout?: (agentId: string, enabled: boolean) => void
   pendingProposalCount?: number
   onOpenProposals?: (agent: Agent) => void
   onDeleteAgent?: (agent: Agent) => void
@@ -50,6 +51,7 @@ export function AgentDetailView({
   onViewEvolution,
   onOpenWisdomReport,
   onToggleAutoReplenish,
+  onToggleScout,
   pendingProposalCount,
   onOpenProposals,
   onDeleteAgent,
@@ -317,6 +319,46 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 className={cn(
                   'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow',
                   agent.autoReplenishGas ? 'translate-x-5' : 'translate-x-0.5',
+                )}
+              />
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* Auto-Scout toggle — the only place this control actually lives.
+          The dashboard's "enable Auto-Scout" banner links here; before this,
+          it landed on a page with no way to act on it. Milestone-based
+          minting means gas is only spent at level-ups, not per video, so
+          this is safe to leave on. */}
+      {onToggleScout && (
+        <Card className="glass-card-hover p-4 border border-border/30">
+          <div className="flex items-center gap-3">
+            <Robot
+              size={18}
+              className={agent.autoScoutEnabled ? 'text-emerald-500' : 'text-muted-foreground'}
+              weight="fill"
+            />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Auto-Scout</p>
+              <p className="text-[10px] text-muted-foreground">
+                {agent.autoScoutEnabled
+                  ? 'The agent searches YouTube on its own and mints when it hits a milestone.'
+                  : 'Off — the agent only learns when you submit a video manually.'}
+              </p>
+            </div>
+            <button
+              onClick={() => onToggleScout(agent.id, !agent.autoScoutEnabled)}
+              className={cn(
+                'w-11 h-6 rounded-full transition-colors relative',
+                agent.autoScoutEnabled ? 'bg-emerald-500' : 'bg-muted/40',
+              )}
+              aria-label={agent.autoScoutEnabled ? 'Disable auto-scout' : 'Enable auto-scout'}
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow',
+                  agent.autoScoutEnabled ? 'translate-x-5' : 'translate-x-0.5',
                 )}
               />
             </button>
