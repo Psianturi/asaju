@@ -7,11 +7,16 @@ from httpx import ASGITransport, AsyncClient
 
 from main import app
 from tests.fake_firestore import FakeFirestoreClient
-from tests.conftest import make_agent
+from tests.conftest import make_agent, make_wallet
 
 pytestmark = pytest.mark.asyncio
 
-WALLET = "0xowner"
+# A real checksummed address, not a placeholder string like "0xowner" — the
+# endpoint always lowercases its query wallet internally, and agents.py
+# always stores user_wallet checksummed (mixed-case). A placeholder that's
+# already all-lowercase can't expose a case mismatch between those two; this
+# is exactly what let the case-sensitivity bug below ship unnoticed.
+WALLET = make_wallet()
 
 
 @pytest.fixture
@@ -125,6 +130,26 @@ async def test_inbox_does_not_leak_other_owners_data():
     titles = {p["title"] for p in body["pending_proposals"]}
     assert "alice prop" in titles
     assert "bob prop" not in titles
+
+
+async def test_inbox_matches_wallet_regardless_of_query_case():
+    """agents.user_wallet is always stored checksummed. A caller passing an
+    all-lowercase wallet (e.g. copied from a block explorer, or a wallet
+    provider that returns lowercase) must still match — this is the exact
+    bug that made owned_agents, and everything cascading from it, always 0."""
+    db = FakeFirestoreClient()
+    import routers.owner_inbox as inbox_mod
+    inbox_mod.get_db = lambda: db
+    _seed_agent(db, "agent-a", "0xA", user_wallet=WALLET)
+    db.seed("proposals", "prop-1", {"agent_id": "agent-a", "title": "lowercase-query prop", "category": "defi", "status": "pending"})
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.get(f"/api/v1/owner/inbox?user_wallet={WALLET.lower()}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["counts"]["owned_agents"] == 1
+    assert body["counts"]["pending_proposals"] == 1
 
 
 async def test_inbox_recent_mints_in_descending_order():

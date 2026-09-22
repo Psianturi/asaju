@@ -20,6 +20,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from google.cloud.firestore_v1.base_query import FieldFilter
+from web3 import Web3
 
 from core.database import get_db
 
@@ -126,7 +127,12 @@ async def get_owner_inbox(user_wallet: str = Query(...)) -> dict[str, Any]:
     if not user_wallet or not user_wallet.strip():
         raise HTTPException(status_code=400, detail="user_wallet required")
 
-    wallet = user_wallet.lower() if isinstance(user_wallet, str) else user_wallet
+    # agents.user_wallet is always stored checksummed (SpawnRequest's validator
+    # calls Web3.to_checksum_address before writing) — comparing against a
+    # lowercased value here meant this exact-match query NEVER matched a real
+    # agent, for any wallet, ever. Every section below cascades from
+    # owned_agents, so the whole inbox silently returned empty.
+    wallet = Web3.to_checksum_address(user_wallet) if Web3.is_address(user_wallet) else user_wallet
 
     db = get_db()
 
