@@ -142,6 +142,8 @@ export function DashboardView({
     pendingProposals: inbox.counts.pending_proposals,
   }), [agents, events, isPlatformView, inbox.counts.pending_proposals])
 
+  const autoAgents = agents.filter((a) => a.autoScoutEnabled)
+
   const visitorStatsLoading = !isConnected && publicMetricsLoading && publicMetrics == null
 
   return (
@@ -157,6 +159,41 @@ export function DashboardView({
         ) : (
           <HeroConnect onConnect={onConnectWallet} agents={agents} platformCount={publicMetrics?.total_agents ?? null} />
         )}
+
+        {/* Auto-Scout enable CTA — visible when the connected owner has agents
+            but none of them have Auto-Scout turned on. Without this banner,
+            owners miss the toggle entirely (it lives on the agent detail
+            page) and assume Auto-Scout is "broken" or "doesn't exist".
+            Milestone-based minting makes this safe to enable 24/7 — gas is
+            only spent at level-ups, not per video. */}
+        {isConnected &&
+          agents.length > 0 &&
+          autoAgents.length === 0 &&
+          !isPlatformView && (
+            <button
+              type="button"
+              onClick={() => onOpenAgent(agents[0])}
+              className="w-full text-left flex items-center justify-between gap-3 px-4 py-3 rounded-lg border border-emerald-500/30 bg-gradient-to-r from-emerald-500/[0.06] to-cyan-500/[0.04] hover:from-emerald-500/10 hover:to-cyan-500/[0.08] transition-colors group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative shrink-0 w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center">
+                  <span className="relative flex items-center justify-center w-2.5 h-2.5">
+                    <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+                    <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground">
+                    Wake your agents up — Auto-Scout is off for all of them
+                  </p>
+                  <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                    Tap to enable on {agents[0].name}. The agent will discover YouTube videos on its own every 6 hours, minting only at level-up milestones — gas-safe by design.
+                  </p>
+                </div>
+              </div>
+              <ArrowRight size={16} weight="bold" className="text-emerald-300 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          )}
       </section>
 
       <section>
