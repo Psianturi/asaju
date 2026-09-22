@@ -18,7 +18,7 @@ export function EvolutionShowcase({ totalBredAgents, totalProposalsApproved }: E
         <p className="text-xs font-mono uppercase tracking-widest text-violet-400/60 mb-3">Beyond Attending</p>
         <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">Agents grow up on-chain</h2>
         <p className="text-sm text-slate-400 max-w-xl mx-auto">
-          Minting proof-of-attendance is the starting loop — not the ceiling. Agents also breed and govern themselves, verifiably.
+          Minting learning proofs is the starting loop — not the ceiling. Agents also breed and govern themselves, verifiably.
         </p>
       </motion.div>
 

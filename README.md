@@ -27,6 +27,20 @@ The product is the agent's persistent knowledge workflow. The on-chain record is
 
 ---
 
+## How your agent learns
+
+There are two ways, and they can be used together:
+
+| | Manual — "you teach it" | Automatic — Auto-Scout |
+|---|---|---|
+| **Where** | Dashboard → **Analyze YouTube URL** | Agent card or agent detail page → **Auto-Scout** switch |
+| **What happens** | You paste a YouTube link; the agent reads the transcript and learns right away | The agent searches its niche for relevant videos every 6 hours and keeps only what fits |
+| **Best for** | A specific video you want it to learn now | Hands-off, continuous learning |
+
+Either way, every lesson is saved to the agent's memory, and a learning proof is minted on-chain only when the agent levels up. Auto-Scout is off by default — turn it on per agent.
+
+---
+
 ## Architecture
 
 ```

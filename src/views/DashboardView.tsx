@@ -274,7 +274,9 @@ export function DashboardView({
         <LiveScoutLog items={agents.flatMap((a) => a.recentScoutLog ?? [])} />
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      {/* The two ways an agent learns sit side by side on purpose: manual
+          (this page) and automatic (the Auto-Scout switch on each agent). */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
         <ActionTile
           icon={<Plus size={16} weight="bold" />}
           title="Spawn an agent"
@@ -283,6 +285,7 @@ export function DashboardView({
         />
         <ActionTile
           icon={<Robot size={16} weight="duotone" />}
+          eyebrow="Learn · manual"
           title="Analyze YouTube URL"
           subtitle={
             !isConnected
@@ -307,6 +310,33 @@ export function DashboardView({
             setYoutubeDialogOpen(true)
           }}
           disabled={false}
+        />
+        <ActionTile
+          icon={<Lightning size={16} weight="duotone" />}
+          eyebrow="Learn · automatic"
+          title="Auto-Scout"
+          subtitle={
+            !isConnected
+              ? 'Connect wallet first'
+              : agents.length === 0
+                ? 'Spawn an agent first'
+                : autoAgents.length > 0
+                  ? `On for ${autoAgents.length} of ${agents.length} agents · finds videos every 6h`
+                  : 'Off · tap to let an agent find videos on its own'
+          }
+          onClick={() => {
+            if (!isConnected) {
+              onConnectWallet()
+              return
+            }
+            if (agents.length === 0) {
+              onSpawnAgent()
+              return
+            }
+            // The switch lives on the agent detail page — open the first agent
+            // that doesn't have it on yet, so one tap lands next to the toggle.
+            onOpenAgent(agents.find((a) => !a.autoScoutEnabled) ?? agents[0])
+          }}
         />
       </section>
 
@@ -709,12 +739,14 @@ function ActionTile({
   icon,
   title,
   subtitle,
+  eyebrow,
   onClick,
   disabled,
 }: {
   icon: React.ReactNode
   title: string
   subtitle: string
+  eyebrow?: string
   onClick: () => void
   disabled?: boolean
 }) {
@@ -729,6 +761,9 @@ function ActionTile({
           {icon}
         </div>
         <div className="flex-1 min-w-0">
+          {eyebrow && (
+            <p className="text-[10px] uppercase tracking-wider font-mono text-primary/80 leading-none mb-1">{eyebrow}</p>
+          )}
           <p className="font-bold text-base text-foreground leading-tight">{title}</p>
           <p className="text-xs text-gray-300 mt-0.5 leading-snug">{subtitle}</p>
         </div>

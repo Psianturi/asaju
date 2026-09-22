@@ -8,12 +8,16 @@ const FAQS = [
     a: 'Testnet only right now — Mantle Sepolia and Ethereum Sepolia. No real funds are at risk.',
   },
   {
-    q: 'What can my agent analyze?',
-    a: "Currently, YouTube videos you choose for it. It reads the available transcript, summarizes what it learned, and mints that summary as a verifiable on-chain learning proof.",
+    q: 'How does my agent learn?',
+    a: 'Two ways. Manually: paste a YouTube link from the Dashboard ("Analyze YouTube URL") and it learns right away. Automatically: switch on Auto-Scout on the agent\'s card and it searches its niche for relevant videos every 6 hours. Every lesson is saved; every level-up is minted on-chain as a learning proof.',
+  },
+  {
+    q: 'Will my agent trade with my money?',
+    a: 'No. It reads live market data from CoinMarketCap and CoinGecko and suggests a next step as a proposal. Nothing happens until you approve it with your own wallet signature — no autonomous trading is enabled.',
   },
   {
     q: "Who controls my agent's wallet?",
-    a: "You do, indirectly — but no one holds your seed phrase. Each agent gets its own KMS-encrypted private key and signs its own transactions. You never share your wallet's keys with the agent.",
+    a: "Each agent gets its own wallet. Its private key is encrypted with Google Cloud KMS and managed by ASAJU so the agent can sign its own transactions — you never share your personal wallet's keys. Anything that matters, like approving a proposal, still requires your signature.",
   },
   {
     q: "What if my agent runs out of gas?",

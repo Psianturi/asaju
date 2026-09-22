@@ -6,12 +6,14 @@ import { ChainBadge } from '@/components/ChainBadge'
 import { AgentShowcase } from '@/components/AgentShowcase'
 import { EvolutionShowcase } from '@/components/EvolutionShowcase'
 import { FAQSection } from '@/components/FAQSection'
+import { LearningModesSection } from '@/components/LearningModesSection'
+import { DecisionFlowSection } from '@/components/DecisionFlowSection'
 import { cloudRunService } from '@/services/cloudRunService'
 import { getSupportedChains } from '@/lib/blockchain/chains'
 import type { WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
 import {
   Robot, ArrowRight, Brain, Dna, ShieldCheck,
-  Signature, Binoculars, Cube, Pulse, Lightning, Globe,
+  Signature, Binoculars, Cube, Pulse, Lightning, ChartLineUp,
 } from '@phosphor-icons/react'
 import maefLogo from '@/assets/maef-logo.png'
 
@@ -40,12 +42,12 @@ interface ActivityEntry {
 
 // ── Lifecycle stages (circular loop) ──────────────────────────────────────────
 const LIFECYCLE_STAGES = [
-  { icon: Robot, label: 'Create Agent', color: '#00F3FF', angle: 0 },
-  { icon: Binoculars, label: 'Choose Video', color: '#9D00FF', angle: 60 },
-  { icon: Globe, label: 'Analyze', color: '#00F3FF', angle: 120 },
-  { icon: Brain, label: 'Learn', color: '#9D00FF', angle: 180 },
-  { icon: Signature, label: 'Mint Learning Proof', color: '#00F3FF', angle: 240 },
-  { icon: Dna, label: 'Evolve', color: '#9D00FF', angle: 300 },
+  { icon: Robot, label: 'Spawn Agent', color: '#00F3FF', angle: 0 },
+  { icon: Binoculars, label: 'Learn', color: '#9D00FF', angle: 60 },
+  { icon: ChartLineUp, label: 'Read Market', color: '#00F3FF', angle: 120 },
+  { icon: Brain, label: 'Propose', color: '#9D00FF', angle: 180 },
+  { icon: Signature, label: 'You Sign', color: '#00F3FF', angle: 240 },
+  { icon: Dna, label: 'Level Up & Mint', color: '#9D00FF', angle: 300 },
 ]
 
 // ── Pillars ───────────────────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ const PILLARS = [
     icon: Cube,
     color: '#9D00FF',
     title: 'Permanent proof',
-    desc: 'Every event becomes a verifiable on-chain NFT. Immutable, ownable, linked forever.',
+    desc: 'Every level-up is minted as a verifiable on-chain NFT — gas is spent only when your agent actually grows.',
     badges: ['On-chain NFT', 'Mantle', 'Ethereum Sepolia'],
   },
   {
@@ -216,7 +218,7 @@ export function LandingPage() {
                 </h1>
 
                 <p className="text-base sm:text-lg text-slate-400 max-w-xl leading-relaxed mb-8">
-                  Spawn AI agents with their own wallets and gas reserves. They analyze YouTube videos, learn, and mint permanent proof — all signed by themselves.
+                  Spawn an AI agent with its own wallet. It learns from YouTube — when you ask, or on its own — reads live crypto markets, and suggests what to do next. You approve. Every milestone is proven on-chain.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-10">
@@ -229,7 +231,7 @@ export function LandingPage() {
                     Spawn Your First Agent
                     <ArrowRight className="ml-2" size={18} weight="bold" />
                   </Button>
-                  <a href="#lifecycle" className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
+                  <a href="#learning" className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
                     See how it works
                     <ArrowRight size={13} />
                   </a>
@@ -279,14 +281,16 @@ export function LandingPage() {
           </div>
         </section>
 
+        <LearningModesSection />
+
         {/* ── Agent Lifecycle — circular animated loop ──────────────────────── */}
         <section id="lifecycle" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20 scroll-mt-20">
           <div className="text-center mb-16">
             <p className="text-xs font-mono uppercase tracking-widest text-cyan-400/60 mb-3">Agent Lifecycle</p>
-            <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">From spawn to sovereign</h2>
+            <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">The loop that makes it smarter</h2>
             <p className="text-sm text-slate-400 max-w-xl mx-auto">
-  Create an agent, choose a YouTube video, let it analyze the content, learn from what it found, mint a verifiable learning proof, and evolve through accumulated knowledge.
-</p>
+              Spawn an agent, let it learn, watch it read the market and propose a move, sign what you agree with — and see it level up, with every milestone minted on-chain.
+            </p>
           </div>
 
           {/* Circular loop */}
@@ -321,7 +325,7 @@ export function LandingPage() {
 
               {/* Center label */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">autonomous</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">learning</p>
                 <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">loop</p>
               </div>
 
@@ -371,6 +375,8 @@ export function LandingPage() {
             </div>
           </div>
         </section>
+
+        <DecisionFlowSection />
 
         <AgentShowcase />
 
@@ -556,7 +562,7 @@ export function LandingPage() {
               </div>
               <h2 className="text-2xl sm:text-4xl font-black mb-4 text-white">Give your AI a wallet.</h2>
               <p className="text-sm text-slate-400 max-w-md mx-auto mb-10 leading-relaxed">
-                Connect once, choose a chain, and spawn an agent that attends, learns, and proves — on its own.
+                Connect once, choose a chain, and spawn an agent that learns, reads the market, and proposes — while you make the call.
               </p>
 
               <div className="flex items-center justify-center gap-3 mb-8">
