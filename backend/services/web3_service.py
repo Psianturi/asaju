@@ -19,6 +19,8 @@ from core.secrets import get_mantle_rpc_url, get_minter_service_private_key
 
 logger = logging.getLogger(__name__)
 
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
 # ── Minimal ABI (only what backend needs to call) ─────────────────────────────
 MAEF_ABI: list[dict] = [
     {
@@ -133,6 +135,36 @@ MAEF_ABI: list[dict] = [
         "stateMutability": "payable",
         "type": "function",
     },
+    # ── V5 only — agent ownership. Absent on V4 deployments (e.g. live Mantle),
+    # which is exactly how _is_v5() tells the two generations apart.
+    {
+        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "name": "agentOwner",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "agentWallet", "type": "address"},
+            {"internalType": "address", "name": "newOwner", "type": "address"},
+        ],
+        "name": "transferAgentOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True,  "internalType": "address", "name": "agentWallet",   "type": "address"},
+            {"indexed": True,  "internalType": "address", "name": "previousOwner", "type": "address"},
+            {"indexed": True,  "internalType": "address", "name": "newOwner",      "type": "address"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp",     "type": "uint256"},
+        ],
+        "name": "AgentOwnershipTransferred",
+        "type": "event",
+    },
     {
         "inputs": [
             {"internalType": "address", "name": "agentWallet", "type": "address"},
@@ -163,6 +195,7 @@ class Web3Service:
         # Per-chain caches — keyed by chain_id (e.g. 5003, 11155111)
         self._w3_cache: dict[int, Web3] = {}
         self._contract_cache: dict[int, Any] = {}
+        self._is_v5_cache: dict[int, bool] = {}
 
     # ── Connection helpers ────────────────────────────────────────────────────
 
@@ -306,6 +339,26 @@ class Web3Service:
             return contract.functions.agentProvision().call()
         except Exception:
             return contract.functions.AGENT_PROVISION().call()
+
+    def _is_v5(self, contract, chain_id: int) -> bool:
+        """
+        True when the deployed contract is V5 (has the agentOwner registry).
+        V5 changed who pays: breedAgents() prepays the offspring's spawn fee into
+        escrow, so spawnBredAgent() is non-payable — sending value to it on V5
+        reverts, and omitting value on V4 reverts. Cached per chain; a deployed
+        address never changes generation under us.
+        """
+        cached = self._is_v5_cache.get(chain_id)
+        if cached is not None:
+            return cached
+        try:
+            contract.functions.agentOwner(ZERO_ADDRESS).call()
+            result = True
+        except Exception:
+            result = False
+        self._is_v5_cache[chain_id] = result
+        logger.info("Contract on chain %s detected as %s", chain_id, "V5" if result else "V4")
+        return result
 
     def check_minter_balance_health(self, chain_id: int = 5003) -> None:
         """
@@ -564,8 +617,9 @@ class Web3Service:
         offspring_id_bytes = bytes.fromhex(offspring_id.replace("0x", ""))
 
         fn_call = contract.functions.spawnBredAgent(offspring_wallet_cs, offspring_id_bytes)
-        # Read live — spawnFee is owner-mutable and differs per chain (see setFees()).
-        spawn_value = self._read_spawn_fee_wei(contract)
+        # V5: the breeder already prepaid this into escrow, and the function is
+        # non-payable — sending value would revert. V4: the caller still funds it.
+        spawn_value = 0 if self._is_v5(contract, chain_id) else self._read_spawn_fee_wei(contract)
 
         nonce = w3.eth.get_transaction_count(signer.address, "pending")
         gas_price = w3.eth.gas_price

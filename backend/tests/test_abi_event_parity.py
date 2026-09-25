@@ -32,6 +32,12 @@ EXPECTED_TOPIC0 = {
     "ProposalExecuted": "0x" + Web3.keccak(
         text="ProposalExecuted(address,bytes32,uint256,uint256,uint256)"
     ).hex(),
+    # V5 only — verified against MAEFNFTV5.sol's compiled artifact, 2026-09-25.
+    # The backend watches this to rebind a sold agent to its new owner, so a
+    # drifted signature here would make every sale silently fail to register.
+    "AgentOwnershipTransferred": "0x" + Web3.keccak(
+        text="AgentOwnershipTransferred(address,address,address,uint256)"
+    ).hex(),
 }
 
 

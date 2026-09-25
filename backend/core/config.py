@@ -16,8 +16,15 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "name": "Ethereum Sepolia",
         "native_symbol": "ETH",
         "rpc_url": "https://ethereum-sepolia-rpc.publicnode.com",
-        "contract_address": "0x9FEF11E45cFD550b33F13A31E8d80BE61cda80f4",  # redeployed 16 Aug 2026
+        "contract_address": "0x0fE75B47bFE360A305F5D56607d976448fF7c9e7",  # ASAJU V5, 25 Sep 2026
         "explorer_url": "https://sepolia.etherscan.io",
+    },
+    97: {
+        "name": "BNB Smart Chain Testnet",
+        "native_symbol": "tBNB",
+        "rpc_url": "https://bsc-testnet-rpc.publicnode.com",
+        "contract_address": "0x4cCB2f96f66B4E06E5A78da25797b7386814C313",  # ASAJU V5, 25 Sep 2026
+        "explorer_url": "https://testnet.bscscan.com",
     },
 }
 

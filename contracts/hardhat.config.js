@@ -39,6 +39,14 @@ export default defineConfig({
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
     },
+    bscTestnet: {
+      type: "http",
+      url: "https://bsc-testnet-rpc.publicnode.com",
+      chainId: 97,
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
     polygonAmoy: {
       type: "http",
       url: "https://rpc-amoy.polygon.technology",

@@ -1,7 +1,17 @@
 /**
  * MAEF Supported Chains — single source of truth.
  * Add new chains here; frontend + backend both reference this config.
+ *
+ * Contract addresses come from env (VITE_CONTRACT_ADDRESS_<chainId>) so a
+ * redeploy is a Vercel env change, not a code change. The literal below each
+ * one is the currently deployed fallback, so a missing env var can never
+ * silently resolve to the zero address.
  */
+
+function contractFor(chainId: number, fallback: string): string {
+  const fromEnv = import.meta.env[`VITE_CONTRACT_ADDRESS_${chainId}`] as string | undefined
+  return fromEnv?.trim() || fallback
+}
 
 export interface ChainConfig {
   chainId: number
@@ -26,7 +36,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     nativeSymbol: 'MNT',
     rpcUrl: 'https://rpc.sepolia.mantle.xyz',
     explorerUrl: 'https://explorer.sepolia.mantle.xyz',
-    contractAddress: '0x66fD8b5411856D42c08D9356e879a6e7dF0c9419',
+    contractAddress: contractFor(5003, '0x66fD8b5411856D42c08D9356e879a6e7dF0c9419'),
     spawnFee: '1',
     color: '#00F3FF',
     testnet: true,
@@ -38,9 +48,21 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     nativeSymbol: 'ETH',
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
-    contractAddress: '0x9FEF11E45cFD550b33F13A31E8d80BE61cda80f4',  // redeployed 16 Aug 2026 — fee-configurable V4
-    spawnFee: '0.02',   // sized for typical Sepolia faucet drips; see setFees() in deploy-new-chain.js
+    contractAddress: contractFor(11155111, '0x0fE75B47bFE360A305F5D56607d976448fF7c9e7'),  // V5, 25 Sep 2026
+    spawnFee: '0.02',   // sized for typical Sepolia faucet drips; see setFees() in deploy-v5.js
     color: '#8B5CF6',
+    testnet: true,
+  },
+  97: {
+    chainId: 97,
+    name: 'BNB Smart Chain Testnet',
+    shortName: 'BNB',
+    nativeSymbol: 'tBNB',
+    rpcUrl: 'https://bsc-testnet-rpc.publicnode.com',
+    explorerUrl: 'https://testnet.bscscan.com',
+    contractAddress: contractFor(97, '0x4cCB2f96f66B4E06E5A78da25797b7386814C313'),  // V5, 25 Sep 2026
+    spawnFee: '0.005',  // sized for tBNB faucet drips
+    color: '#F0B90B',
     testnet: true,
   },
 }
@@ -51,6 +73,7 @@ export function getChain(chainId: number): ChainConfig | undefined {
   return CHAIN_CONFIGS[chainId]
 }
 
+/** Only chains with a contract address — a chain awaiting deploy is not selectable. */
 export function getSupportedChains(): ChainConfig[] {
-  return Object.values(CHAIN_CONFIGS)
+  return Object.values(CHAIN_CONFIGS).filter(c => c.contractAddress !== '')
 }
