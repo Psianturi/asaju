@@ -144,7 +144,7 @@ Active deployments:
 | Chain | Address | Notes |
 |-------|---------|-------|
 | Mantle Sepolia (5003) | [`0x66fD8b5411856D42c08D9356e879a6e7dF0c9419`](https://explorer.sepolia.mantle.xyz/address/0x66fD8b5411856D42c08D9356e879a6e7dF0c9419) | Legacy-compatible fee getters |
-| Ethereum Sepolia (11155111) | [`0x9FEF11E45cFD550b33F13A8d80BE61cda80f4`](https://sepolia.etherscan.io/address/0x9FEF11E45cFD550b33F13A8d80BE61cda80f4) | Fee-configurable V4 |
+| Ethereum Sepolia (11155111) | [`0x9FEF11E45cFD550b33F13A31E8d80BE61cda80f4`](https://sepolia.etherscan.io/address/0x9FEF11E45cFD550b33F13A31E8d80BE61cda80f4) | Fee-configurable V4 |
 
 Source: [`contracts/contracts/MAEFNFTV4.sol`](contracts/contracts/MAEFNFTV4.sol).
 
@@ -190,7 +190,7 @@ cd backend
 pip install -r requirements.txt
 cp .env.example .env   # fill GEMINI, CMC, YouTube keys, GCP creds
 uvicorn main:app --reload --port 8080
-pytest -v              # 125+ tests
+pytest -v              # 150+ tests
 ```
 
 ### Environment variables (frontend)
@@ -222,7 +222,7 @@ GCP Secret Manager secrets (create with `echo -n "VALUE" | ...` — trailing new
 
 | Layer | Count | Coverage |
 |-------|------:|---------|
-| Backend (pytest) | 125 | All routers, market data normalization, ABI parity, current-insight endpoint, proposal CMC prompt grounding |
+| Backend (pytest) | 150 | All routers, market data normalization, ABI parity, current-insight endpoint, proposal CMC prompt grounding |
 | Frontend (vitest) | 114 | Components, hooks, utilities, format helpers |
 | TypeScript (tsc) | clean | All source files |
 
@@ -271,7 +271,7 @@ CI runs both suites on every push via [`.github/workflows/`](.github/workflows/)
 │   ├── routers/               HTTP endpoints (agents, proposals, events, market, inbox, chat, …)
 │   ├── services/              llm_service, web3_service, market_data_service, scout_service, …
 │   ├── core/                  config, database, kms_service
-│   ├── tests/                 pytest suite (125 tests)
+│   ├── tests/                 pytest suite (150 tests)
 │   ├── requirements.txt
 │   └── main.py                Entry point
 ├── contracts/                 Solidity sources + Hardhat

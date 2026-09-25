@@ -4,6 +4,7 @@ import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, Calen
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { Agent, Event, NFT } from '@/lib/types'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from '@/components/NicheAvatar'
@@ -307,21 +308,12 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 Deduction is 0.1 {chain?.nativeSymbol ?? 'ETH'} per refill.
               </p>
             </div>
-            <button
-              onClick={() => onToggleAutoReplenish(agent, !agent.autoReplenishGas)}
-              className={cn(
-                'w-11 h-6 rounded-full transition-colors relative',
-                agent.autoReplenishGas ? 'bg-emerald-500' : 'bg-muted/40',
-              )}
+            <Switch
+              checked={agent.autoReplenishGas || false}
+              onCheckedChange={(checked) => onToggleAutoReplenish(agent, checked)}
               aria-label={agent.autoReplenishGas ? 'Disable auto-replenish' : 'Enable auto-replenish'}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow',
-                  agent.autoReplenishGas ? 'translate-x-5' : 'translate-x-0.5',
-                )}
-              />
-            </button>
+              className="data-[state=checked]:bg-emerald-500"
+            />
           </div>
         </Card>
       )}
@@ -347,21 +339,12 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                   : 'Off — the agent only learns when you submit a video manually.'}
               </p>
             </div>
-            <button
-              onClick={() => onToggleScout(agent.id, !agent.autoScoutEnabled)}
-              className={cn(
-                'w-11 h-6 rounded-full transition-colors relative',
-                agent.autoScoutEnabled ? 'bg-emerald-500' : 'bg-muted/40',
-              )}
+            <Switch
+              checked={agent.autoScoutEnabled || false}
+              onCheckedChange={(checked) => onToggleScout(agent.id, checked)}
               aria-label={agent.autoScoutEnabled ? 'Disable auto-scout' : 'Enable auto-scout'}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow',
-                  agent.autoScoutEnabled ? 'translate-x-5' : 'translate-x-0.5',
-                )}
-              />
-            </button>
+              className="data-[state=checked]:bg-emerald-500"
+            />
           </div>
         </Card>
       )}
