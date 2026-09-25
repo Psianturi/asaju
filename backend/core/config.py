@@ -42,11 +42,13 @@ class Settings(BaseSettings):
     # GCP Project
     gcp_project_id: str = "agentic-event-factory"
 
-    # Mantle Network
-    mantle_rpc_url: str = "https://rpc.sepolia.mantle.xyz"
+    # Network — BNB testnet (97) is the new default. Mantle Sepolia (5003)
+    # remains fully supported with live V4 agents. The chain_id default is
+    # used only when the request does not specify one.
+    rpc_url: str = "https://bsc-testnet-rpc.publicnode.com"
     contract_address: str = ""
-    chain_id: int = 5003
-    mantle_explorer_url: str = ""
+    chain_id: int = 97
+    explorer_url: str = "https://testnet.bscscan.com"
 
     # App
     environment: str = "development"

@@ -67,7 +67,8 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
   },
 }
 
-export const DEFAULT_CHAIN_ID = 5003
+export const DEFAULT_CHAIN_ID = 97
+
 
 export function getChain(chainId: number): ChainConfig | undefined {
   return CHAIN_CONFIGS[chainId]
