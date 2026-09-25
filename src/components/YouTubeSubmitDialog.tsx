@@ -16,6 +16,7 @@ import {
   Robot,
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { getChain, txUrl, nftUrl, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -75,8 +76,8 @@ const STAGES: Record<Stage, StageInfo> = {
   },
   minting: {
     label: 'Minting learning proof',
-    detail: 'Milestone hit — signing + sending the mint transaction to Mantle.',
-    progress: ['Preparing mint transaction…', 'Signing with agent wallet…', 'Broadcasting to Mantle Sepolia…'],
+    detail: 'Milestone hit — signing + sending the mint transaction on-chain.',
+    progress: ['Preparing mint transaction…', 'Signing with agent wallet…', 'Broadcasting to the network…'],
     icon: Coins,
     accent: 'emerald',
   },
@@ -126,6 +127,8 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
     if (agent?.id && !selectedAgentId) setSelectedAgentId(agent.id)
   }, [agent?.id, selectedAgentId])
   const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? agent
+  const agentChainId = selectedAgent?.chainId ?? DEFAULT_CHAIN_ID
+  const agentChain = getChain(agentChainId)
 
   const [url, setUrl] = useState('')
   const [stage, setStage] = useState<Stage>('input')
@@ -186,7 +189,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
         eventTitle: '',
         platform: 'YouTube',
         niche: selectedAgent.niche,
-        chainId: selectedAgent.chainId ?? 5003,
+        chainId: agentChainId,
       })
 
       setResult({
@@ -460,7 +463,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
                 </div>
                 {result.txHash && (
                   <a
-                    href={`https://explorer.sepolia.mantle.xyz/tx/${result.txHash}`}
+                    href={txUrl(agentChainId, result.txHash)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/80 hover:text-emerald-300 transition-colors break-all"
@@ -473,12 +476,12 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
                 )}
                 {result.tokenId && (
                   <a
-                    href={`https://explorer.sepolia.mantle.xyz/token/0x66fD8b5411856D42c08D9356e879a6e7dF0c9419?type=nft&tokenId=${result.tokenId}`}
+                    href={nftUrl(agentChainId, result.tokenId)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-[10px] font-mono text-muted-foreground/60 hover:text-cyan-300 transition-colors"
                   >
-                    View NFT on MantleScan →
+                    View NFT on {agentChain?.shortName ?? 'explorer'} explorer →
                   </a>
                 )}
                 {!result.minted && (

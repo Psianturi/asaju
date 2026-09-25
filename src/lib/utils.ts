@@ -112,3 +112,17 @@ export function getRarityLabel(rarity: RarityTier): string {
       return 'COMMON'
   }
 }
+
+/**
+ * What a scout decision actually resulted in. `action` alone is not enough:
+ * it says the agent attended the video, and since milestone minting that no
+ * longer implies an NFT. Legacy logs predate the `minted` field, and back then
+ * attending really did mint every time.
+ */
+export function scoutOutcome(
+  entry: { action: string; minted?: boolean | null },
+): 'minted' | 'learned' | 'skipped' {
+  if (entry.action !== 'MINTED') return 'skipped'
+  if (entry.minted === null || entry.minted === undefined) return 'minted'
+  return entry.minted ? 'minted' : 'learned'
+}

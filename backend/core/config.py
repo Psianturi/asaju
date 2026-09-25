@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     chain_id: int = 97
     explorer_url: str = "https://testnet.bscscan.com"
 
+    # Mantle-only explorer override (Cloud Run env MANTLE_EXPLORER_URL).
+    # Kept as its own field because Mantle's contract address is env-driven
+    # too — the pair lets Mantle be repointed without a deploy.
+    mantle_explorer_url: str = ""
+
     # App
     environment: str = "development"
     use_secret_manager: bool = True

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { NicheAvatar } from './NicheAvatar'
 import type { Niche } from '@/lib/types'
+import { getChain, txUrl } from '@/lib/blockchain/chains'
 
 export interface WisdomFeedItem {
   eventId: string
@@ -80,9 +81,8 @@ function WisdomCard({ item, index, onRateWisdom, ratedMap, userWallet }: {
   const date = new Date(item.attendedAt * 1000).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   })
-  const explorerUrl = item.txHash
-    ? `https://explorer.sepolia.mantle.xyz/tx/${item.txHash}`
-    : null
+  const explorerUrl = item.txHash ? txUrl(item.chainId, item.txHash) : null
+  const explorerName = getChain(item.chainId)?.shortName ?? 'explorer'
   const currentRating = ratedMap?.[item.eventId]
   const canRate = Boolean(onRateWisdom && userWallet)
 
@@ -171,7 +171,7 @@ function WisdomCard({ item, index, onRateWisdom, ratedMap, userWallet }: {
               className="flex items-center gap-1 text-[10px] text-primary/60 hover:text-primary transition-colors"
             >
               <ArrowSquareOut size={10} />
-              View NFT on MantleScan
+              View NFT on {explorerName}
               {item.tokenId && <span className="font-mono">#{item.tokenId}</span>}
             </a>
           )}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
+import { scoutOutcome } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Agent, ScoutLogEntry } from '@/lib/types'
@@ -107,7 +108,9 @@ export function ProactiveScoutingPanel({ agent, onToggleScout, onApproveEvent }:
             >
               {/* Last Auto-Minted */}
               {(() => {
-                const lastMint = logs.find(l => l.action === 'MINTED')
+                // Must be a real mint, not merely an attended video —
+                // milestone minting made those two different outcomes.
+                const lastMint = logs.find(l => scoutOutcome(l) === 'minted')
                 return (
                   <div>
                     <div className="flex items-center gap-2 mb-3">

@@ -89,6 +89,10 @@ export interface ScoutLogEntry {
   agentId: string
   runAt: number
   action: 'MINTED' | 'SKIPPED'
+  /** Whether an NFT was really minted. action='MINTED' only means the agent
+   *  attended the video; milestone minting made those two different things.
+   *  null on logs written before the field existed (attending always minted then). */
+  minted: boolean | null
   reasonCode: string
   score: number | null
   thresholdApplied: number | null

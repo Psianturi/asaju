@@ -52,6 +52,7 @@ async def _write_scout_log(
     candidate_title: str | None = None,
     candidate_url: str | None = None,
     reason_description: str | None = None,
+    minted: bool | None = None,
 ) -> None:
     """Best-effort logging for autonomous scout decisions (never blocks main flow)."""
     log_id = f"scout_{agent_id[:8]}_{int(run_at * 1000)}_{secrets.token_hex(3)}"
@@ -73,6 +74,7 @@ async def _write_scout_log(
             "url": candidate_url,
         },
         "reason_description": reason_description,
+        "minted": minted,
     }
 
     try:
@@ -397,6 +399,11 @@ class ScoutLogResponse(BaseModel):
     metrics: ScoutLogMetricsResponse
     candidate_source: ScoutLogCandidateSourceResponse
     reason_description: str | None = None
+    # Whether an NFT was actually minted. action="MINTED" only means the agent
+    # attended (learned from) the video — since milestone minting, that no
+    # longer implies a mint. None on logs written before this field existed,
+    # where attending really did mint every time.
+    minted: bool | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -1828,7 +1835,10 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
         agent_gas_balance=gas_balance,
         candidate_title=video.get("title"),
         candidate_url=video.get("url"),
-        reason_description=video.get("scout_reason") or "Minted after secretary selection",
+        reason_description=video.get("scout_reason") or "Attended after secretary selection",
+        # Milestone minting means attending does not always mint. Record the
+        # real outcome so the decision log cannot claim a mint that never happened.
+        minted=bool(getattr(attend_result, "minted", False)),
     )
 
     return {

@@ -6,6 +6,7 @@ import { TrendUp, TrendDown, Coins, ChartLine, Globe, Lightning, Sparkle, Wallet
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts'
 import { motion } from 'framer-motion'
 import { calculateRarityTier, getRarityLabel } from '@/lib/utils'
+import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 
 interface AnalyticsChartsProps {
   agents?: Agent[]
@@ -75,6 +76,15 @@ export function AnalyticsCharts({ agents = [], events = [], nfts = [] }: Analyti
 
   const totalEvents = events.length
   const totalGasSpent = agents.reduce((sum, a) => sum + (a.gasSpent || 0), 0)
+
+  // Agents can sit on different chains, so one currency label is only honest
+  // when they all share it. Mixed fleets get a neutral label instead.
+  const gasSymbol = useMemo(() => {
+    const symbols = new Set(
+      agents.map(a => getChain(a.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? '?'),
+    )
+    return symbols.size === 1 ? [...symbols][0] : 'native tokens'
+  }, [agents])
   const avgEventsPerAgent = agents.length > 0 ? (totalEvents / agents.length).toFixed(1) : '0'
   const wisdomUnlockedCount = agents.filter(a => a.wisdomUnlocked).length
 
@@ -150,7 +160,7 @@ export function AnalyticsCharts({ agents = [], events = [], nfts = [] }: Analyti
                 <Coins size={20} className="text-secondary" weight="duotone" />
               </div>
               <p className="text-3xl font-bold mb-1">{totalGasSpent.toFixed(3)}</p>
-              <p className="text-xs text-muted-foreground font-mono">MNT</p>
+              <p className="text-xs text-muted-foreground font-mono">{gasSymbol}</p>
             </div>
           </Card>
         </motion.div>

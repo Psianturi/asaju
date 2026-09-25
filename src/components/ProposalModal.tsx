@@ -8,6 +8,7 @@ import { cloudRunService } from '@/services/cloudRunService'
 import { MarketContextPanel } from '@/components/MarketSnapshotCard'
 import { ReasoningSlideOver } from '@/components/ReasoningSlideOver'
 import { mantleService } from '@/lib/blockchain/mantleService'
+import { getChain, txUrl, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -91,6 +92,7 @@ function ProposalCard({
   actioningId,
   autonomousExecutionEnabled,
   onShowReasoning,
+  chainId,
 }: {
   proposal: BackendProposal
   onApprove: (p: BackendProposal) => void
@@ -98,6 +100,7 @@ function ProposalCard({
   onExecute: (p: BackendProposal) => void
   executingId: string | null
   actioningId: string | null
+  chainId: number
   autonomousExecutionEnabled: boolean
   onShowReasoning: (p: BackendProposal) => void
 }) {
@@ -226,13 +229,13 @@ function ProposalCard({
             </span>
           </div>
           <a
-            href={`https://explorer.sepolia.mantle.xyz/tx/${proposal.tx_hash}`}
+            href={txUrl(chainId, proposal.tx_hash)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors font-mono"
             onClick={(e) => e.stopPropagation()}
           >
-            MantleScan
+            {getChain(chainId)?.shortName ?? 'Explorer'}
             <ArrowSquareOut size={10} />
           </a>
         </motion.div>
@@ -380,6 +383,8 @@ function parseExecutionMessage(message: string): ParsedExecutionDetails | null {
 }
 
 export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange, autonomousExecutionEnabled = false }: ProposalModalProps) {
+  const agentChainId = agent.chainId ?? DEFAULT_CHAIN_ID
+  const agentChain = getChain(agentChainId)
   const [proposals, setProposals] = useState<BackendProposal[]>([])
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -629,6 +634,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   actioningId={actioningId}
                   autonomousExecutionEnabled={false}
                   onShowReasoning={() => setReasoningProposal(ephemeralProposal)}
+                  chainId={agentChainId}
                 />
               )}
               {proposals.map(p => (
@@ -642,6 +648,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   actioningId={actioningId}
                   autonomousExecutionEnabled={autonomousExecutionEnabled}
                   onShowReasoning={() => setReasoningProposal(p)}
+                  chainId={agentChainId}
                 />
               ))}
             </AnimatePresence>
@@ -686,7 +693,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
             <div className="flex items-center gap-1.5 justify-center">
               <Warning size={11} className="text-amber-400" weight="fill" />
               <p className="text-[10px] text-muted-foreground">
-                Approved proposals record on Mantle Sepolia and cost gas.
+                Approved proposals record on {agentChain?.name ?? 'the network'} and cost gas.
               </p>
             </div>
           )}
@@ -735,7 +742,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Chain</span>
                   <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary/70">
-                    Mantle Sepolia (5003)
+                    {agentChain?.name ?? 'Unknown'} ({agentChainId})
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">

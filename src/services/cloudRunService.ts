@@ -1068,6 +1068,7 @@ export const cloudRunService = {
         metrics: { score: number | null; threshold_applied: number | null; agent_gas_balance: number | null }
         candidate_source: { title: string | null; url: string | null }
         reason_description: string | null
+        minted?: boolean | null
       }>>(response)
       return raw.map(r => ({
         logId: r.log_id,
@@ -1075,6 +1076,7 @@ export const cloudRunService = {
         agentId: r.agent_id,
         runAt: r.run_at,
         action: r.action as 'MINTED' | 'SKIPPED',
+        minted: r.minted ?? null,
         reasonCode: r.reason_code,
         score: r.metrics?.score ?? null,
         thresholdApplied: r.metrics?.threshold_applied ?? null,

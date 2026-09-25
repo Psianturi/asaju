@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article, ArrowRight } from '@phosphor-icons/react'
 import { Agent, Event, NFT } from '@/lib/types'
@@ -504,7 +505,9 @@ function UrgentActionBanner({
     ? `${action.proposal.title} · ${action.proposal.category}`
     : action.kind === 'paused-agent'
       ? action.paused.reason
-      : `Balance: ${action.gas.agent_gas_balance?.toFixed(4) ?? '?'} MNT`
+      : `Balance: ${action.gas.agent_gas_balance?.toFixed(4) ?? '?'} ${
+          getChain(action.agent?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''
+        }`
 
   return (
     <Card className={`p-4 border ${accent.card}`}>
@@ -688,7 +691,9 @@ function InboxBody({
                 accent="amber"
                 agent={agentById.get(p.agent_id)}
                 primary={p.agent_name}
-                secondary={`Balance ${p.agent_gas_balance?.toFixed(4) ?? '?'} MNT — top up to keep scouting`}
+                secondary={`Balance ${p.agent_gas_balance?.toFixed(4) ?? '?'} ${
+                  getChain(agentById.get(p.agent_id)?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''
+                } — top up to keep scouting`}
                 onClick={() => {
                   const a = agentById.get(p.agent_id)
                   if (a) onOpenAgent(a)

@@ -67,6 +67,29 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
   },
 }
 
+/** Explorer link for a transaction. */
+export function txUrl(chainId: number, txHash: string): string {
+  const chain = getChain(chainId)
+  if (!chain) return ''
+  return `${chain.explorerUrl.replace(/\/$/, '')}/tx/${txHash}`
+}
+
+/**
+ * Explorer link for one NFT. Blockscout (Mantle) and the Etherscan family
+ * (Sepolia, BscScan) use incompatible URL shapes, so callers must not build
+ * these by hand — doing so is how the mint dialog ended up pointing every
+ * chain's NFT at Mantle's contract.
+ */
+export function nftUrl(chainId: number, tokenId: string | number): string {
+  const chain = getChain(chainId)
+  if (!chain || !chain.contractAddress) return ''
+  const base = chain.explorerUrl.replace(/\/$/, '')
+  if (base.includes('mantle.xyz')) {
+    return `${base}/token/${chain.contractAddress}?type=nft&tokenId=${tokenId}`
+  }
+  return `${base}/nft/${chain.contractAddress}/${tokenId}`
+}
+
 export const DEFAULT_CHAIN_ID = 97
 
 

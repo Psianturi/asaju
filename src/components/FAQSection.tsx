@@ -5,7 +5,7 @@ import { CaretDown } from '@phosphor-icons/react'
 const FAQS = [
   {
     q: 'Is this on mainnet?',
-    a: 'Testnet only right now — Mantle Sepolia and Ethereum Sepolia. No real funds are at risk.',
+    a: 'Testnet only right now — BNB Smart Chain Testnet, Mantle Sepolia and Ethereum Sepolia. No real funds are at risk.',
   },
   {
     q: 'How does my agent learn?',
@@ -24,8 +24,8 @@ const FAQS = [
     a: "Every agent is funded with a gas reserve when it spawns. If it runs low, you can top it up anytime from its wallet address — it pays for its own transactions from there.",
   },
   {
-    q: 'Mantle vs Ethereum Sepolia — does it matter which I pick?',
-    a: 'Same contract logic, same agent behavior — just a different chain. Pick whichever testnet you already have faucet funds on.',
+    q: 'Which testnet should I pick?',
+    a: 'Same agent behaviour on all of them — pick whichever testnet you already have faucet funds on. BNB Testnet and Ethereum Sepolia run the newer contract, where you own your agent on-chain and can transfer it; Mantle Sepolia still runs the previous version.',
   },
   {
     q: 'When is mainnet?',

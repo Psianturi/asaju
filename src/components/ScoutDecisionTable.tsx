@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CheckCircle, XCircle, ArrowSquareOut, Clock, Lightning, Info } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { cn } from '@/lib/utils'
+import { cn, scoutOutcome } from '@/lib/utils'
 import { ScoutLogEntry } from '@/lib/types'
 import { useState } from 'react'
 
@@ -50,8 +50,13 @@ function ScoreBar({ score, threshold }: { score: number | null; threshold: numbe
 
 function LogRow({ entry, index }: { entry: ScoutLogEntry; index: number }) {
   const [expanded, setExpanded] = useState(false)
-  const isMinted = entry.action === 'MINTED'
-  const rCode = REASON_CODE_LABELS[entry.reasonCode] ?? { label: entry.reasonCode, color: 'text-muted-foreground bg-muted/20 border-border' }
+  const outcome = scoutOutcome(entry)
+  const isAttended = outcome !== 'skipped'
+  // A milestone mint and a plain lesson are both successes, but only one
+  // produced an NFT — labelling both "Minted" overstated what happened.
+  const rCode = outcome === 'learned'
+    ? { label: 'Learned', color: 'text-cyan-300 bg-cyan-500/10 border-cyan-500/30' }
+    : REASON_CODE_LABELS[entry.reasonCode] ?? { label: entry.reasonCode, color: 'text-muted-foreground bg-muted/20 border-border' }
   const date = new Date(entry.runAt * 1000)
   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -63,9 +68,11 @@ function LogRow({ entry, index }: { entry: ScoutLogEntry; index: number }) {
       transition={{ delay: index * 0.04 }}
       className={cn(
         'rounded-lg border transition-all duration-200',
-        isMinted
+        outcome === 'minted'
           ? 'bg-green-500/5 border-green-500/20'
-          : 'bg-card/30 border-border/40 hover:border-border/60'
+          : outcome === 'learned'
+            ? 'bg-cyan-500/5 border-cyan-500/20'
+            : 'bg-card/30 border-border/40 hover:border-border/60'
       )}
     >
       <div
@@ -74,8 +81,8 @@ function LogRow({ entry, index }: { entry: ScoutLogEntry; index: number }) {
       >
         {/* Action icon */}
         <div className="shrink-0">
-          {isMinted
-            ? <CheckCircle size={16} className="text-green-400" weight="fill" />
+          {isAttended
+            ? <CheckCircle size={16} className={outcome === 'minted' ? 'text-green-400' : 'text-cyan-400'} weight="fill" />
             : <XCircle size={16} className="text-muted-foreground/60" weight="fill" />
           }
         </div>
@@ -188,8 +195,9 @@ export function ScoutDecisionTable({ logs, loading }: ScoutDecisionTableProps) {
     )
   }
 
-  const minted = logs.filter(l => l.action === 'MINTED').length
-  const skipped = logs.filter(l => l.action === 'SKIPPED').length
+  const minted = logs.filter(l => scoutOutcome(l) === 'minted').length
+  const learned = logs.filter(l => scoutOutcome(l) === 'learned').length
+  const skipped = logs.filter(l => scoutOutcome(l) === 'skipped').length
 
   return (
     <div className="space-y-3">
@@ -200,6 +208,13 @@ export function ScoutDecisionTable({ logs, loading }: ScoutDecisionTableProps) {
           <span className="font-semibold">{minted}</span>
           <span className="text-muted-foreground">minted</span>
         </div>
+        {learned > 0 && (
+          <div className="flex items-center gap-1.5 text-cyan-400">
+            <CheckCircle size={11} weight="fill" />
+            <span className="font-semibold">{learned}</span>
+            <span className="text-muted-foreground">learned</span>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 text-muted-foreground/60">
           <XCircle size={11} weight="fill" />
           <span className="font-semibold">{skipped}</span>
