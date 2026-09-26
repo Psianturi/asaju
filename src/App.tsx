@@ -258,11 +258,31 @@ function App() {
       return changed ? healed : current
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const [userBalance, setUserBalance] = useLocalStorage<number>('maef-user-balance', 45.50)
+  // Wallet balance comes from the blockchain hook (queries RPC via mantleService)
+  // and refreshes on connect + chain switch + every 30s. No more mock localStorage.
+  // Components that previously received `userBalance ?? 0` now receive the real
+  // on-chain balance for the active chain.
+  const userBalance = parseFloat(blockchain.balance || '0')
+
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [genesisMintDialogOpen, setGenesisMintDialogOpen] = useState(false)
   const [selectedAgentForTopUp, setSelectedAgentForTopUp] = useState<Agent | null>(null)
   const [pendingAttendContext, setPendingAttendContext] = useState<PendingAttendContext | null>(null)
+
+  // Periodic balance refresh while connected — keeps the dialogs in sync with
+  // whatever the chain reports. 30s matches the polling cadence we use
+  // elsewhere; balances are not user-critical enough to warrant SSE.
+  useEffect(() => {
+    if (!blockchain.isConnected || !blockchain.address) return
+    let cancelled = false
+    const tick = async () => {
+      if (cancelled) return
+      try { await blockchain.refreshBalance(blockchain.chainId ?? undefined) } catch { /* swallow */ }
+    }
+    void tick()
+    const interval = setInterval(tick, 30_000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [blockchain.isConnected, blockchain.address, blockchain.chainId, blockchain.refreshBalance])
   const [marketplaceAgents, setMarketplaceAgents] = useLocalStorage<MarketplaceAgent[]>('maef-marketplace', [])
   const [breedingDialogOpen, setBreedingDialogOpen] = useState(false)
   const [proposalModalAgent, setProposalModalAgent] = useState<Agent | null>(null)
@@ -810,9 +830,10 @@ function App() {
       throw new Error(tx.error || 'Gas top-up transaction failed')
     }
 
-    // Keep local balances reasonably in sync until the next full hydration.
-    const txFee = Number(tx.gasUsed || 0)
-    setUserBalance((current) => (current ?? 0) - amount - txFee)
+    // No need to track user balance locally — the next 30s balance refresh
+    // picks up the new on-chain balance automatically. Trigger an immediate
+    // refresh so the dialogs reflect the new balance right away.
+    void blockchain.refreshBalance(agentChainId)
 
     let refreshedAgentBalance = agent.agentGasBalance
     try {
@@ -1126,7 +1147,9 @@ function App() {
       return [...updated, newAgent]
     })
 
-    setUserBalance((current) => (current ?? 0) - 2.5)
+    // Refresh balance after breeding — the chain reports the new balance
+    // automatically on the next RPC call.
+    void blockchain.refreshBalance(DEFAULT_CHAIN_ID)
 
     toast.success('Breeding Successful!', {
       description: `${offspringName} has been created with inherited wisdom from both parents.`,
@@ -1149,7 +1172,7 @@ function App() {
       )
     )
 
-    setUserBalance((current) => (current ?? 0) - 0.5)
+    void blockchain.refreshBalance(DEFAULT_CHAIN_ID)
 
     const agent = agents?.find(a => a.id === agentId)
 
@@ -1274,7 +1297,11 @@ function App() {
 
                 <ChainSelector
                   selectedChainId={selectedChainId}
-                  onChainChange={setSelectedChainId}
+                  onChainChange={(id) => {
+                    setSelectedChainId(id)
+                    // Refresh balance so the dialogs reflect the new chain.
+                    void blockchain.refreshBalance(id)
+                  }}
                 />
                 <WalletConnect
                   onConnect={handleWalletConnect}

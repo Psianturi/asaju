@@ -66,6 +66,12 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
   const [walletCopied, setWalletCopied] = useState(false)
   const videosAnalyzed = videosAnalyzedActual ?? agent.eventsAttended ?? 0
 
+  // Display currency follows the agent's active chain — not Mantle by default.
+  // Auto-Replenish deducts a fixed 0.1 native unit when agent gas falls below 0.05.
+  const currency = getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'
+  const autoReplenishAmount = 0.1
+  const autoReplenishThreshold = 0.05
+
   const copyWalletAddress = async () => {
     await navigator.clipboard.writeText(agent.walletAddress)
     setWalletCopied(true)
@@ -332,7 +338,7 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
                             <p className="text-xs text-muted-foreground">
-                              Automatically deducts <span className="font-bold text-primary">0.1 MNT</span> from User Wallet when Agent Gas falls below <span className="font-bold text-destructive">0.05 MNT</span>
+                              Automatically deducts <span className="font-bold text-primary">{autoReplenishAmount} {currency}</span> from User Wallet when Agent Gas falls below <span className="font-bold text-destructive">{autoReplenishThreshold} {currency}</span>
                             </p>
                           </TooltipContent>
                         </Tooltip>

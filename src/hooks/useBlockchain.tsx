@@ -5,6 +5,7 @@ export interface BlockchainState {
   isConnected: boolean
   address: string | null
   network: string | null
+  chainId: number | null
   isConnecting: boolean
   balance: string
   error: string | null
@@ -29,6 +30,7 @@ export function BlockchainProvider({ children }: { children: ReactNode }) {
     isConnected: false,
     address: null,
     network: null,
+    chainId: null,
     isConnecting: false,
     balance: '0.0',
     error: null
@@ -45,6 +47,7 @@ export function BlockchainProvider({ children }: { children: ReactNode }) {
         isConnected: true,
         address,
         network,
+        chainId: chainId ?? null,
         isConnecting: false,
         balance,
         error: null
@@ -68,6 +71,7 @@ export function BlockchainProvider({ children }: { children: ReactNode }) {
       isConnected: false,
       address: null,
       network: null,
+      chainId: null,
       isConnecting: false,
       balance: '0.0',
       error: null
@@ -77,7 +81,7 @@ export function BlockchainProvider({ children }: { children: ReactNode }) {
   const refreshBalance = useCallback(async (chainId?: number) => {
     if (state.address) {
       const balance = await mantleService.getBalance(state.address, chainId)
-      setState(prev => ({ ...prev, balance }))
+      setState(prev => ({ ...prev, balance, chainId: chainId ?? prev.chainId }))
       return balance
     }
     return '0.0'

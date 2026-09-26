@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Lightning, Wallet, Warning } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
+import { getChain } from '@/lib/blockchain/chains'
 
 interface BreedingCooldownBoostProps {
   agent: Agent
@@ -11,11 +12,18 @@ interface BreedingCooldownBoostProps {
   onBoost: (agentId: string) => void
 }
 
+// BOOST_COST is chain-agnostic at the contract level (constant 0.5 native),
+// but we display it in the agent's active chain currency so the dialog reads
+// correctly whether the user is on Mantle (MNT) or BNB (tBNB).
 const BOOST_COST = 0.5
 
 export function BreedingCooldownBoost({ agent, userBalance, onBoost }: BreedingCooldownBoostProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+
+  // Display currency follows the agent's chain (e.g. MNT on Mantle Sepolia,
+  // tBNB on BNB testnet, ETH on Ethereum Sepolia) — never assume MNT.
+  const currency = getChain(agent.chainId ?? 5003)?.nativeSymbol ?? 'token'
 
   const handleConfirm = async () => {
     setIsProcessing(true)
@@ -66,7 +74,7 @@ export function BreedingCooldownBoost({ agent, userBalance, onBoost }: BreedingC
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Boost Cost</span>
-                <span className="font-bold font-mono text-amber-500">{BOOST_COST} MNT</span>
+                <span className="font-bold font-mono text-amber-500">{BOOST_COST} {currency}</span>
               </div>
             </div>
 
@@ -76,8 +84,8 @@ export function BreedingCooldownBoost({ agent, userBalance, onBoost }: BreedingC
                 <span className="font-bold text-secondary">Your Balance</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Available MNT</span>
-                <span className="font-bold font-mono text-lg">{userBalance.toFixed(2)} MNT</span>
+                <span className="text-sm text-muted-foreground">Available {currency}</span>
+                <span className="font-bold font-mono text-lg">{userBalance.toFixed(2)} {currency}</span>
               </div>
               {!canAfford && (
                 <div className="flex items-center gap-2 text-destructive text-sm mt-2">
@@ -98,7 +106,7 @@ export function BreedingCooldownBoost({ agent, userBalance, onBoost }: BreedingC
                   <div className="flex-1">
                     <h4 className="font-bold text-amber-500 text-sm mb-1">Instant Recovery Effect</h4>
                     <p className="text-xs text-foreground/80">
-                      Your agent will immediately become ready for fusion. The cooldown timer will be completely bypassed using advanced MNT-powered neural restoration.
+                      Your agent will immediately become ready for fusion. The cooldown timer will be completely bypassed using advanced {currency}-powered neural restoration.
                     </p>
                   </div>
                 </div>
@@ -133,7 +141,7 @@ export function BreedingCooldownBoost({ agent, userBalance, onBoost }: BreedingC
               ) : (
                 <>
                   <Lightning className="mr-2" weight="fill" size={16} />
-                  Confirm & Boost ({BOOST_COST} MNT)
+                  Confirm & Boost ({BOOST_COST} {currency})
                 </>
               )}
             </Button>

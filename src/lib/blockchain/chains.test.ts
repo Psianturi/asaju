@@ -85,7 +85,7 @@ describe('spawn economics', () => {
     // "Insufficient spawn fee" and only in production.
     const onChain: Record<number, { spawnFee: string; agentProvision: string }> = {
       5003:     { spawnFee: '1',     agentProvision: '0.5' },
-      11155111: { spawnFee: '0.02',  agentProvision: '0.01' },
+      11155111: { spawnFee: '0.005', agentProvision: '0.0025' },
       97:       { spawnFee: '0.002', agentProvision: '0.001' },
     }
     for (const chain of getSupportedChains()) {

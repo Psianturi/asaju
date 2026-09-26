@@ -56,8 +56,8 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     contractAddress: contractFor(11155111, '0x0fE75B47bFE360A305F5D56607d976448fF7c9e7'),  // V5, 25 Sep 2026
-    spawnFee: '0.02',
-    agentProvision: '0.01',   // 53 mints of runway; ETH gas is volatile so the headroom stays
+    spawnFee: '0.005',  // recalibrated 26 Sep — was 0.02 ($53/sprout, ate the faucet drips); new value ~$13
+    agentProvision: '0.0025',  // half of spawnFee, sufficient for ~7 mints at Sepolia gas levels
     color: '#8B5CF6',
     testnet: true,
   },

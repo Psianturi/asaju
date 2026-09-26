@@ -4,22 +4,34 @@ import { Button } from '@/components/ui/button'
 import { Sparkle, Wallet, ShieldCheck, Lightning } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
+import { getChain } from '@/lib/blockchain/chains'
 
 interface GenesisMintConfirmationProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   userBalance: number
+  chainId?: number
   onConfirm: () => void
 }
 
-export function GenesisMintConfirmation({ open, onOpenChange, userBalance, onConfirm }: GenesisMintConfirmationProps) {
+export function GenesisMintConfirmation({ open, onOpenChange, userBalance, chainId, onConfirm }: GenesisMintConfirmationProps) {
   const [isProcessing, setIsProcessing] = useState(false)
-  const GENESIS_COST = 1.0
+
+  // Genesis mint cost follows the chain's spawnFee (set on-chain via setFees()).
+  // We display it in the agent's active chain currency so the dialog reads
+  // correctly whether the user is on Mantle (1 MNT) or BNB (0.002 tBNB).
+  const chainConfig = getChain(chainId ?? 5003)
+  const currency = chainConfig?.nativeSymbol ?? 'token'
+  const genesisCost = parseFloat(chainConfig?.spawnFee ?? '1')
+  // The split between platform fee and agent gas follows the same proportion
+  // V5 uses on-chain — half for the agent's gas reserve, half kept by the platform.
+  const agentProvision = genesisCost / 2
+  const platformFee = genesisCost / 2
 
   const handleConfirm = async () => {
-    if (userBalance < GENESIS_COST) {
+    if (userBalance < genesisCost) {
       toast.error('Insufficient balance', {
-        description: `You need at least ${GENESIS_COST} MNT to mint a Genesis Agent`
+        description: `You need at least ${genesisCost} ${currency} to mint a Genesis Agent`
       })
       return
     }
@@ -62,15 +74,15 @@ export function GenesisMintConfirmation({ open, onOpenChange, userBalance, onCon
             <div className="space-y-2 text-sm">
               <div className="flex justify-between items-center py-2 border-b border-border/30">
                 <span className="text-muted-foreground">Platform Fee</span>
-                <span className="font-mono font-semibold text-foreground">0.5 MNT</span>
+                <span className="font-mono font-semibold text-foreground">{platformFee} {currency}</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-border/30">
                 <span className="text-muted-foreground">Agent Gas Provision</span>
-                <span className="font-mono font-semibold text-foreground">0.5 MNT</span>
+                <span className="font-mono font-semibold text-foreground">{agentProvision} {currency}</span>
               </div>
               <div className="flex justify-between items-center py-3 bg-primary/10 -mx-5 px-5 rounded-b-lg">
                 <span className="font-bold text-foreground">Total Cost</span>
-                <span className="font-mono font-bold text-xl text-primary">1.0 MNT</span>
+                <span className="font-mono font-bold text-xl text-primary">{genesisCost} {currency}</span>
               </div>
             </div>
           </div>
@@ -81,7 +93,7 @@ export function GenesisMintConfirmation({ open, onOpenChange, userBalance, onCon
               <div className="flex-1 text-xs text-foreground/90">
                 <p className="font-semibold mb-1">Agent Gas Provision Explained:</p>
                 <p className="leading-relaxed">
-                  0.5 MNT will be deposited directly into your agent's autonomous smart account. 
+                  {agentProvision} {currency} will be deposited directly into your agent's autonomous smart account.
                   This allows the agent to execute transactions independently (video analysis, NFT minting) without requiring your signature each time.
                 </p>
               </div>
@@ -106,11 +118,11 @@ export function GenesisMintConfirmation({ open, onOpenChange, userBalance, onCon
           <div className="flex items-center justify-between pt-2">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Your Balance</p>
-              <p className="font-mono font-bold text-foreground">{userBalance.toFixed(4)} MNT</p>
+              <p className="font-mono font-bold text-foreground">{userBalance.toFixed(4)} {currency}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">After Transaction</p>
-              <p className="font-mono font-bold text-foreground">{Math.max(0, userBalance - GENESIS_COST).toFixed(4)} MNT</p>
+              <p className="font-mono font-bold text-foreground">{Math.max(0, userBalance - genesisCost).toFixed(4)} {currency}</p>
             </div>
           </div>
 
@@ -125,7 +137,7 @@ export function GenesisMintConfirmation({ open, onOpenChange, userBalance, onCon
             </Button>
             <Button
               onClick={handleConfirm}
-              disabled={userBalance < GENESIS_COST || isProcessing}
+              disabled={userBalance < genesisCost || isProcessing}
               className="flex-1 bg-gradient-to-r from-primary via-accent to-secondary hover:opacity-90 font-semibold shadow-lg shadow-primary/30"
             >
               {isProcessing ? (
