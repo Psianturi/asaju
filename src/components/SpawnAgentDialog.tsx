@@ -76,7 +76,7 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
     
     const steps = [
       { step: 'Generating deterministic wallet...', status: 'pending' as const },
-      { step: `Provisioning gas reserves (0.5 ${chain?.nativeSymbol ?? 'token'})...`, status: 'pending' as const },
+      { step: `Provisioning gas reserves (${chain?.agentProvision ?? '?'} ${chain?.nativeSymbol ?? 'token'})...`, status: 'pending' as const },
       { step: 'Finalizing agent identity...', status: 'pending' as const },
     ]
     setDeploymentSteps(steps)
@@ -105,7 +105,7 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
           : {
               success: true,
               contractAddress: mantleService.getContractAddress(chainId),
-              provisionAmount: '0.5',
+              provisionAmount: chain?.agentProvision ?? '0',
             }
 
         if (!fundingTx.success) {
@@ -160,7 +160,7 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
           wisdomUnlocked: false,
           mantleBalance: Number(fundingTx.provisionAmount ?? response.initialBalance),
           gasSpent: fundingTx.gasUsed ? Number(fundingTx.gasUsed) : 0,
-          agentGasBalance: Number(fundingTx.provisionAmount ?? 0.5),
+          agentGasBalance: Number(fundingTx.provisionAmount ?? chain?.agentProvision ?? 0),
           contractAddress: fundingTx.contractAddress,
           deploymentTxHash: fundingTx.transactionHash,
           needsFunding: false,

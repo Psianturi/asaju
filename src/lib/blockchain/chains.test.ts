@@ -61,3 +61,38 @@ describe('explorer links', () => {
     expect(nftUrl(999999, 1)).toBe('')
   })
 })
+
+describe('spawn economics', () => {
+  it('declares a provision for every chain', () => {
+    // The spawn dialog used to print a hardcoded "0.5", which on BNB claimed
+    // 0.5 tBNB when the contract really forwards 0.001 — a 500x overstatement.
+    for (const chain of getSupportedChains()) {
+      expect(Number(chain.agentProvision)).toBeGreaterThan(0)
+    }
+  })
+
+  it('never provisions more than the spawn fee collected', () => {
+    // setFees() enforces this on-chain; a config that disagrees would make
+    // every spawn revert.
+    for (const chain of getSupportedChains()) {
+      expect(Number(chain.agentProvision)).toBeLessThanOrEqual(Number(chain.spawnFee))
+    }
+  })
+
+  it('matches the fees deployed on each contract', () => {
+    // Values pushed by contracts/scripts/calibrate-fees.js. If a recalibration
+    // lands on-chain without updating this table, spawns fail with
+    // "Insufficient spawn fee" and only in production.
+    const onChain: Record<number, { spawnFee: string; agentProvision: string }> = {
+      5003:     { spawnFee: '1',     agentProvision: '0.5' },
+      11155111: { spawnFee: '0.02',  agentProvision: '0.01' },
+      97:       { spawnFee: '0.002', agentProvision: '0.001' },
+    }
+    for (const chain of getSupportedChains()) {
+      expect({
+        spawnFee: chain.spawnFee,
+        agentProvision: chain.agentProvision,
+      }).toEqual(onChain[chain.chainId])
+    }
+  })
+})

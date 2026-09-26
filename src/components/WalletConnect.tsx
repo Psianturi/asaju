@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Button } from '@/components/ui/button'
 import { Wallet, CurrencyCircleDollar, WarningCircle } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -10,6 +11,8 @@ interface WalletConnectProps {
   isConnected: boolean
   address?: string
   balance?: number
+  /** Which chain the balance is denominated in — the label used to say MNT on every chain. */
+  chainId?: number
   onDisconnect: () => void
 }
 
@@ -21,7 +24,7 @@ const WALLET_STYLES: Record<DetectedWallet['id'], { border: string; bg: string; 
   injected: { border: 'border-primary/30 hover:border-primary/60',       bg: 'from-primary/10 to-accent/10',       dot: 'bg-primary',    label: '⬡' },
 }
 
-export function WalletConnect({ onConnect, isConnected, address, balance, onDisconnect }: WalletConnectProps) {
+export function WalletConnect({ onConnect, isConnected, address, balance, chainId, onDisconnect }: WalletConnectProps) {
   const [showDialog, setShowDialog] = useState(false)
   const [detectedWallets, setDetectedWallets] = useState<DetectedWallet[]>([])
 
@@ -48,7 +51,7 @@ export function WalletConnect({ onConnect, isConnected, address, balance, onDisc
           <div className="flex items-center gap-1.5">
             <CurrencyCircleDollar size={14} className="text-primary" weight="fill" />
             <p className="text-xs font-mono font-bold text-primary">
-              {(balance ?? 0).toFixed(4)} MNT
+              {(balance ?? 0).toFixed(4)} {getChain(chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''}
             </p>
           </div>
         </div>

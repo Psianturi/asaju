@@ -19,10 +19,16 @@ export interface ChainConfig {
   shortName: string
   nativeSymbol: string
   rpcUrl: string
+  /** Fallbacks handed to wallet_addEthereumChain so MetaMask can fail over. */
+  rpcUrls?: string[]
   explorerUrl: string
   contractAddress: string
   spawnFee: string        // in native token units — sent as tx value AND must match the
-                          // deployed contract's spawnFee() (see setFees() in MAEFNFTV4.sol)
+                          // deployed contract's spawnFee() (see setFees() in AsajuAgentV5.sol)
+  /** Portion of spawnFee the contract forwards to the new agent as gas.
+   *  Must match the deployed agentProvision(); derived per chain from live gas
+   *  price by contracts/scripts/calibrate-fees.js, not picked by hand. */
+  agentProvision: string
   color: string           // brand color for UI badges
   testnet: boolean
 }
@@ -38,6 +44,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     explorerUrl: 'https://explorer.sepolia.mantle.xyz',
     contractAddress: contractFor(5003, '0x66fD8b5411856D42c08D9356e879a6e7dF0c9419'),
     spawnFee: '1',
+    agentProvision: '0.5',
     color: '#00F3FF',
     testnet: true,
   },
@@ -49,7 +56,8 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     contractAddress: contractFor(11155111, '0x0fE75B47bFE360A305F5D56607d976448fF7c9e7'),  // V5, 25 Sep 2026
-    spawnFee: '0.02',   // sized for typical Sepolia faucet drips; see setFees() in deploy-v5.js
+    spawnFee: '0.02',
+    agentProvision: '0.01',   // 53 mints of runway; ETH gas is volatile so the headroom stays
     color: '#8B5CF6',
     testnet: true,
   },
@@ -59,9 +67,14 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     shortName: 'BNB',
     nativeSymbol: 'tBNB',
     rpcUrl: 'https://bsc-testnet-rpc.publicnode.com',
+    rpcUrls: [
+      'https://bsc-testnet-rpc.publicnode.com',
+      'https://data-seed-prebsc-1-s1.bnbchain.org:8545',
+    ],
     explorerUrl: 'https://testnet.bscscan.com',
     contractAddress: contractFor(97, '0x4cCB2f96f66B4E06E5A78da25797b7386814C313'),  // V5, 25 Sep 2026
-    spawnFee: '0.005',  // sized for tBNB faucet drips
+    spawnFee: '0.002',      // recalibrated 26 Sep — was 0.005 (125 mints of runway, far past useful)
+    agentProvision: '0.001',
     color: '#F0B90B',
     testnet: true,
   },

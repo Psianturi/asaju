@@ -1280,6 +1280,7 @@ function App() {
                   onConnect={handleWalletConnect}
                   isConnected={walletConnected}
                   address={walletAddress}
+                  chainId={walletChainId ?? selectedChainId}
                   onDisconnect={handleWalletDisconnect}
                 />
               </div>

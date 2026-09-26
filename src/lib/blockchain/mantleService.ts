@@ -189,7 +189,7 @@ export class MantleBlockchainService {
             symbol: chain.nativeSymbol,
             decimals: 18,
           },
-          rpcUrls: [chain.rpcUrl],
+          rpcUrls: chain.rpcUrls ?? [chain.rpcUrl],
           blockExplorerUrls: [chain.explorerUrl]
         }
       ]
@@ -240,7 +240,7 @@ export class MantleBlockchainService {
         success: true,
         transactionHash: receipt.hash,
         contractAddress: this.getContractAddress(chainId),
-        provisionAmount: '0.5',
+        provisionAmount: chain?.agentProvision ?? '0',
         gasUsed: gasCost.toFixed(6)
       }
     } catch (error) {
