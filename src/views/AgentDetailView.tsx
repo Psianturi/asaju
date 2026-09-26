@@ -9,7 +9,7 @@ import { Agent, Event, NFT } from '@/lib/types'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
-import { getChain } from '@/lib/blockchain/chains'
+import { getChain, autoReplenish } from '@/lib/blockchain/chains'
 import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 
@@ -62,6 +62,7 @@ export function AgentDetailView({
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)
   const chain = getChain(agent.chainId ?? 0)
+  const replenish = autoReplenish(agent.chainId ?? 0)
   const isSpecialRarity = rarityTier !== 'common'
 
   // Wisdom timeline = events belonging to this agent, newest first.
@@ -304,8 +305,8 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
             <div className="flex-1">
               <p className="text-sm font-semibold">Auto-Replenish Gas</p>
               <p className="text-[10px] text-muted-foreground">
-                Top-up automatically when gas falls below 0.05 {chain?.nativeSymbol ?? 'ETH'}.
-                Deduction is 0.1 {chain?.nativeSymbol ?? 'ETH'} per refill.
+                Top-up automatically when gas falls below {replenish.threshold} {chain?.nativeSymbol ?? 'ETH'}.
+                Deduction is {replenish.refill} {chain?.nativeSymbol ?? 'ETH'} per refill.
               </p>
             </div>
             <Switch

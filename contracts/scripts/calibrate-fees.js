@@ -45,9 +45,23 @@ async function main() {
   if (gasPrice === 0n) throw new Error("Could not read gas price");
 
   const perMint = gasPrice * MINT_GAS;
-  const provision = prettyCeil(perMint * RUNWAY_MINTS * SAFETY);
-  const spawnFee = provision * 2n;
+  // The formula sets a safety floor. An operator may want more than the floor —
+  // a provision large enough to be visibly non-trivial on the agent card, for
+  // instance — so SPAWN_FEE overrides it, and the runway is reported either way.
+  const derived = prettyCeil(perMint * RUNWAY_MINTS * SAFETY);
+  const override = process.env.SPAWN_FEE
+    ? ethers.parseEther(process.env.SPAWN_FEE)
+    : null;
+  const spawnFee = override ?? derived * 2n;
+  const provision = spawnFee / 2n;
   const breedCost = spawnFee * 2n;
+
+  if (override && provision < derived) {
+    console.warn(
+      `WARNING: provision ${ethers.formatEther(provision)} is below the ` +
+      `${ethers.formatEther(derived)} floor for ${RUNWAY_MINTS} mints of runway.`,
+    );
+  }
 
   const fmt = (v) => ethers.formatEther(v);
 

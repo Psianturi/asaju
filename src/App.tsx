@@ -1307,6 +1307,7 @@ function App() {
                   onConnect={handleWalletConnect}
                   isConnected={walletConnected}
                   address={walletAddress}
+                  balance={userBalance}
                   chainId={walletChainId ?? selectedChainId}
                   onDisconnect={handleWalletDisconnect}
                 />

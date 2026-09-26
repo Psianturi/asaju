@@ -80,13 +80,20 @@ describe('spawn economics', () => {
   })
 
   it('matches the fees deployed on each contract', () => {
-    // Values pushed by contracts/scripts/calibrate-fees.js. If a recalibration
-    // lands on-chain without updating this table, spawns fail with
-    // "Insufficient spawn fee" and only in production.
+    // Values pushed by contracts/scripts/calibrate-fees.js and read back from
+    // the deployed contracts on 26 Sep 2026.
+    //
+    // Update this table ONLY from a live read, never to match a config change:
+    // editing it to agree with chains.ts turns the check into a comparison with
+    // itself. That already happened once — chains.ts was lowered to 0.005 while
+    // ETH Sepolia still enforced 0.02, this table was edited to match, the suite
+    // stayed green, and every spawn on that chain reverted.
+    // `npx hardhat run scripts/calibrate-fees.js --network <name>` prints the
+    // live values without changing anything.
     const onChain: Record<number, { spawnFee: string; agentProvision: string }> = {
       5003:     { spawnFee: '1',     agentProvision: '0.5' },
-      11155111: { spawnFee: '0.005', agentProvision: '0.0025' },
-      97:       { spawnFee: '0.002', agentProvision: '0.001' },
+      11155111: { spawnFee: '0.01',  agentProvision: '0.005' },
+      97:       { spawnFee: '0.01',  agentProvision: '0.005' },
     }
     for (const chain of getSupportedChains()) {
       expect({

@@ -10,7 +10,7 @@ import { motion } from 'framer-motion'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { GasStatusBadge } from './GasStatusBadge'
 import { ChainBadge } from './ChainBadge'
-import { DEFAULT_CHAIN_ID, getChain } from '@/lib/blockchain/chains'
+import { DEFAULT_CHAIN_ID, getChain, autoReplenish } from '@/lib/blockchain/chains'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from './NicheAvatar'
 
@@ -66,11 +66,11 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
   const [walletCopied, setWalletCopied] = useState(false)
   const videosAnalyzed = videosAnalyzedActual ?? agent.eventsAttended ?? 0
 
-  // Display currency follows the agent's active chain — not Mantle by default.
-  // Auto-Replenish deducts a fixed 0.1 native unit when agent gas falls below 0.05.
+  // Display currency and replenish amounts both follow the agent's chain —
+  // 0.1/0.05 were Mantle's provision ratios, wrong anywhere else.
   const currency = getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'
-  const autoReplenishAmount = 0.1
-  const autoReplenishThreshold = 0.05
+  const { threshold: autoReplenishThreshold, refill: autoReplenishAmount } =
+    autoReplenish(agent.chainId ?? DEFAULT_CHAIN_ID)
 
   const copyWalletAddress = async () => {
     await navigator.clipboard.writeText(agent.walletAddress)

@@ -56,8 +56,8 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     contractAddress: contractFor(11155111, '0x0fE75B47bFE360A305F5D56607d976448fF7c9e7'),  // V5, 25 Sep 2026
-    spawnFee: '0.005',  // recalibrated 26 Sep — was 0.02 ($53/sprout, ate the faucet drips); new value ~$13
-    agentProvision: '0.0025',  // half of spawnFee, sufficient for ~7 mints at Sepolia gas levels
+    spawnFee: '0.01',       // set on-chain 26 Sep via calibrate-fees.js
+    agentProvision: '0.005',  // ~26 mints of runway at current Sepolia gas
     color: '#8B5CF6',
     testnet: true,
   },
@@ -73,11 +73,22 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     ],
     explorerUrl: 'https://testnet.bscscan.com',
     contractAddress: contractFor(97, '0x4cCB2f96f66B4E06E5A78da25797b7386814C313'),  // V5, 25 Sep 2026
-    spawnFee: '0.002',      // recalibrated 26 Sep — was 0.005 (125 mints of runway, far past useful)
-    agentProvision: '0.001',
+    spawnFee: '0.01',       // set on-chain 26 Sep via calibrate-fees.js
+    agentProvision: '0.005',  // far past the runway floor, but a balance the owner can actually see
     color: '#F0B90B',
     testnet: true,
   },
+}
+
+/**
+ * Auto-replenish thresholds, as a share of what the chain provisions a new
+ * agent. Mantle's long-standing 0.05 / 0.1 were exactly 10% and 20% of its
+ * 0.5 provision — expressing them as ratios keeps that behaviour while making
+ * the numbers correct on chains that provision a different amount.
+ */
+export function autoReplenish(chainId: number): { threshold: number; refill: number } {
+  const provision = Number(getChain(chainId)?.agentProvision ?? 0)
+  return { threshold: provision * 0.1, refill: provision * 0.2 }
 }
 
 /** Explorer link for a transaction. */
