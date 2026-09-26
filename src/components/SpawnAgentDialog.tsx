@@ -158,7 +158,7 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
           createdAt: Date.now(),
           subAgents,
           wisdomUnlocked: false,
-          mantleBalance: Number(fundingTx.provisionAmount ?? response.initialBalance),
+          nativeBalance: Number(fundingTx.provisionAmount ?? response.initialBalance),
           gasSpent: fundingTx.gasUsed ? Number(fundingTx.gasUsed) : 0,
           agentGasBalance: Number(fundingTx.provisionAmount ?? chain?.agentProvision ?? 0),
           contractAddress: fundingTx.contractAddress,
