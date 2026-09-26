@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { cloudRunService } from '@/services/cloudRunService'
 import { BrowserProvider, Contract, parseEther, keccak256, toUtf8Bytes } from 'ethers'
 import { CONTRACT_ADDRESSES } from '@/lib/blockchain/config'
+import { getChain } from '@/lib/blockchain/chains'
 
 const BREED_ABI = [
   {
@@ -59,6 +60,13 @@ export function AgentBreedingDialog({
   const [breedingResult, setBreedingResult] = useState<BreedingResult | null>(null)
 
   const BREEDING_COST = 2.5
+  // Breeding currency follows the chain of the first selected parent — both
+  // parents must be on the same chain (enforced by V5 contract), so this is
+  // unambiguous. If no parent is selected yet, fall back to the user's wallet
+  // chain (mantle as default until proven otherwise).
+  const breedingCurrency =
+    getChain(selectedParent1?.chainId ?? selectedParent2?.chainId ?? 5003)
+      ?.nativeSymbol ?? 'token'
 
   const eligibleAgents = agents.filter(a => 
     a.wisdomUnlocked && 
@@ -115,7 +123,7 @@ export function AgentBreedingDialog({
           ))
         )
 
-        toast.info('Confirm the 2.5 MNT transaction in MetaMask...')
+        toast.info(`Confirm the ${BREEDING_COST} ${breedingCurrency} transaction in MetaMask...`)
         const tx = await contract.breedAgents(
           selectedParent1.walletAddress,
           selectedParent2.walletAddress,
@@ -132,7 +140,7 @@ export function AgentBreedingDialog({
         await tx.wait()
         breedTxHash = tx.hash
         setBreedingProgress(50)
-        toast.success(`Paid 2.5 MNT on-chain ✓`)
+        toast.success(`Paid ${BREEDING_COST} ${breedingCurrency} on-chain ✓`)
       } catch (error) {
         setIsBreeding(false)
         setBreedingProgress(0)
@@ -189,7 +197,7 @@ export function AgentBreedingDialog({
       const msg = error instanceof Error ? error.message : 'Unknown error'
       toast.error('Breeding failed', { description: msg })
       if (breedTxHash) {
-        toast.info(`Note: 2.5 MNT was paid (tx: ${breedTxHash.slice(0, 10)}…). Retry to complete breeding.`)
+        toast.info(`Note: ${BREEDING_COST} ${breedingCurrency} was paid (tx: ${breedTxHash.slice(0, 10)}…). Retry to complete breeding.`)
       }
     }
   }
@@ -232,7 +240,7 @@ export function AgentBreedingDialog({
             </div>
           </DialogTitle>
           <DialogDescription className="text-base mt-2">
-            Merge wisdom from two agents to create a superior offspring with inherited traits and knowledge. This process burns MNT tokens to sustain the Agentic Economy.
+            Merge wisdom from two agents to create a superior offspring with inherited traits and knowledge. This process burns {breedingCurrency} tokens to sustain the Agentic Economy.
           </DialogDescription>
         </DialogHeader>
 
@@ -264,7 +272,7 @@ export function AgentBreedingDialog({
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-amber-500 flex-shrink-0">✓</span>
-                        <span>Fusion Cost: <span className="font-bold text-amber-400 text-base">{BREEDING_COST} MNT</span> (burned to sustain economy)</span>
+                        <span>Fusion Cost: <span className="font-bold text-amber-400 text-base">{BREEDING_COST} {breedingCurrency}</span> (burned to sustain economy)</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-amber-500 flex-shrink-0">✓</span>
@@ -473,7 +481,7 @@ export function AgentBreedingDialog({
                     <Progress value={breedingProgress} className="h-4 mb-3" />
                     <p className="text-sm text-center text-muted-foreground font-mono">
                       {breedStep === 'awaiting-wallet' && '[1/3] Waiting for MetaMask signature...'}
-                      {breedStep === 'confirming-tx' && '[2/3] Confirming 2.5 MNT on-chain payment...'}
+                      {breedStep === 'confirming-tx' && `[2/3] Confirming ${BREEDING_COST} ${breedingCurrency} on-chain payment...`}
                       {breedStep === 'creating-offspring' && '[3/3] Synthesizing genetic traits and knowledge matrices...'}
                     </p>
                   </Card>
@@ -503,7 +511,7 @@ export function AgentBreedingDialog({
                   ) : (
                     <>
                       <Dna className="mr-2" weight="duotone" size={20} />
-                      Initiate Neural Fusion ({BREEDING_COST} MNT)
+                      Initiate Neural Fusion ({BREEDING_COST} {breedingCurrency})
                     </>
                   )}
                 </Button>

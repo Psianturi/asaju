@@ -60,6 +60,19 @@ async def _fetch_agent_events(db, agent_id: str) -> list[dict]:
     return out
 
 
+def _native_symbol_for(chain_id: int | None) -> str:
+    """Mirror src/lib/blockchain/chains.ts on the backend so inbox subtitles can
+    show the agent's actual native symbol (MNT on Mantle, tBNB on BNB, ETH on
+    ETH Sepolia). Falls back to MNT because that's the historical default; the
+    frontend treats unknown symbols as 'token' so misconfigurations fail safe."""
+    mapping = {
+        5003: "MNT",
+        97: "tBNB",
+        11155111: "ETH",
+    }
+    return mapping.get(int(chain_id) if chain_id else 0, "MNT")
+
+
 def _compute_comprehension_inline(events: list[dict]) -> dict:
     """Lightweight comprehension computation matching the canonical service in
     services/comprehension_service.py. Kept inline here so the inbox endpoint
@@ -184,6 +197,9 @@ async def get_owner_inbox(user_wallet: str = Query(...)) -> dict[str, Any]:
             "agent_id": a.get("agent_id"),
             "agent_name": a.get("agent_name"),
             "agent_gas_balance": a.get("agent_gas_balance"),
+            # Map agent chain_id → native symbol so the inbox subtitle can show
+            # "Balance: 0.005 tBNB" on BNB rather than the historical hardcoded MNT.
+            "agent_native_symbol": _native_symbol_for(a.get("chain_id")),
         }
         for a in owned_agents
         if isinstance(a.get("agent_gas_balance"), (int, float)) and a.get("agent_gas_balance", 0) < 0.05

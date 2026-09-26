@@ -2,6 +2,7 @@ import { MarketplaceAgent } from '@/lib/types'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { getChain } from '@/lib/blockchain/chains'
 import {
   Robot, Brain, Fire, ShoppingCart, CheckCircle,
   Lightning, TrendUp, Star, Cpu,
@@ -70,6 +71,10 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
   const walletBalance = agent.agentGasBalance ?? 0
   const heritageScore = agent.wisdomHeritageScore ?? 0
   const autoSigs = agent.autonomousSignatures ?? 0
+  // Marketplace agent listings can be on Mantle, BNB, or ETH Sepolia — show the
+  // agent's actual native currency, not MNT by default. Fall back to 5003
+  // (Mantle) for legacy marketplace agents without chainId.
+  const marketplaceCurrency = getChain(agent.chainId ?? 5003)?.nativeSymbol ?? 'token'
 
   return (
     <motion.div
@@ -155,7 +160,7 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
               <ValueRow
                 icon={<Fire size={11} className="text-orange-400" weight="fill" />}
                 label="Wallet Balance"
-                value={`${walletBalance.toFixed(3)} MNT`}
+                value={`${walletBalance.toFixed(3)} ${marketplaceCurrency}`}
                 verified
                 highlight
               />
@@ -216,12 +221,12 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
                   <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
                     {agent.price.toFixed(1)}
                   </span>
-                  <span className="text-sm font-semibold text-emerald-400">MNT</span>
+                  <span className="text-sm font-semibold text-emerald-400">{marketplaceCurrency}</span>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-[10px] text-muted-foreground">Wallet incl.</p>
-                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} MNT</p>
+                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} {marketplaceCurrency}</p>
               </div>
             </div>
 

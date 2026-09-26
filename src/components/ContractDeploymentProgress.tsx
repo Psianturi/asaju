@@ -6,6 +6,7 @@ import { CheckCircle, ArrowRight, Clock, Cube, Lightning } from '@phosphor-icons
 import { motion } from 'framer-motion'
 import { Agent } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
+import { getChain } from '@/lib/blockchain/chains'
 
 interface DeploymentStep {
   id: string
@@ -15,6 +16,8 @@ interface DeploymentStep {
   transactionHash?: string
   gasUsed?: string
   details?: string
+  /** Chain the step happened on — used for native symbol display. */
+  chainId?: number
 }
 
 interface ContractDeploymentProgressProps {
@@ -172,7 +175,7 @@ export function ContractDeploymentProgress({ agent, isDeploying }: ContractDeplo
                   {step.gasUsed && (
                     <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                       <Lightning size={12} weight="fill" className="text-amber-500" />
-                      <span>Gas: {step.gasUsed} MNT</span>
+                      <span>Gas: {step.gasUsed} {getChain(step.chainId ?? appConfig.blockchain.chainId)?.nativeSymbol ?? 'token'}</span>
                     </div>
                   )}
                 </div>

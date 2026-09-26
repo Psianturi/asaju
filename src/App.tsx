@@ -509,7 +509,7 @@ function App() {
             try {
               const balStr = await blockchain.getBalance(a.walletAddress, a.chainId)
               const liveBalance = parseFloat(balStr)
-              return { ...a, agentGasBalance: liveBalance, mantleBalance: liveBalance }
+              return { ...a, agentGasBalance: liveBalance, nativeBalance: liveBalance }
             } catch {
               return a
             }
@@ -755,7 +755,7 @@ function App() {
               level: newLevel,
               wisdomUnlocked: newEventsAttended >= 5,
               gasSpent: (a.gasSpent || 0) + Number(result.gasUsed || 0),
-              mantleBalance: refreshedBalance ?? a.mantleBalance,
+              nativeBalance: refreshedBalance ?? a.nativeBalance,
               agentGasBalance: refreshedBalance ?? a.agentGasBalance,
             }
           : a
@@ -849,7 +849,7 @@ function App() {
           ? {
               ...a,
               agentGasBalance: refreshedAgentBalance,
-              mantleBalance: refreshedAgentBalance,
+              nativeBalance: refreshedAgentBalance,
             }
           : a
       )
@@ -957,6 +957,10 @@ function App() {
       toast.error('Backend not available', { description: 'Connect to Cloud Run backend first.' })
       return
     }
+    // Resolve the agent up-front so we can show its native currency in
+    // skipped/dry-run toasts (MNT on Mantle, tBNB on BNB, ETH on ETH Sepolia).
+    const autoScoutAgent = agents.find(a => a.id === agentId)
+    const autoScoutCurrency = getChain(autoScoutAgent?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'
     setScoutingAgentId(agentId)
     toast.info('Secretary is searching for events...', { description: 'Scanning YouTube for relevant content.' })
     try {
@@ -975,7 +979,7 @@ function App() {
             : result.message ?? 'Agent skipped this scout cycle to preserve gas or avoid low-value minting.'
 
         toast.info('Auto Scout skipped by policy', {
-          description: balance != null ? `${detail} Balance: ${balance.toFixed(4)} MNT.` : detail,
+          description: balance != null ? `${detail} Balance: ${balance.toFixed(4)} ${autoScoutCurrency}.` : detail,
         })
         return
       }
@@ -1069,6 +1073,13 @@ function App() {
   }
 
   const handleToggleAutoReplenish = (agent: Agent, enabled: boolean) => {
+    // Auto-replenishment threshold is 10% of the agent's native token provision
+    // (Mantle = 0.05 MNT of 0.5, BNB = 0.001 tBNB of 0.005, etc.). We compute from
+    // chain config so the toast reads correctly on every chain.
+    const chainCfg = getChain(agent.chainId ?? DEFAULT_CHAIN_ID)
+    const provision = parseFloat(chainCfg?.spawnFee ?? '0') / 2
+    const threshold = (provision * 0.1).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+    const currency = chainCfg?.nativeSymbol ?? 'token'
     setReplenishMap(prev => ({ ...(prev ?? {}), [agent.id]: enabled }))
     setAgents((current) =>
       (current ?? []).map((a) =>
@@ -1078,7 +1089,7 @@ function App() {
 
     if (enabled) {
       toast.success('Auto-Replenishment Activated', {
-        description: `${agent.name} will auto-replenish gas when below 0.05 MNT`
+        description: `${agent.name} will auto-replenish gas when below ${threshold} ${currency}`
       })
       addLog(agent.id, 'mint-master', `[SYSTEM] Auto-replenishment active. Agent is fully self-sustaining.`, 'success')
     } else {

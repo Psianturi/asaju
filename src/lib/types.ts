@@ -29,7 +29,10 @@ export interface Agent {
   subAgents: SubAgent[]
   wisdomUnlocked: boolean
   customInstructions?: string
-  mantleBalance?: number
+  /** Agent's native token balance. Misnamed `mantleBalance` historically —
+      the field is actually chain-agnostic; the symbol comes from the agent's
+      `chainId` (MNT on Mantle, tBNB on BNB, ETH on ETH Sepolia). */
+  nativeBalance?: number
   gasSpent?: number
   isGenesis?: boolean
   ownershipStatus?: 'original-creator' | 'marketplace-acquired' | 'bred'
@@ -249,6 +252,7 @@ export interface MarketplaceAgent {
   level: number
   wisdomUnlocked: boolean
   price: number
+  chainId?: number
   seller: string
   sellerAddress: string
   listedAt: number
@@ -256,7 +260,7 @@ export interface MarketplaceAgent {
   status: AgentStatus
   subAgents: SubAgent[]
   createdAt: number
-  mantleBalance?: number
+  nativeBalance?: number
   gasSpent?: number
   generation?: number
   parentIds?: string[]

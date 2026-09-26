@@ -14,6 +14,7 @@ import {
 import { cloudRunService } from '@/services/cloudRunService'
 import { useBlockchain } from '@/hooks/useBlockchain'
 import { fmtTimeAgo, isFiniteNum } from '@/lib/format'
+import { getChain } from '@/lib/blockchain/chains'
 
 const STORAGE_KEY_PREFIX = 'asaju:inbox:dismissed:'
 const POLL_INTERVAL_MS = 30_000
@@ -39,6 +40,7 @@ interface OwnerInbox {
     agent_id: string
     agent_name: string
     agent_gas_balance: number
+    agent_native_symbol?: string
   }>
   paused_agents: Array<{
     agent_id: string
@@ -246,7 +248,7 @@ export function NotificationBell() {
                 <InboxItem
                   key={a.agent_id}
                   title={a.agent_name || a.agent_id}
-                  subtitle={`Balance: ${a.agent_gas_balance?.toFixed(4) ?? '?'} MNT — top up to keep scouts running.`}
+                  subtitle={`Balance: ${a.agent_gas_balance?.toFixed(4) ?? '?'} ${a.agent_native_symbol ?? 'MNT'} — top up to keep scouts running.`}
                   accent="amber"
                   onDismiss={() => dismissItem(`gas:${a.agent_id}`)}
                 />

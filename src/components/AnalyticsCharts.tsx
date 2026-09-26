@@ -70,7 +70,7 @@ export function AnalyticsCharts({ agents = [], events = [], nfts = [] }: Analyti
     return agents.map(agent => ({
       name: agent.name.split(' ')[0],
       spent: agent.gasSpent || 0,
-      balance: agent.mantleBalance || 0
+      balance: agent.nativeBalance || 0
     }))
   }, [agents])
 
@@ -404,7 +404,7 @@ export function AnalyticsCharts({ agents = [], events = [], nfts = [] }: Analyti
                   dataKey="spent" 
                   fill="#00f3ff" 
                   radius={[0, 8, 8, 0]}
-                  name="Gas Spent (MNT)"
+                  name={`Gas Spent (${gasSymbol})`}
                 />
               </BarChart>
             </ResponsiveContainer>

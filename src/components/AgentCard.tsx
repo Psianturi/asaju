@@ -270,9 +270,9 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <CurrencyCircleDollar size={18} className="text-primary" weight="duotone" />
-                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Native Balance</span>
+                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Agent Native Balance</span>
                 </div>
-                <span className="text-sm font-bold font-mono text-primary">{agent.mantleBalance?.toFixed(3) || '0.000'} {getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'MNT'}</span>
+                <span className="text-sm font-bold font-mono text-primary">{agent.nativeBalance?.toFixed(3) || '0.000'} {getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Gas Used:</span>
@@ -282,7 +282,11 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
                   <p className="text-xs text-muted-foreground">
-                    Self-funded via gas provisioning. Each agent starts with <span className="font-bold text-primary">0.5 MNT</span> reserved for autonomous operations.
+                    Self-funded via gas provisioning. Each agent starts with{' '}
+                    <span className="font-bold text-primary">
+                      {autoReplenishAmount} {currency}
+                    </span>{' '}
+                    reserved for autonomous operations.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -300,7 +304,7 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-sm font-bold font-mono text-secondary cursor-help">{(agent.agentGasBalance ?? 0).toFixed(4)} MNT</span>
+                      <span className="text-sm font-bold font-mono text-secondary cursor-help">{(agent.agentGasBalance ?? 0).toFixed(4)} {currency}</span>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
                       <p className="text-xs text-muted-foreground">Self-funded via Gas Provisioning</p>

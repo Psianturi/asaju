@@ -286,13 +286,13 @@ function ProposalCard({
           </div>
           <p className="text-[11px] text-violet-300/70 mt-1 leading-relaxed">
             {proposal.autonomous_transfer_status === 'success'
-              ? `Agent transferred ${proposal.autonomous_transfer_amount_mnt ?? 0.1} MNT to Autonomous Vault`
+              ? `Agent transferred ${proposal.autonomous_transfer_amount_mnt ?? 0.1} native token (Mantle MNT) to Autonomous Vault`
               : proposal.autonomous_transfer_status === 'failed'
               ? 'Transfer failed — check agent gas balance'
               : proposal.autonomous_execution_triggered
               ? 'Transfer in progress…'
               : autonomousExecutionEnabled
-              ? 'Requires separate owner approval to transfer 0.1 MNT from agent wallet to vault.'
+              ? 'Requires separate owner approval to transfer 0.1 native token (MNT on Mantle Sepolia) from agent wallet to vault.'
               : 'Autonomous execution is a roadmap feature and is not enabled on this deployment yet — this proposal stays approved without a transfer.'}
           </p>
         </motion.div>
@@ -373,7 +373,11 @@ function parseExecutionMessage(message: string): ParsedExecutionDetails | null {
   const agentWallet = get('Agent wallet:') ?? ''
   const vaultAddress = get('Transfer to vault:') ?? ''
   const amountStr = get('Amount:') ?? '0'
-  const amountMnt = parseFloat(amountStr.replace(' MNT', ''))
+  // The LLM prompt instructs it to use the agent's native chain symbol; we strip
+  // whatever trailing token label the LLM included so the preview shows a clean
+  // number. MNT stays as the default because AUTONOMOUS_VAULT is currently
+  // Mantle-only (V5 contract v1 didn't enable this on other chains).
+  const amountMnt = parseFloat(amountStr.replace(/\s*(MNT|tBNB|ETH)\s*$/i, '').trim())
   const ownerWallet = get('Owner wallet:') ?? ''
   const nonce = get('Nonce:') ?? ''
   const expiresStr = get('Expires at:') ?? '0'
@@ -551,7 +555,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       const next = proposals.map(p => p.proposal_id === updated.proposal_id ? updated : p)
       setProposals(next)
       toast.success('Transfer executed', {
-        description: `0.1 MNT transferred from agent wallet to vault`,
+        description: `0.1 native token (MNT) transferred from agent wallet to vault`,
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Execution failed'
@@ -710,7 +714,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
               Review Transfer Details
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs text-muted-foreground">
-              This action will transfer MNT from the agent wallet to the vault. This cannot be undone.
+              This action will transfer the agent's native token (MNT on Mantle Sepolia, the only chain where AUTONOMOUS_VAULT is currently enabled) from the agent wallet to the vault. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -719,7 +723,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
               <div className="rounded-lg bg-black/30 border border-border/40 p-3 space-y-2.5 text-xs font-mono">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Amount</span>
-                  <span className="text-emerald-400 font-bold">{executionPreview.parsed.amountMnt} MNT</span>
+                  <span className="text-emerald-400 font-bold">{executionPreview.parsed.amountMnt} (MNT)</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <Wallet size={12} className="text-muted-foreground mt-0.5 shrink-0" />
