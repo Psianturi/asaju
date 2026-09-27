@@ -667,7 +667,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             logger.warning("CMC signal fetch failed for force-evaluate: %s", exc)
             return default
 
-    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops = (
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops, cmc_ai_summary = (
         await asyncio.gather(
             _safe(get_trending_gainers_losers("24h", 5), default=[]),
             _safe(get_trending_gainers_losers("24h", 5, sort_dir="asc"), default=[]),
@@ -675,6 +675,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             _safe(get_most_visited(5), default=[]),
             _safe(get_global_metrics(), default=None),
             _safe(get_airdrops(5), default=[]),
+            _safe(get_cmc_ai_summary(), default={"tldr": "", "thesis": "", "headlines": [], "sources": [], "generated_at": None}),
         )
     )
 

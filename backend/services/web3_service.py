@@ -294,6 +294,67 @@ class Web3Service:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._sync_total_minted, chain_id)
 
+    async def get_event_logs(
+        self,
+        event_name: str,
+        *,
+        chain_id: int = 5003,
+        from_block: int = 0,
+        to_block: int | str = 'latest',
+        argument_filters: dict | None = None,
+    ) -> list[dict]:
+        """Generic event-log reader. Wraps web3.eth.get_logs in an executor so
+        FastAPI stays non-blocking. The caller is responsible for decoding the
+        raw `data` field for non-indexed args if it needs them.
+
+        `argument_filters` maps event argument names to values to filter on.
+        Use only indexed args (`agentWallet`, `previousOwner`, `newOwner` for
+        AgentOwnershipTransferred — all three are indexed in V5)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._sync_get_event_logs(event_name, chain_id, from_block, to_block, argument_filters),
+        )
+
+    def _sync_get_event_logs(self, event_name, chain_id, from_block, to_block, argument_filters):
+        w3 = self._init_w3(chain_id)
+        contract = self._init_contract(chain_id)
+        event = getattr(contract.events, event_name, None)
+        if event is None:
+            raise ValueError(f"Contract {type(contract).__name__} has no event named {event_name!r}")
+        # Build filter — only indexed args are filterable on-chain.
+        filter_kwargs: dict = {"fromBlock": from_block, "toBlock": to_block}
+        if argument_filters:
+            for arg_name, value in argument_filters.items():
+                if not value:
+                    continue
+                if not hasattr(event.args, arg_name):
+                    logger.warning(
+                        "Event %s has no indexed arg %r — filtering on non-indexed args "
+                        "is only possible with a per-topic event filter.",
+                        event_name,
+                        arg_name,
+                    )
+                    continue
+                if not getattr(event.args, arg_name).indexed:
+                    logger.warning(
+                        "Event %s arg %r is not indexed — filter may not work.",
+                        event_name,
+                        arg_name,
+                    )
+                filter_kwargs[f"argument_{arg_name}"] = value
+        logs = event.get_logs(**filter_kwargs)
+        return [
+            {
+                "blockNumber": log.blockNumber,
+                "transactionHash": log.transactionHash.hex(),
+                "logIndex": log.logIndex,
+                "args": dict(log.args),
+                "event": event_name,
+            }
+            for log in logs
+        ]
+
     async def get_native_balance(self, address: str, chain_id: int = 5003) -> float:
         """Return the wallet's native token balance from the target chain RPC in ether units."""
         loop = asyncio.get_event_loop()

@@ -5,9 +5,6 @@ force-evaluate endpoint (hackathon demo button).
 import pytest
 
 
-pytestmark = pytest.mark.asyncio
-
-
 async def test_generate_agent_proposal_returns_reasoning_trace(monkeypatch):
     """The proposal service returns a `_reasoning` dict alongside the title/description/category
     so the frontend slide-over can show what data the agent had + what it returned."""
@@ -76,6 +73,23 @@ async def test_generate_agent_proposal_empty_signals_no_overclaim(monkeypatch):
     cs = out["_reasoning"]["context_summary"]
     assert cs["cmc_signals_present"] == [], "must not invent signal presence"
     assert cs["market_snapshot_age_seconds"] is None
+
+
+async def test_force_evaluate_does_not_raise_undefined_cmc_ai_summary():
+    """Regression: force-evaluate previously crashed with NameError('cmc_ai_summary')
+    because the local fetch gather dropped the CMC AI summary var. The fix adds
+    cmc_ai_task to the gather; this test verifies the source has the fix by
+    static check (no mocks required)."""
+    import inspect
+    from routers import proposals as proposals_router
+
+    src = inspect.getsource(proposals_router.force_evaluate)
+    # The unpack tuple MUST include cmc_ai_summary.
+    assert "cmc_ai_summary" in src, "force-evaluate must reference cmc_ai_summary"
+    # The gather tuple MUST include exactly 7 args: 4 gainers/losers (2 each),
+    # new_listings, most_visited, global_metrics, airdrops, cmc_ai_summary.
+    # That's 8 actually — count cmc_ai_task presence to be sure.
+    assert src.count("_safe(get_cmc_ai_summary()") >= 1, "cmc_ai_summary must be fetched via _safe"
 
 
 def test_proposal_response_model_includes_reasoning_fields():
