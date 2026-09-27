@@ -30,9 +30,15 @@ def make_agent(
     generation: int = 1,
     chain_id: int = 5003,
     private_key_enc: str | None = None,
+    funded: bool = True,
+    no_private_key: bool = False,
 ) -> dict:
     """Minimal valid agent Firestore doc — defaults satisfy every breed guardrail
-    so a single override (e.g. level=1) isolates exactly one guardrail per test."""
+    so a single override (e.g. level=1) isolates exactly one guardrail per test.
+
+    `no_private_key=True` forces the doc to omit `private_key_enc`, simulating
+    legacy V3 imports that pre-date encryption. Use to test the "no agent
+    key" safety belt."""
     doc: dict = {
         "agent_id": agent_id,
         "agent_wallet": wallet,
@@ -49,9 +55,24 @@ def make_agent(
         "generation": generation,
         "chain_id": chain_id,
         "created_at": 0.0,
-        "funded": True,
+        "funded": funded,
     }
-    if private_key_enc is not None:
+    if no_private_key:
+        return doc
+    if private_key_enc is None:
+        # Use a deterministic hex that decodes to a known account. Tests
+        # that care about the actual key value pass a real `Account.create()`.
+        from eth_account import Account as _TestAccount
+        test_key = "0x" + "11" * 32
+        try:
+            _TestAccount.from_key(test_key)
+            default_key = test_key
+        except Exception:
+            default_key = _TestAccount.create().key.hex()
+            if not default_key.startswith("0x"):
+                default_key = "0x" + default_key
+        doc["private_key_enc"] = default_key
+    else:
         doc["private_key_enc"] = private_key_enc
     return doc
 

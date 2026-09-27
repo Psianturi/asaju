@@ -222,6 +222,73 @@ async def test_approve_prefers_mode_b_agent_private_key(client, fake_db, monkeyp
     assert captured["agent_wallet"] == agent_wallet.address
 
 
+async def test_approve_refuses_when_agent_has_no_private_key(client, fake_db, monkeypatch):
+    """Safety belt: if the agent has no private_key_enc in Firestore, we
+    refuse the approval with 409 rather than silently subsidising it via
+    MINTER_SERVICE. The user sees a clear message to top up the agent first."""
+
+    from tests.conftest import make_agent as _make_agent
+    owner_account = Account.create()
+    owner_addr = owner_account.address
+    owner_key = owner_account.key.hex()
+    if not owner_key.startswith("0x"):
+        owner_key = "0x" + owner_key
+    agent_wallet = make_wallet()
+    fake_db.seed(
+        "agents",
+        "agent-no-key",
+        _make_agent("agent-no-key", agent_wallet, user_wallet=owner_addr,
+                    no_private_key=True, funded=True),
+    )
+    fake_db.seed(
+        "proposals",
+        "proposal-no-key",
+        {
+            "agent_id": "agent-no-key",
+            "agent_wallet": agent_wallet,
+            "title": "Test refusal",
+            "description": "Should refuse cleanly",
+            "category": "governance",
+            "proposal_hash": "0x" + "cd" * 32,
+            "status": "pending",
+            "created_at": 1.0,
+            "expires_at": 4_102_444_800.0,
+        },
+    )
+
+    called = False
+
+    async def _must_not_call(*args, **kwargs):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(
+        "routers.proposals.web3_service.send_record_executed_proposal_tx",
+        _must_not_call,
+    )
+
+    challenge = await client.post(
+        "/api/v1/proposals/proposal-no-key/approval-challenge?action=approve"
+    )
+    assert challenge.status_code == 200
+    challenge_data = challenge.json()
+    signature = Account.sign_message(encode_defunct(text=challenge_data["message"]),
+                                    owner_account.key).signature.hex()
+
+    response = await client.post(
+        "/api/v1/proposals/proposal-no-key/approve",
+        json={
+            "nonce": challenge_data["nonce"],
+            "signer_wallet": owner_addr,
+            "signature": signature,
+        },
+    )
+    assert response.status_code == 409
+    assert "private key" in response.json()["detail"].lower()
+    assert called is False, "web3 must not be called when the safety belt blocks"
+
+
 async def test_reject_with_invalid_signature_is_rejected(client, fake_db):
     owner_wallet = make_wallet()
     await _seed_pending_proposal(fake_db, owner_wallet)

@@ -69,6 +69,41 @@ def _market_context_status(market_context: dict | None) -> Literal["available", 
     return "available"
 
 
+# Rate limit for Mode A fallback (platform pays gas). Even though the
+# default is Mode B (agent signs), the safety belt above can permit Mode A
+# in rare cases (e.g. agent has private key + funded, but the per-chain
+# provider's get_balance RPC is stale and reports zero). To prevent abuse
+# in that case, we cap Mode A to 1 per agent per 24h and audit it.
+MODE_A_AUDIT_COLLECTION = "audit_mode_a"
+MODE_A_RATELIMIT_SECONDS = 24 * 3600
+
+
+async def _check_mode_a_ratelimit(db, agent_id: str) -> bool:
+    """Return True if Mode A is allowed for this agent now.
+
+    Stores a single audit row per agent — Firestore overwrites the previous
+    timestamp on the same doc id, so we get a cheap counter without
+    subcollections.
+    """
+    audit_ref = db.collection(MODE_A_AUDIT_COLLECTION).document(agent_id)
+    try:
+        snap = await audit_ref.get()
+    except Exception as exc:
+        logger.warning("mode-a ratelimit read failed for %s: %s", agent_id, exc)
+        return True
+    last_ts = (snap.to_dict() or {}).get("last_mode_a_at", 0) if snap.exists else 0
+    now = time.time()
+    return (now - last_ts) >= MODE_A_RATELIMIT_SECONDS
+
+
+async def _mark_mode_a_used(db, agent_id: str) -> None:
+    audit_ref = db.collection(MODE_A_AUDIT_COLLECTION).document(agent_id)
+    try:
+        await audit_ref.set({"agent_id": agent_id, "last_mode_a_at": time.time()})
+    except Exception as exc:
+        logger.warning("mode-a ratelimit write failed for %s: %s", agent_id, exc)
+
+
 async def _write_audit_event(
     db,
     actor_wallet: str,
@@ -896,15 +931,46 @@ async def approve_proposal(
 
     # Call recordExecutedProposal(). Default signer: agent wallet (Mode B) —
     # the user pays for their own proposal execution. Fallback to MINTER_SERVICE
-    # only when the agent wallet has no private key.
+    # (Mode A) only when the agent wallet has no private key, no gas, or no
+    # funding history. Without these safety belts, a forgotten agent would
+    # silently drain the platform wallet on every testnet/mainnet deploy.
     agent_doc_for_key = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
     agent_data_for_key = (agent_doc_for_key.to_dict() or {}) if agent_doc_for_key.exists else {}
     stored_key = agent_data_for_key.get("private_key_enc") or agent_data_for_key.get("private_key")
     agent_private_key = decrypt_private_key(stored_key) if stored_key else None
+
+    # Mode A safety gates — all of these MUST be false before we fall back to
+    # the platform's minter wallet. Each gate that fails emits an audit event
+    # so the operator can see the abuse pattern in Firestore.
+    mode_a_blocked_reason: str | None = None
     if not agent_private_key:
-        logger.warning(
-            "recordExecutedProposal: agent %s has no private key — falling back to MINTER_SERVICE",
-            agent_id,
+        mode_a_blocked_reason = "agent has no private key"
+    elif not agent_data_for_key.get("funded", False):
+        mode_a_blocked_reason = "agent never funded by owner"
+
+    if mode_a_blocked_reason is not None:
+        # Audit-log the refusal so we can see if the gate is being hit too often.
+        await _write_audit_event(
+            db,
+            actor_wallet=Web3.to_checksum_address(authorization.signer_wallet),
+            agent_id=agent_id,
+            action="proposal_executed",
+            status="refused",
+            proposal_id=proposal_id,
+            failure_reason=f"Mode A blocked: {mode_a_blocked_reason}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Agent has no private key, cannot execute. Owner must top up "
+                f"the agent wallet first. ({mode_a_blocked_reason})"
+            ),
+        )
+    else:
+        logger.info(
+            "recordExecutedProposal Mode B: signing with agent wallet %s on chain %d",
+            Web3.to_checksum_address(agent_wallet),
+            agent_chain_id,
         )
 
     try:
