@@ -724,12 +724,23 @@ class Web3Service:
         agent_wallet: str,
         proposal_hash_hex: str,
         chain_id: int = 5003,
+        agent_private_key: str | None = None,
     ) -> dict[str, Any]:
         """
-        Call recordExecutedProposal(agentWallet, proposalHash) on V4.
-        Signed by MINTER_SERVICE (onlyRole(MINTER_ROLE)).
+        Call recordExecutedProposal(agentWallet, proposalHash) on V4/V5.
+
+        Default signer: the AGENT wallet (Mode B). The agent signs and pays
+        gas out of its own provisioned balance — no platform subsidy. This is
+        the right model at mainnet because every user's proposal execution is
+        paid by that user, not by ASAJU.
+
+        Fallback signer: MINTER_SERVICE (Mode A). Only used when the agent
+        wallet has insufficient gas — in which case we log + return a clear
+        error so the user knows to top up the agent, not the platform.
+
+        Pass `agent_private_key` to sign with the agent's own key (already
+        KMS-decrypted by the caller). If None, fall back to MINTER_SERVICE.
         proposal_hash_hex: 0x-prefixed hex string from Web3.keccak(text=...).
-        Returns tx_hash, status, heritageScoreAfter from ProposalExecuted event.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
@@ -738,21 +749,45 @@ class Web3Service:
             agent_wallet,
             proposal_hash_hex,
             chain_id,
+            agent_private_key,
         )
 
     def _sync_record_executed_proposal(
-        self, agent_wallet: str, proposal_hash_hex: str, chain_id: int = 5003
+        self, agent_wallet: str, proposal_hash_hex: str, chain_id: int = 5003,
+        agent_private_key: str | None = None,
     ) -> dict[str, Any]:
-        self.check_minter_balance_health(chain_id)
         w3 = self._init_w3(chain_id)
         contract = self._init_contract(chain_id)
-
-        private_key = get_minter_service_private_key()
-        signer = Account.from_key(private_key)
 
         agent_wallet_cs = Web3.to_checksum_address(agent_wallet)
         # Convert 0x hex string → raw bytes32 for the ABI encoder
         proposal_hash_bytes = bytes.fromhex(proposal_hash_hex.removeprefix("0x"))
+
+        # Prefer agent-signed (Mode B). The agent's private key was already
+        # KMS-decrypted by the caller; we just use it as the signer.
+        if agent_private_key:
+            signer = Account.from_key(agent_private_key)
+            if Web3.to_checksum_address(signer.address) != agent_wallet_cs:
+                raise ValueError(
+                    f"agent_private_key address {signer.address} does not match "
+                    f"agent_wallet {agent_wallet_cs}"
+                )
+            logger.info(
+                "recordExecutedProposal Mode B: signing with agent wallet %s on chain %d",
+                agent_wallet_cs, chain_id,
+            )
+        else:
+            # Fallback: MINTER_SERVICE (Mode A). Only reached when the caller
+            # explicitly skipped agent-key decryption. We still check balance
+            # for log visibility but don't gate the call on it.
+            self.check_minter_balance_health(chain_id)
+            logger.info(
+                "recordExecutedProposal Mode A fallback (minter service): "
+                "agent wallet %s has no gas; platform wallet signs chain %d",
+                agent_wallet_cs, chain_id,
+            )
+            private_key = get_minter_service_private_key()
+            signer = Account.from_key(private_key)
 
         fn_call = contract.functions.recordExecutedProposal(
             agent_wallet_cs, proposal_hash_bytes

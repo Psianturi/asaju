@@ -894,12 +894,25 @@ async def approve_proposal(
     agent_data_for_chain = (agent_doc_for_chain.to_dict() or {}) if agent_doc_for_chain.exists else {}
     agent_chain_id = agent_data_for_chain.get("chain_id", 5003)
 
-    # Call recordExecutedProposal() on V4
+    # Call recordExecutedProposal(). Default signer: agent wallet (Mode B) —
+    # the user pays for their own proposal execution. Fallback to MINTER_SERVICE
+    # only when the agent wallet has no private key.
+    agent_doc_for_key = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    agent_data_for_key = (agent_doc_for_key.to_dict() or {}) if agent_doc_for_key.exists else {}
+    stored_key = agent_data_for_key.get("private_key_enc") or agent_data_for_key.get("private_key")
+    agent_private_key = decrypt_private_key(stored_key) if stored_key else None
+    if not agent_private_key:
+        logger.warning(
+            "recordExecutedProposal: agent %s has no private key — falling back to MINTER_SERVICE",
+            agent_id,
+        )
+
     try:
         result = await web3_service.send_record_executed_proposal_tx(
             agent_wallet=agent_wallet,
             proposal_hash_hex=proposal_hash,
             chain_id=agent_chain_id,
+            agent_private_key=agent_private_key,
         )
     except Exception as exc:
         await proposal_ref.update({"status": "pending", "approval_failed_at": time.time()})

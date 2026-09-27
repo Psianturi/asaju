@@ -29,10 +29,11 @@ def make_agent(
     personality: str = "Analytical",
     generation: int = 1,
     chain_id: int = 5003,
+    private_key_enc: str | None = None,
 ) -> dict:
     """Minimal valid agent Firestore doc — defaults satisfy every breed guardrail
     so a single override (e.g. level=1) isolates exactly one guardrail per test."""
-    return {
+    doc: dict = {
         "agent_id": agent_id,
         "agent_wallet": wallet,
         "agent_name": agent_id,
@@ -50,6 +51,9 @@ def make_agent(
         "created_at": 0.0,
         "funded": True,
     }
+    if private_key_enc is not None:
+        doc["private_key_enc"] = private_key_enc
+    return doc
 
 
 @pytest_asyncio.fixture
