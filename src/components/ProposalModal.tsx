@@ -11,8 +11,10 @@ import { mantleService } from '@/lib/blockchain/mantleService'
 import { getChain, txUrl, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useBlockchain } from '@/hooks/useBlockchain'
 import {
   Brain,
+  WarningCircle,
   Lightning,
   CheckCircle,
   XCircle,
@@ -93,6 +95,7 @@ function ProposalCard({
   autonomousExecutionEnabled,
   onShowReasoning,
   chainId,
+  signerMismatch,
 }: {
   proposal: BackendProposal
   onApprove: (p: BackendProposal) => void
@@ -103,6 +106,7 @@ function ProposalCard({
   chainId: number
   autonomousExecutionEnabled: boolean
   onShowReasoning: (p: BackendProposal) => void
+  signerMismatch: string | null
 }) {
   const cat = CATEGORY_CONFIG[proposal.category] ?? CATEGORY_CONFIG.community
   const CatIcon = cat.Icon
@@ -293,18 +297,25 @@ function ProposalCard({
               ? 'Transfer in progress…'
               : autonomousExecutionEnabled
               ? 'Requires separate owner approval to transfer 0.1 native token (MNT on Mantle Sepolia) from agent wallet to vault.'
-              : 'Autonomous execution is a roadmap feature and is not enabled on this deployment yet — this proposal stays approved without a transfer.'}
-          </p>
-        </motion.div>
-      )}
+           : 'Autonomous execution is a roadmap feature and is not enabled on this deployment yet — this proposal stays approved without a transfer.'}
+        </p>
+      </motion.div>
+    )}
 
-      {isPending && (
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            disabled={!!actioningId}
-            onClick={() => onApprove(proposal)}
-            className="flex-1 h-8 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+    {signerMismatch && (
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/[0.06] px-2.5 py-1.5 text-[11px] text-amber-200 flex items-start gap-2">
+        <WarningCircle size={12} weight="fill" className="shrink-0 mt-0.5" />
+        <span>{signerMismatch}</span>
+      </div>
+    )}
+
+    {isPending && (
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={!!actioningId}
+          onClick={() => onApprove(proposal)}
+          className="flex-1 h-8 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 disabled:opacity-50"
           >
             {isActioning ? (
               <SpinnerGap size={14} className="animate-spin" />
@@ -401,6 +412,15 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
   const [ephemeralProposal, setEphemeralProposal] = useState<BackendProposal | null>(null)
   const [forceEvaluating, setForceEvaluating] = useState(false)
 
+  // Pre-flight signer check — the proposal's owner wallet is captured in the
+  // signed message itself (`Owner wallet: <address>`). If MetaMask's active
+  // account differs from that, the backend returns 403 ("Only the agent
+  // owner can act on this proposal"). We surface the mismatch BEFORE the
+  // user signs, so the error is actionable (switch account) instead of
+  // arriving as a cryptic toast.
+  const { address: activeWallet } = useBlockchain()
+  const [signerMismatch, setSignerMismatch] = useState<string | null>(null)
+
   const pendingCount = proposals.filter(p => p.status === 'pending').length
 
   // Stable ref so fetchProposals never re-creates due to parent callback identity changes
@@ -487,6 +507,12 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
   const handleApprove = async (proposal: BackendProposal) => {
     setActioningId(proposal.proposal_id)
     try {
+      // Pre-flight: surface the wrong-account case BEFORE MetaMask prompts.
+      // The signature request would otherwise show the agent wallet, leaving
+      // the user wondering why "Approve" silently fails server-side.
+      const ok = await assertSignerMatchesOwner(proposal, 'approve')
+      if (!ok) return
+
       const challenge = await cloudRunService.createProposalApprovalChallenge(proposal.proposal_id)
       const signedAuthorization = await mantleService.signMessage(challenge.message)
       const authorization = { ...signedAuthorization, nonce: challenge.nonce }
@@ -494,20 +520,57 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       const next = proposals.map(p => p.proposal_id === updated.proposal_id ? updated : p)
       setProposals(next)
       notifyCount(next)
+      setSignerMismatch(null)
       toast.success('Proposal approved on-chain', {
         description: `Heritage Score +${HERITAGE_XP}`,
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Approval failed'
-      toast.error('On-chain execution failed', { description: msg })
+      // Surface the most common backend failure mode explicitly.
+      if (msg.toLowerCase().includes('only the agent owner')) {
+        toast.error('Wrong MetaMask account', {
+          description: 'Switch to the owner wallet in MetaMask before approving.',
+        })
+      } else if (msg.toLowerCase().includes('already been used') || msg.toLowerCase().includes('expired')) {
+        toast.warning('Approval challenge no longer valid', {
+          description: 'Re-open the proposal to get a fresh signature request.',
+        })
+      } else {
+        toast.error('On-chain execution failed', { description: msg })
+      }
     } finally {
       setActioningId(null)
     }
   }
 
+  // Pre-flight check — called before requesting MetaMask signature for
+  // approve/reject. We don't hard-fail here because MetaMask can prompt the
+  // user to switch accounts, but we surface a clear warning so the failure
+  // mode is obvious. The execution path uses the agent's own wallet, so it
+  // does not need this check.
+  const assertSignerMatchesOwner = async (proposal: BackendProposal, action: 'approve' | 'reject') => {
+    const challenge = await cloudRunService.createProposalApprovalChallenge(proposal.proposal_id, action)
+    const parsedOwner = (challenge.message.match(/Owner wallet:\s*(\n+)?(0x[a-fA-F0-9]{40})/) || [])[2]
+    const active = activeWallet?.toLowerCase()
+    const owner = parsedOwner?.toLowerCase()
+    if (active && owner && active !== owner) {
+      const shortActive = `${active.slice(0, 6)}…${active.slice(-4)}`
+      const shortOwner = `${owner.slice(0, 6)}…${owner.slice(-4)}`
+      const msg = `MetaMask is on ${shortActive}, but the proposal expects the owner (${shortOwner}). Switch accounts and try again.`
+      setSignerMismatch(msg)
+      toast.warning('Wrong MetaMask account', { description: msg })
+      return false
+    }
+    setSignerMismatch(null)
+    return true
+  }
+
   const handleReject = async (proposal: BackendProposal) => {
     setActioningId(proposal.proposal_id)
     try {
+      const ok = await assertSignerMatchesOwner(proposal, 'reject')
+      if (!ok) return
+
       const challenge = await cloudRunService.createProposalApprovalChallenge(proposal.proposal_id, 'reject')
       const signedAuthorization = await mantleService.signMessage(challenge.message)
       const authorization = { ...signedAuthorization, nonce: challenge.nonce }
@@ -639,6 +702,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   autonomousExecutionEnabled={false}
                   onShowReasoning={() => setReasoningProposal(ephemeralProposal)}
                   chainId={agentChainId}
+                  signerMismatch={null}
                 />
               )}
               {proposals.map(p => (
@@ -653,6 +717,7 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
                   autonomousExecutionEnabled={autonomousExecutionEnabled}
                   onShowReasoning={() => setReasoningProposal(p)}
                   chainId={agentChainId}
+                  signerMismatch={signerMismatch}
                 />
               ))}
             </AnimatePresence>
