@@ -319,12 +319,43 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 <GasStatusBadge agentWallet={agent.walletAddress} chainId={agent.chainId} showLabel={true} />
               </div>
               
-              {(agent.agentGasBalance ?? 0) > 0 && (agent.agentGasBalance ?? 0) < 0.08 && (
-                <div className="mb-3 flex items-center gap-2 px-2.5 py-2 rounded-md bg-amber-500/10 border border-amber-500/30">
-                  <Warning size={13} className="text-amber-400 flex-shrink-0" weight="fill" />
-                  <span className="text-[10px] text-amber-400 font-semibold leading-tight">
-                    Low gas — top up to keep agent operational
+              {(agent.agentGasBalance ?? 0) < 0.08 && (
+                <div
+                  className={`mb-3 flex items-center gap-2 px-2.5 py-2 rounded-md border ${
+                    (agent.agentGasBalance ?? 0) === 0
+                      ? 'bg-rose-500/15 border-rose-500/40'
+                      : 'bg-amber-500/10 border-amber-500/30'
+                  }`}
+                >
+                  <Warning
+                    size={13}
+                    className={`flex-shrink-0 ${
+                      (agent.agentGasBalance ?? 0) === 0 ? 'text-rose-400' : 'text-amber-400'
+                    }`}
+                    weight="fill"
+                  />
+                  <span
+                    className={`text-[10px] font-semibold leading-tight ${
+                      (agent.agentGasBalance ?? 0) === 0 ? 'text-rose-300' : 'text-amber-400'
+                    }`}
+                  >
+                    {(agent.agentGasBalance ?? 0) === 0
+                      ? 'Needs gas — top up before next proposal execution'
+                      : 'Low gas — top up to keep agent operational'}
                   </span>
+                  {onTopUpGas && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTopUpGas(agent)
+                      }}
+                      className="ml-auto h-5 px-2 text-[10px] border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10"
+                    >
+                      Top up
+                    </Button>
+                  )}
                 </div>
               )}
 
