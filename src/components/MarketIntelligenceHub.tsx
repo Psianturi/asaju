@@ -280,10 +280,11 @@ export function MarketIntelligenceHub() {
             </div>
           </div>
           <div className="px-4 py-2">
-            <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-mono mb-0.5">Fear & Greed</p>
+            <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-mono mb-0.5">24h volume</p>
             <div className="flex items-baseline gap-1 font-mono tabular-nums">
-              <span className="text-sm font-bold">—</span>
-              <span className="text-[10px] text-muted-foreground/70">in snapshot</span>
+              <span className="text-sm font-bold">
+                {isFiniteNum(state.metrics?.total_volume_24h) ? fmtCompactUsd(state.metrics!.total_volume_24h) : '—'}
+              </span>
             </div>
           </div>
         </div>
