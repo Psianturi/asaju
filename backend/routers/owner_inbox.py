@@ -166,6 +166,30 @@ async def get_owner_inbox(user_wallet: str = Query(...)) -> dict[str, Any]:
     agent_ids = [a.get("agent_id") for a in owned_agents if a.get("agent_id")]
     wallet_to_agent: dict[str, str] = {a.get("agent_wallet", ""): a.get("agent_id", "") for a in owned_agents}
 
+    # Refresh gas balances from the chain. A manual top-up is a plain native
+    # transfer the backend never records, so the cached agent_gas_balance goes
+    # stale and a topped-up agent keeps showing as low gas. Read live (parallel,
+    # bounded, fail-soft — keep the cached value if the RPC is slow or down).
+    import asyncio
+    from services.web3_service import web3_service
+
+    async def _refresh_balance(a: dict) -> None:
+        wallet = a.get("agent_wallet")
+        if not wallet:
+            return
+        try:
+            bal = await asyncio.wait_for(
+                web3_service.get_native_balance(wallet, a.get("chain_id") or 5003),
+                timeout=4.0,
+            )
+            if isinstance(bal, (int, float)):
+                a["agent_gas_balance"] = bal
+        except Exception:
+            pass
+
+    if owned_agents:
+        await asyncio.gather(*(_refresh_balance(a) for a in owned_agents), return_exceptions=True)
+
     pending_proposals: list[dict] = []
     if agent_ids:
         async def _fetch_proposals():

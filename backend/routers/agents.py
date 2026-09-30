@@ -1027,7 +1027,7 @@ async def list_agents_by_wallet(
     wallet = Web3.to_checksum_address(wallet)
 
     db = get_db()
-    result: list[SpawnResponse] = []
+    docs: list[dict] = []
 
     try:
         async for doc in (
@@ -1037,11 +1037,32 @@ async def list_agents_by_wallet(
         ):
             data = doc.to_dict()
             if data:
-                result.append(_to_response(data, needs_funding=not data.get("funded", False)))
+                docs.append(data)
     except Exception as exc:
         logger.error("Firestore query failed for wallet %s: %s", wallet, exc)
         raise HTTPException(status_code=503, detail="Database temporarily unavailable")
 
+    # Refresh gas balances from the chain — a manual top-up is a plain transfer
+    # the backend never records, so the cached value goes stale. Parallel,
+    # bounded, fail-soft: keep the cached value if the RPC is slow or down.
+    async def _refresh_balance(data: dict) -> None:
+        wallet_addr = data.get("agent_wallet")
+        if not wallet_addr:
+            return
+        try:
+            bal = await asyncio.wait_for(
+                web3_service.get_native_balance(wallet_addr, data.get("chain_id") or 5003),
+                timeout=4.0,
+            )
+            if isinstance(bal, (int, float)):
+                data["agent_gas_balance"] = bal
+        except Exception:
+            pass
+
+    if docs:
+        await asyncio.gather(*(_refresh_balance(d) for d in docs), return_exceptions=True)
+
+    result = [_to_response(d, needs_funding=not d.get("funded", False)) for d in docs]
     logger.info("Listed %d agents for wallet %s", len(result), wallet[:10])
     return result
 

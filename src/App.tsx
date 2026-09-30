@@ -267,6 +267,9 @@ function App() {
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [genesisMintDialogOpen, setGenesisMintDialogOpen] = useState(false)
   const [selectedAgentForTopUp, setSelectedAgentForTopUp] = useState<Agent | null>(null)
+  // Bumped after balance-changing actions (top-up) so the dashboard inbox
+  // refetches live gas state instead of holding the stale low-gas row.
+  const [inboxRefreshKey, setInboxRefreshKey] = useState(0)
   const [pendingAttendContext, setPendingAttendContext] = useState<PendingAttendContext | null>(null)
 
   // Periodic balance refresh while connected — keeps the dialogs in sync with
@@ -855,6 +858,10 @@ function App() {
       )
     )
 
+    // Tell the dashboard inbox to refetch — its low-gas row is driven by a
+    // separate backend call that won't otherwise see this top-up.
+    setInboxRefreshKey((k) => k + 1)
+
     addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Gas topped up by owner. TX: ${tx.transactionHash?.slice(0, 18)}...`, 'success')
 
     // Auto-retry pending Mode B request for the same agent.
@@ -1336,6 +1343,7 @@ function App() {
               dataLoaded={dataLoaded}
               isPlatformView={isPlatformView}
               walletAddress={walletAddress}
+              inboxRefreshKey={inboxRefreshKey}
               onSelectAgent={(agent) => agent ? setSelectedAgent(agent) : setSelectedAgent(null)}
               onOpenAgent={(agent) => setAgentDetailId(agent.id)}
               onSpawnAgent={() => walletConnected ? setSpawnDialogOpen(true) : handleWalletConnect("")}

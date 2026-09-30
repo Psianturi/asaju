@@ -25,6 +25,7 @@ interface DashboardViewProps {
   dataLoaded: boolean
   isPlatformView: boolean
   walletAddress?: string
+  inboxRefreshKey?: number
   onSelectAgent: (agent: Agent) => void
   onOpenAgent: (agent: Agent) => void
   onSpawnAgent: () => void
@@ -67,6 +68,7 @@ export function DashboardView({
   dataLoaded,
   isPlatformView,
   walletAddress,
+  inboxRefreshKey,
   onSelectAgent,
   onOpenAgent,
   onSpawnAgent,
@@ -100,7 +102,7 @@ export function DashboardView({
       .catch(() => { if (!cancelled) setInbox(EMPTY_INBOX) })
       .finally(() => { if (!cancelled) setInboxLoading(false) })
     return () => { cancelled = true }
-  }, [address, isConnected])
+  }, [address, isConnected, inboxRefreshKey])
 
   useEffect(() => {
     if (isConnected) return
