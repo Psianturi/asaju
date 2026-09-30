@@ -16,7 +16,7 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "name": "Ethereum Sepolia",
         "native_symbol": "ETH",
         "rpc_url": "https://ethereum-sepolia-rpc.publicnode.com",
-        "contract_address": "0x0fE75B47bFE360A305F5D56607d976448fF7c9e7",  # ASAJU V5, 25 Sep 2026
+        "contract_address": "0xD8F5691436B6647bE7a05BeF7dD637FbbCf819ab",  # ASAJU V6, 30 Sep 2026 — no MINTER_ROLE
         "explorer_url": "https://sepolia.etherscan.io",
     },
     97: {
