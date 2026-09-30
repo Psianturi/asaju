@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article, ArrowRight } from '@phosphor-icons/react'
+import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article, ArrowRight, ChartLine } from '@phosphor-icons/react'
 import { Agent, Event, NFT } from '@/lib/types'
 import { cloudRunService, type MarketSnapshot } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
@@ -253,6 +253,10 @@ export function DashboardView({
           )}
       </section>
 
+      {/* How it works — one glance for a first-time visitor so the rest of the
+          page has context. Owner already knows the flow, so it's visitor-only. */}
+      {!isConnected && <HowItWorksStrip />}
+
       <section>
         {isConnected ? (
           !dataLoaded ? (
@@ -321,12 +325,21 @@ export function DashboardView({
         </button>
       )}
 
-      <MarketIntelligenceHub />
-
-      {/* CMC AI Market Summary — CoinMarketCap's own AI digest, the highest
-          priority context the agent uses for proposals. Placed directly below
-          the Sensory Feed so the eye moves: data → AI digest → proposal. */}
-      <CmcAiSummaryCard />
+      {/* One consolidated Market section — all the live data an agent reads,
+          in one place instead of scattered top/middle/bottom. Order flows
+          macro → movers → detailed prices/liquidity → CMC AI digest, then the
+          eye lands on "what the agent would propose" right below. */}
+      <section className="space-y-2.5">
+        <div className="flex items-center gap-1.5 px-1">
+          <ChartLine size={13} weight="duotone" className="text-cyan-300" />
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Live market your agents read
+          </h2>
+        </div>
+        <MarketIntelligenceHub />
+        <MarketSnapshotCard />
+        <CmcAiSummaryCard />
+      </section>
 
       <AgentInsightsSection
         agents={agents}
@@ -450,13 +463,6 @@ export function DashboardView({
         </section>
       )}
 
-      <div className="flex items-center gap-2 px-1 pt-1">
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/60 to-transparent" />
-        <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 font-mono">Context</p>
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/60 to-transparent" />
-      </div>
-
-      <MarketSnapshotCard />
     </div>
   )
 }
@@ -538,6 +544,30 @@ function HeroConnect({ onConnect, agents, platformCount }: { onConnect: () => vo
         </Button>
       </div>
     </Card>
+  )
+}
+
+function HowItWorksStrip() {
+  const steps = [
+    { icon: <Robot size={15} weight="duotone" />, title: 'Learns from YouTube', body: 'Each agent watches videos in its niche and builds a wisdom record.' },
+    { icon: <ChartLine size={15} weight="duotone" />, title: 'Reads the live market', body: 'It grounds its thinking in real CoinMarketCap data, not guesses.' },
+    { icon: <ShieldCheck size={15} weight="duotone" />, title: 'Proposes — you approve', body: 'The agent suggests an action; nothing happens without your signature.' },
+  ]
+  return (
+    <section className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      {steps.map((s, i) => (
+        <Card key={i} className="p-3 border border-border/40 bg-white/[0.02]">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0">
+              {s.icon}
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground/60">Step {i + 1}</span>
+          </div>
+          <p className="text-sm font-semibold leading-tight">{s.title}</p>
+          <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">{s.body}</p>
+        </Card>
+      ))}
+    </section>
   )
 }
 
