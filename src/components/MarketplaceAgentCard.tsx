@@ -1,10 +1,11 @@
+import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketplaceAgent } from '@/lib/types'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getChain } from '@/lib/blockchain/chains'
 import {
-  Robot, Brain, Fire, ShoppingCart, CheckCircle,
+  Brain, Fire, ShoppingCart, CheckCircle,
   Lightning, TrendUp, Star, Cpu,
 } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
@@ -106,48 +107,92 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
         <div className="relative z-10 space-y-4">
 
           {/* ── Header ─────────────────────────────────────── */}
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary/30 to-secondary/30 border-2 border-primary/40 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                <Robot size={24} className="text-primary" weight="duotone" />
-              </div>
-              <div>
-                <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors leading-tight">
-                  {agent.name}
-                </h3>
-                <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                  <span>{NICHE_ICON[agent.niche]}</span>
-                  <span>{agent.niche}</span>
-                  {agent.generation && agent.generation > 1 && (
-                    <Badge variant="outline" className="text-[9px] px-1 py-0 ml-1 border-primary/30 text-primary/70">
-                      GEN-{agent.generation}
-                    </Badge>
-                  )}
-                </p>
-              </div>
-            </div>
+<div className="flex items-start justify-between gap-3">
+  <div className="flex items-center gap-3 min-w-0">
+    <div className="relative shrink-0 group-hover:scale-105 transition-transform duration-300">
+      <NicheAvatar
+        agent={agent}
+        size="md"
+        showRing
+      />
 
-            <div className="flex flex-col items-end gap-1">
-              {isSpecialRarity ? (
-                <motion.div
-                  animate={{ rotate: [0, 8, -8, 0], scale: [1, 1.08, 1] }}
-                  transition={{ duration: 2.5, repeat: Infinity }}
-                  className={cn(
-                    'px-2.5 py-1 rounded-full text-[10px] font-bold shadow-md flex items-center gap-1',
-                    rarityStyles.badgeClass,
-                  )}
-                >
-                  <Star size={9} weight="fill" />
-                  {rarityLabel}
-                </motion.div>
-              ) : (
-                <Badge variant="outline" className="text-[10px] px-2 py-0">Common</Badge>
-              )}
-              <Badge variant="outline" className="text-[10px] px-2 py-0 border-primary/30 text-primary/70 font-mono">
-                {agent.personality}
-              </Badge>
-            </div>
-          </div>
+      {agent.status === 'active' && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full animate-pulse ring-2 ring-background" />
+      )}
+
+      {agent.generation && agent.generation > 1 && (
+        <div className="absolute -bottom-1 -right-1">
+          <Badge className="text-[8px] px-1 py-0 bg-background border border-primary/40 text-primary font-mono">
+            G{agent.generation}
+          </Badge>
+        </div>
+      )}
+    </div>
+
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors leading-tight truncate">
+          {agent.name}
+        </h3>
+
+        <Badge
+          className={cn(
+            'text-[9px] font-mono px-1.5 py-0 border',
+            agent.status === 'active'
+              ? 'border-primary/30 text-primary/80 bg-primary/5'
+              : 'border-border/40 text-muted-foreground',
+          )}
+        >
+          {agent.status.toUpperCase()}
+        </Badge>
+      </div>
+
+      <p className="text-[9px] text-muted-foreground/60 font-mono mt-0.5">
+        Autonomous AI Agent
+      </p>
+
+      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
+        <span>{NICHE_ICON[agent.niche]}</span>
+        <span className="truncate">{agent.niche}</span>
+      </div>
+    </div>
+  </div>
+
+  <div className="flex flex-col items-end gap-1 shrink-0">
+    {isSpecialRarity ? (
+      <motion.div
+        animate={{
+          scale: [1, 1.04, 1],
+        }}
+        transition={{
+          duration: 2.5,
+          repeat: Infinity,
+        }}
+        className={cn(
+          'px-2 py-0.5 rounded-full text-[9px] font-bold shadow-md flex items-center gap-1',
+          rarityStyles.badgeClass,
+        )}
+      >
+        <Star size={8} weight="fill" />
+        {rarityLabel}
+      </motion.div>
+    ) : (
+      <Badge
+        variant="outline"
+        className="text-[9px] px-2 py-0.5 text-muted-foreground"
+      >
+        Common
+      </Badge>
+    )}
+
+    <Badge
+      variant="outline"
+      className="text-[9px] px-1.5 py-0 border-primary/20 text-primary/60 font-mono"
+    >
+      {agent.personality}
+    </Badge>
+  </div>
+</div>
 
           {/* ── What You're Acquiring ───────────────────────── */}
           <div className="rounded-lg border border-border/40 bg-muted/20 overflow-hidden">
@@ -167,50 +212,115 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
               <ValueRow
                 icon={<Cpu size={11} className="text-sky-400" weight="duotone" />}
                 label="Gas Activity"
-                value={`${(agent.gasSpent ?? 0).toFixed(3)} MNT spent`}
+value={`${(agent.gasSpent ?? 0).toFixed(3)} ${marketplaceCurrency} spent`}
               />
             </div>
           </div>
 
           {/* ── Cognitive Track Record ──────────────────────── */}
-          <div className="rounded-lg border border-border/40 bg-muted/20 overflow-hidden">
-            <div className="px-2 py-1.5 border-b border-border/30 bg-muted/30">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                Cognitive Track Record
-              </p>
-            </div>
-            <div className="p-1.5 space-y-0.5">
-              <ValueRow
-                icon={<TrendUp size={11} className="text-emerald-400" weight="bold" />}
-                label="Events × Level"
-                value={`${agent.eventsAttended} events · Lvl ${agent.level}`}
-              />
-              {heritageScore > 0 && (
-                <ValueRow
-                  icon={<Star size={11} className="text-amber-400" weight="fill" />}
-                  label="Heritage Score"
-                  value={`${heritageScore} pts`}
-                  highlight={heritageScore >= 50}
-                />
-              )}
-              {autoSigs > 0 && (
-                <ValueRow
-                  icon={<Lightning size={11} className="text-violet-400" weight="fill" />}
-                  label="Autonomous Executions"
-                  value={`${autoSigs}×`}
-                  highlight={autoSigs >= 5}
-                />
-              )}
-              {agent.wisdomUnlocked && (
-                <ValueRow
-                  icon={<Brain size={11} className="text-amber-400" weight="fill" />}
-                  label="Wisdom Memory"
-                  value="Unlocked ✨"
-                  highlight
-                />
-              )}
-            </div>
+<div className="rounded-lg border border-border/40 bg-muted/20 overflow-hidden">
+  <div className="px-3 py-2 border-b border-border/30 bg-muted/30">
+    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+      Cognitive Track Record
+    </p>
+  </div>
+
+  <div className="p-3 space-y-3">
+    {/* Headline stats */}
+    <div className="grid grid-cols-2 gap-2">
+      <div className="rounded-md bg-background/40 border border-border/30 px-2.5 py-2">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
+          Level
+        </p>
+        <p className={cn(
+          'text-lg font-bold font-mono',
+          rarityStyles.textClass,
+        )}>
+          {agent.level}
+        </p>
+      </div>
+
+      <div className="rounded-md bg-background/40 border border-border/30 px-2.5 py-2">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
+          Events
+        </p>
+        <p className="text-lg font-bold font-mono text-foreground">
+          {agent.eventsAttended}
+        </p>
+      </div>
+    </div>
+
+    {/* Heritage */}
+    {heritageScore > 0 && (
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1.5">
+            <Star
+              size={11}
+              className="text-amber-400"
+              weight="fill"
+            />
+            <span className="text-[10px] font-medium text-muted-foreground">
+              Heritage
+            </span>
           </div>
+
+          <span className="text-[10px] font-bold font-mono text-amber-400">
+            {heritageScore} pts
+          </span>
+        </div>
+
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-500"
+            style={{
+              width: `${Math.min(heritageScore, 100)}%`,
+            }}
+          />
+        </div>
+      </div>
+    )}
+
+    {/* Supporting signals */}
+    <div className="grid grid-cols-2 gap-2">
+      {autoSigs > 0 && (
+        <div className="rounded-md bg-background/30 border border-border/30 px-2 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <Lightning
+              size={11}
+              className="text-violet-400"
+              weight="fill"
+            />
+            <span className="text-[9px] text-muted-foreground">
+              Autonomous
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs font-bold font-mono">
+            {autoSigs} executions
+          </p>
+        </div>
+      )}
+
+      {agent.wisdomUnlocked && (
+        <div className="rounded-md bg-primary/5 border border-primary/20 px-2 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <Brain
+              size={11}
+              className="text-primary"
+              weight="fill"
+            />
+            <span className="text-[9px] text-muted-foreground">
+              Memory
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs font-bold text-primary">
+            Wisdom unlocked
+          </p>
+        </div>
+      )}
+    </div>
+  </div>
+</div>
 
           {/* ── Price + Buy ─────────────────────────────────── */}
           <div className="pt-3 border-t border-border/50 space-y-3">
