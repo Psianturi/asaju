@@ -515,6 +515,7 @@ export const cloudRunService = {
         agent_wallet: string
         agent_name: string
         niche: string
+        personality?: string
         user_wallet: string
         level: number
         total_events: number
@@ -556,11 +557,14 @@ export const cloudRunService = {
       }>>(response)
 
       const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
 
       return raw.map(r => ({
         id: r.agent_id,
         name: r.agent_name,
-        personality: 'Analytical' as const,
+        personality: (validPersonalities.includes(r.personality as Personality)
+          ? r.personality
+          : 'Analytical') as Personality,
         niche: (validNiches.includes(r.niche as Niche) ? r.niche : 'Blockchain/DeFi') as Niche,
         walletAddress: r.agent_wallet,
         chainId: r.chain_id ?? 5003,
@@ -927,18 +931,22 @@ export const cloudRunService = {
         agent_wallet: string
         agent_name: string
         niche: string
+        personality?: string
         user_wallet: string
         level: number
         total_events: number
         needs_funding: boolean
       }>(response)
       const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
       return {
         success: true,
         agent: {
           id: raw.agent_id,
           name: raw.agent_name,
-          personality: 'Analytical' as const,
+          personality: (validPersonalities.includes(raw.personality as Personality)
+            ? raw.personality
+            : 'Analytical') as Personality,
           niche: (validNiches.includes(raw.niche as Niche) ? raw.niche : 'Blockchain/DeFi') as Niche,
           walletAddress: raw.agent_wallet,
           eventsAttended: raw.total_events,
