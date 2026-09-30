@@ -492,6 +492,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         get_most_visited,
         get_new_listings,
         get_trending_gainers_losers,
+        get_trending_latest,
     )
 
     async def _safe(coro, default=None):
@@ -508,12 +509,13 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
     global_task = _safe(get_global_metrics(), default=None)
     airdrops_task = _safe(get_airdrops(5), default=[])
     cmc_ai_task = _safe(get_cmc_ai_summary(), default={"tldr": "", "thesis": "", "headlines": [], "sources": [], "generated_at": None})
+    trending_topics_task = _safe(get_trending_latest("24h", 5), default=[])
 
     # Fetch all advanced CMC signals in parallel — fail-soft, one slow endpoint
     # cannot stall the proposal.
-    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops, cmc_ai_summary = (
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops, cmc_ai_summary, trending_topics = (
         await asyncio.gather(
-            gainers_task, losers_task, listings_task, visited_task, global_task, airdrops_task, cmc_ai_task
+            gainers_task, losers_task, listings_task, visited_task, global_task, airdrops_task, cmc_ai_task, trending_topics_task
         )
     )
 
@@ -555,6 +557,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
             chat_topics=owner_chat_topics,
             trending_gainers=trending_gainers or None,
             trending_losers=trending_losers or None,
+            trending_topics=trending_topics or None,
             new_listings=new_listings or None,
             active_airdrops=active_airdrops or None,
             global_metrics=global_metrics,
@@ -693,6 +696,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
         get_most_visited,
         get_new_listings,
         get_trending_gainers_losers,
+        get_trending_latest,
     )
 
     async def _safe(coro, default=None):
@@ -702,7 +706,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             logger.warning("CMC signal fetch failed for force-evaluate: %s", exc)
             return default
 
-    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops, cmc_ai_summary = (
+    trending_gainers, trending_losers, new_listings, most_visited, global_metrics, active_airdrops, cmc_ai_summary, trending_topics = (
         await asyncio.gather(
             _safe(get_trending_gainers_losers("24h", 5), default=[]),
             _safe(get_trending_gainers_losers("24h", 5, sort_dir="asc"), default=[]),
@@ -711,6 +715,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             _safe(get_global_metrics(), default=None),
             _safe(get_airdrops(5), default=[]),
             _safe(get_cmc_ai_summary(), default={"tldr": "", "thesis": "", "headlines": [], "sources": [], "generated_at": None}),
+            _safe(get_trending_latest("24h", 5), default=[]),
         )
     )
 
@@ -743,6 +748,7 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
             chat_topics=owner_chat_topics,
             trending_gainers=trending_gainers or None,
             trending_losers=trending_losers or None,
+            trending_topics=trending_topics or None,
             new_listings=new_listings or None,
             active_airdrops=active_airdrops or None,
             global_metrics=global_metrics,

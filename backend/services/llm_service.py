@@ -796,6 +796,7 @@ def _format_chat_market_context(market_context: dict | None) -> str:
 def _format_cmc_signals(
     trending_gainers: list | None = None,
     trending_losers: list | None = None,
+    trending_topics: list | None = None,
     new_listings: list | None = None,
     active_airdrops: list | None = None,
     global_metrics: dict | None = None,
@@ -851,6 +852,19 @@ def _format_cmc_signals(
             lines.append(f"  - {sym}: {pct:.1f}% 24h{price_str}")
         if lines:
             sections.append("CoinMarketCap top losers (24h):\n" + "\n".join(lines))
+
+    # Trending by search/interest — distinct from price movers above: a coin
+    # can be quiet on price but spiking in attention, which is itself a signal.
+    # Was fetched for the dashboard's "Hot" tab only until 30 Sep 2026; now also
+    # reaches the prompt so every live CMC signal actually informs a proposal.
+    if trending_topics:
+        lines = []
+        for c in trending_topics[:5]:
+            sym = c.get("symbol") or c.get("name") or "?"
+            name = c.get("name") or ""
+            lines.append(f"  - {sym} ({name})" if name and name != sym else f"  - {sym}")
+        if lines:
+            sections.append("CoinMarketCap trending by search interest (24h):\n" + "\n".join(lines))
 
     if new_listings:
         lines = []
@@ -960,6 +974,7 @@ async def generate_agent_proposal(
     chat_topics: list[dict] | None = None,
     trending_gainers: list | None = None,
     trending_losers: list | None = None,
+    trending_topics: list | None = None,
     new_listings: list | None = None,
     active_airdrops: list | None = None,
     global_metrics: dict | None = None,
@@ -994,6 +1009,7 @@ async def generate_agent_proposal(
     cmc_signals_text = _format_cmc_signals(
         trending_gainers=trending_gainers,
         trending_losers=trending_losers,
+        trending_topics=trending_topics,
         new_listings=new_listings,
         active_airdrops=active_airdrops,
         global_metrics=global_metrics,
@@ -1081,6 +1097,8 @@ Respond ONLY with valid JSON in this exact format:
             cmc_signals_present.append("top_gainers")
         if trending_losers:
             cmc_signals_present.append("top_losers")
+        if trending_topics:
+            cmc_signals_present.append("trending_topics")
         if new_listings:
             cmc_signals_present.append("new_listings")
         if active_airdrops:
@@ -1125,6 +1143,12 @@ Respond ONLY with valid JSON in this exact format:
                 sym = top.get("symbol") or top.get("name")
                 if sym:
                     trigger_tags.append(f"Top gainer: {sym}")
+        if trending_topics:
+            top = trending_topics[0] if isinstance(trending_topics[0], dict) else None
+            if top:
+                sym = top.get("symbol") or top.get("name")
+                if sym:
+                    trigger_tags.append(f"Trending: {sym}")
         if active_airdrops:
             sym = None
             for ad in active_airdrops:
