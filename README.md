@@ -18,10 +18,11 @@ YouTube and other live streams teach a lot of people a lot of things. None of th
 
 1. **Spawn an agent** with an independent wallet, configurable niche, and a testnet gas reserve funded half from spawn.
 2. **Analyse YouTube content** submitted by the user (Manual Override) or discovered through opt-in Auto Scout (Cloud Scheduler every 6 hours).
-3. **Ground proposals in live market context** — every proposal carries the raw CoinMarketCap + CoinGecko snapshot that fed the agent's reasoning, so the owner can audit the decision.
-4. **Mint on-chain learning proofs** only at milestones (level-ups, wisdom-unlock), not on every video. Gas-efficient without losing the record.
-5. **Build lineage** through Neural Fusion (breeding) — the offspring's spawn fee is prepaid into escrow by the owner, so the platform's own wallet is never subsidised.
-6. **Keep consequential actions human-controlled** — every proposal is signed by the owner or the agent's own wallet. No platform-held key can act on a user's behalf, and no autonomous financial execution is enabled today.
+3. **Ground proposals in live market context** — every proposal carries the raw CoinMarketCap + CoinGecko snapshot that fed the agent's reasoning, and a short trail of the exact data points that drove it, so the owner can audit the decision.
+4. **Recommend a specific action, owner decides** — each proposal states what the agent would do (buy, sell, hold, or research a named asset) with the live data behind it. The recommendation is recorded for the agent's history when approved; it is never executed as a trade — autonomous financial execution is not enabled.
+5. **Mint on-chain learning proofs** only at milestones (level-ups, wisdom-unlock), not on every video. Gas-efficient without losing the record.
+6. **Build lineage** through Neural Fusion (breeding) — the offspring's spawn fee is prepaid into escrow by the owner, so the platform's own wallet is never subsidised.
+7. **Keep consequential actions human-controlled** — every proposal is signed by the owner or the agent's own wallet. No platform-held key can act on a user's behalf.
 
 The product is the agent's persistent knowledge workflow. The on-chain record is a verifiable proof-of-action, not an art piece.
 
@@ -38,6 +39,8 @@ Two ways, and they can be used together:
 | **Best for** | A specific video you want it to learn now | Hands-off, continuous learning |
 
 Either way, every lesson is saved to the agent's memory, and a learning proof is minted on-chain only when the agent levels up. Auto-Scout is off by default — turn it on per agent.
+
+The dashboard and each agent's page show a live activity pulse: the last video the agent learned and the live CoinMarketCap data it reads, animated only when something genuinely happened recently — so "what is the agent doing" is answered from real state, never a decorative loop.
 
 ---
 
@@ -197,7 +200,7 @@ CMC has rate limits and the agent's proposal flow is chatty. We cache every CMC 
 - Node.js ≥ 20
 - Python ≥ 3.11
 - A Gemini API key (for `LLM_API_KEY`)
-- A CoinMarketCap API key (Startup tier is sufficient for 9 of 11 endpoints)
+- A CoinMarketCap API key (Startup tier is sufficient for 8 of the 10 endpoints; two require Enterprise and fail soft)
 - A YouTube Data API key (optional — only needed for Auto Scout)
 - A Firestore project + service account JSON (any GCP project will do for local)
 
@@ -275,7 +278,7 @@ CI runs both suites on every push via [`.github/workflows/`](.github/workflows/)
 | On-chain learning attestation | Implemented, milestone-based (level-ups, wisdom-unlock) — not every video |
 | Autonomous signing (Mode B) | Implemented, KMS-protected, agent signs with own key |
 | Auto Scout | Implemented, opt-in per agent, OIDC-protected Cloud Scheduler trigger every 6h |
-| Agent chat, wisdom reports, proposals | Implemented, Gemini-grounded, raw CMC snapshot persisted |
+| Agent chat, wisdom reports, proposals | Implemented, Gemini-grounded, raw CMC snapshot persisted; each proposal carries a recommended action (buy / sell / hold / research) that is recorded, not executed |
 | Breeding and lineage | Implemented: owner prepays spawn fee, agent signs to activate |
 | Multi-chain testnet (BNB 97 + Mantle 5003 + ETH Sepolia 11155111) | Implemented, BNB is default for new visitors |
 | Market-aware proposals (CMC + CoinGecko) | Implemented, raw snapshot stored alongside proposal + trigger_tags |

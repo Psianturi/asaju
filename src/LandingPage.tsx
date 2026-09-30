@@ -218,7 +218,7 @@ export function LandingPage() {
                 </h1>
 
                 <p className="text-base sm:text-lg text-slate-400 max-w-xl leading-relaxed mb-8">
-                  Spawn an AI agent with its own wallet. It learns from YouTube — when you ask, or on its own — reads live crypto markets, and suggests what to do next. You approve. Every milestone is proven on-chain.
+                  Spawn an AI agent with its own wallet. It learns from YouTube — when you ask, or on its own — reads live CoinMarketCap market data, and recommends a move with the reasoning behind it. You approve. Every milestone is proven on-chain.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-10">
