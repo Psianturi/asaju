@@ -14,6 +14,7 @@ import { CmcAiSummaryCard } from '@/components/CmcAiSummaryCard'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 import { AgentInsightsSection } from '@/components/AgentInsightsSection'
 import { LiveScoutLog } from '@/components/LiveScoutLog'
+import { AgentPulse } from '@/components/AgentPulse'
 import { FeaturedWisdomFeed, type WisdomFeedItem } from '@/components/FeaturedWisdomFeed'
 import { RetroFuturisticBackground } from '@/components/RetroFuturisticBackground'
 
@@ -145,6 +146,17 @@ export function DashboardView({
 
   const autoAgents = agents.filter((a) => a.autoScoutEnabled)
 
+  // Surface the agent with the freshest real activity for the "living" pulse —
+  // recency comes from actual scout timestamps, never a fixed pick.
+  const liveAgent = useMemo(() => {
+    if (agents.length === 0) return null
+    const scoutedAt = (a: Agent) => {
+      const fromLog = (a.recentScoutLog ?? []).reduce((m, r) => Math.max(m, r.attended_at || 0), 0)
+      return Math.max(fromLog, a.lastScoutAt || 0)
+    }
+    return [...agents].sort((a, b) => scoutedAt(b) - scoutedAt(a))[0]
+  }, [agents])
+
   const visitorStatsLoading = !isConnected && publicMetricsLoading && publicMetrics == null
 
   return (
@@ -253,6 +265,12 @@ export function DashboardView({
           onOpenAgent={onOpenAgent}
           onOpenMyAgents={onOpenMyAgents}
         />
+      )}
+
+      {isConnected && liveAgent && (
+        <button type="button" onClick={() => onOpenAgent(liveAgent)} className="block w-full text-left">
+          <AgentPulse agent={liveAgent} />
+        </button>
       )}
 
       <MarketIntelligenceHub />

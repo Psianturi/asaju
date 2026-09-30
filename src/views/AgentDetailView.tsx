@@ -11,6 +11,7 @@ import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { getChain, autoReplenish } from '@/lib/blockchain/chains'
 import { AgentLineageTree } from '@/components/AgentLineageTree'
+import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 
 interface AgentDetailViewProps {
@@ -234,6 +235,9 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
           </div>
         </div>
       </Card>
+
+      {/* Living pulse — the agent's real knowledge + market intake streams. */}
+      <AgentPulse agent={agent} />
 
       {/* Quick actions bar — destructive action kept out of this grid so it
           doesn't share visual weight with routine actions like Configure. */}
