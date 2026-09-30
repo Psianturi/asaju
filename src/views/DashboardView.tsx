@@ -720,55 +720,66 @@ function InboxBody({
           View all <FlowArrow size={12} />
         </button>
       </div>
-      <div className="space-y-1.5">
-        {loading ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
-        ) : (
-          <>
-            {inbox.pending_proposals.slice(0, 3).map(p => (
-              <InboxRow
-                key={p.proposal_id}
-                accent="amber"
-                agent={agentById.get(p.agent_id)}
-                primary={`${p.title}`}
-                secondary={`${p.category} · awaiting approval`}
-                onClick={() => {
-                  const a = agentById.get(p.agent_id)
-                  if (a) onOpenAgent(a)
-                }}
-              />
-            ))}
-            {inbox.paused_agents.slice(0, 2).map(p => (
-              <InboxRow
-                key={`p:${p.agent_id}`}
-                accent="red"
-                agent={agentById.get(p.agent_id)}
-                primary={p.agent_name}
-                secondary={p.reason}
-                onClick={() => {
-                  const a = agentById.get(p.agent_id)
-                  if (a) onOpenAgent(a)
-                }}
-              />
-            ))}
-            {inbox.low_gas_agents.slice(0, 2).map(p => (
-              <InboxRow
-                key={`g:${p.agent_id}`}
-                accent="amber"
-                agent={agentById.get(p.agent_id)}
-                primary={p.agent_name}
-                secondary={`Balance ${p.agent_gas_balance?.toFixed(4) ?? '?'} ${
-                  getChain(agentById.get(p.agent_id)?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''
-                } — top up to keep scouting`}
-                onClick={() => {
-                  const a = agentById.get(p.agent_id)
-                  if (a) onOpenAgent(a)
-                }}
-              />
-            ))}
-          </>
-        )}
-      </div>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="space-y-3">
+          {/* Decisions — real strategic choices the owner makes. */}
+          {inbox.pending_proposals.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[9px] uppercase tracking-widest text-amber-300/70 font-mono px-0.5">Decisions</p>
+              {inbox.pending_proposals.slice(0, 3).map(p => (
+                <InboxRow
+                  key={p.proposal_id}
+                  accent="amber"
+                  agent={agentById.get(p.agent_id)}
+                  primary={`${p.title}`}
+                  secondary={`${p.category} · awaiting approval`}
+                  onClick={() => {
+                    const a = agentById.get(p.agent_id)
+                    if (a) onOpenAgent(a)
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          {/* Maintenance — keep-alive housekeeping, separated so it doesn't
+              dilute the urgency of an actual decision. */}
+          {(inbox.paused_agents.length > 0 || inbox.low_gas_agents.length > 0) && (
+            <div className="space-y-1.5">
+              <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 font-mono px-0.5">Maintenance</p>
+              {inbox.paused_agents.slice(0, 2).map(p => (
+                <InboxRow
+                  key={`p:${p.agent_id}`}
+                  accent="red"
+                  agent={agentById.get(p.agent_id)}
+                  primary={p.agent_name}
+                  secondary={p.reason}
+                  onClick={() => {
+                    const a = agentById.get(p.agent_id)
+                    if (a) onOpenAgent(a)
+                  }}
+                />
+              ))}
+              {inbox.low_gas_agents.slice(0, 2).map(p => (
+                <InboxRow
+                  key={`g:${p.agent_id}`}
+                  accent="amber"
+                  agent={agentById.get(p.agent_id)}
+                  primary={p.agent_name}
+                  secondary={`Balance ${p.agent_gas_balance?.toFixed(4) ?? '?'} ${
+                    getChain(agentById.get(p.agent_id)?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''
+                  } — top up to keep scouting`}
+                  onClick={() => {
+                    const a = agentById.get(p.agent_id)
+                    if (a) onOpenAgent(a)
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
