@@ -120,16 +120,16 @@ export function DashboardView({
     return () => { cancelled = true }
   }, [isConnected])
 
-  // Fetch the CMC snapshot once here and hand it to AgentPulse so the pulse
+  // Fetch the CMC snapshot once here and hand it to AgentPulse (both the
+  // connected owner's pulse and the public showcase pulse) so the pulse
   // doesn't fire its own duplicate request.
   useEffect(() => {
-    if (!isConnected) return
     let cancelled = false
     cloudRunService.getMarketSnapshot()
       .then(s => { if (!cancelled) setMarketSnapshot(s) })
       .catch(() => { if (!cancelled) setMarketSnapshot(null) })
     return () => { cancelled = true }
-  }, [isConnected])
+  }, [])
 
   const urgentAction = useMemo(() => {
     if (!isConnected) return null
@@ -170,6 +170,36 @@ export function DashboardView({
     }
     return [...agents].sort((a, b) => scoutedAt(b) - scoutedAt(a))[0]
   }, [agents])
+
+  // Public showcase: a real featured agent's real last-learned video, so a
+  // visitor sees the "living agent" concept with genuine data, not a mock.
+  const showcaseAgent = useMemo<Agent | null>(() => {
+    const w = featuredWisdom[0]
+    if (!w) return null
+    return {
+      id: w.agentId,
+      name: w.agentName,
+      personality: 'Analytical',
+      niche: (w.niche as Agent['niche']) ?? 'Blockchain/DeFi',
+      walletAddress: '',
+      chainId: w.chainId,
+      eventsAttended: 0,
+      level: 1,
+      status: 'idle',
+      createdAt: Date.now(),
+      subAgents: [],
+      wisdomUnlocked: false,
+      autoScoutEnabled: false,
+      lastScoutAt: w.attendedAt,
+      recentScoutLog: [{
+        event_id: w.eventId,
+        title: w.eventTitle,
+        niche: w.niche,
+        attended_at: w.attendedAt,
+        summary_excerpt: (w.wisdomSummary ?? '').slice(0, 160),
+      }],
+    } as Agent
+  }, [featuredWisdom])
 
   const visitorStatsLoading = !isConnected && publicMetricsLoading && publicMetrics == null
 
@@ -251,6 +281,10 @@ export function DashboardView({
           </div>
         )}
       </section>
+
+      {!isConnected && showcaseAgent && (
+        <AgentPulse agent={showcaseAgent} marketSnapshot={marketSnapshot} variant="showcase" />
+      )}
 
       {!isConnected && (featuredLoading || featuredWisdom.length > 0) && (
         <section>

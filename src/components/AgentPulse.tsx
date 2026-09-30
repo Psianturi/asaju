@@ -12,6 +12,9 @@ interface AgentPulseProps {
   /** Live CMC snapshot. When omitted the component fetches it once itself —
    *  pass it down from a parent that already fetched to avoid duplicate calls. */
   marketSnapshot?: MarketSnapshot | null
+  /** 'owner' (default) speaks to the agent's owner and mentions Auto-Scout;
+   *  'showcase' is the public view of a featured agent — no owner-only copy. */
+  variant?: 'owner' | 'showcase'
   className?: string
 }
 
@@ -37,7 +40,8 @@ type PulseState = 'learning' | 'watching' | 'dormant'
  * Aliveness comes from scout recency, not agent.status — the backend serves
  * every agent as 'idle', so status carries no live signal here.
  */
-export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps) {
+export function AgentPulse({ agent, marketSnapshot, variant = 'owner', className }: AgentPulseProps) {
+  const isShowcase = variant === 'showcase'
   const [selfSnapshot, setSelfSnapshot] = useState<MarketSnapshot | null>(null)
   const snapshot = marketSnapshot ?? selfSnapshot
 
@@ -66,6 +70,7 @@ export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps
 
   const state: PulseState =
     learningActive ? 'learning'
+    : isShowcase ? 'watching'
     : agent.autoScoutEnabled ? 'watching'
     : 'dormant'
 
@@ -88,7 +93,7 @@ export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps
           <span className={cn('relative w-1.5 h-1.5 rounded-full', anyStreamLive ? 'bg-emerald-400' : 'bg-muted-foreground/50')} />
         </span>
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Neural activity · {agent.name}
+          {isShowcase ? 'Featured agent' : 'Neural activity'} · {agent.name}
         </p>
         <span className={cn('ml-auto text-[10px] font-mono font-bold uppercase tracking-wide', meta.color)}>{meta.label}</span>
       </div>
@@ -126,13 +131,15 @@ export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps
       </div>
 
       <div className="mt-3 pt-2.5 border-t border-border/30 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <Lightning size={11} weight="fill" className={agent.autoScoutEnabled ? 'text-emerald-400' : 'text-muted-foreground/50'} />
+        <Lightning size={11} weight="fill" className={learningActive || isShowcase ? 'text-emerald-400' : agent.autoScoutEnabled ? 'text-emerald-400' : 'text-muted-foreground/50'} />
         <span className="leading-snug">
-          {state === 'dormant'
-            ? 'Enable Auto-Scout to let this agent learn and read the market on its own.'
-            : learningActive
-              ? `Consuming knowledge — last learned ${lastLearnedMs > 0 ? fmtTimeAgo(lastLearnedMs) : 'recently'}.`
-              : `Idle — last learned ${lastLearnedMs > 0 ? fmtTimeAgo(lastLearnedMs) : 'never'}. Auto-Scout ${agent.autoScoutEnabled ? 'on' : 'off'}.`}
+          {isShowcase
+            ? `A live ASAJU agent — the video it learned on the left, the CoinMarketCap data it reads on the right.${lastLearnedMs > 0 ? ` Last learned ${fmtTimeAgo(lastLearnedMs)}.` : ''}`
+            : state === 'dormant'
+              ? 'Enable Auto-Scout to let this agent learn and read the market on its own.'
+              : learningActive
+                ? `Consuming knowledge — last learned ${lastLearnedMs > 0 ? fmtTimeAgo(lastLearnedMs) : 'recently'}.`
+                : `Idle — last learned ${lastLearnedMs > 0 ? fmtTimeAgo(lastLearnedMs) : 'never'}. Auto-Scout ${agent.autoScoutEnabled ? 'on' : 'off'}.`}
         </span>
       </div>
     </Card>
