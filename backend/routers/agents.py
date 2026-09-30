@@ -220,6 +220,12 @@ class SpawnResponse(BaseModel):
     comprehension_density: int = 0
     comprehension_next_milestone: int | None = 20
     comprehension_progress_to_next: int = 20
+    # Only set for a just-bred offspring on a V6 chain (no MINTER_SERVICE
+    # fallback exists there). The frontend uses this + agent_wallet to call
+    # spawnBredAgent() itself with the breeder's own wallet, mirroring how a
+    # genesis agent's spawnAgent() call already works today.
+    requires_frontend_spawn: bool = False
+    onchain_offspring_key: str | None = None
     comprehension_sampled_niches: list[str] = []
     recent_scout_log: list[dict] = []
 
@@ -303,7 +309,12 @@ async def _build_agent_response(data: dict, needs_funding: bool) -> SpawnRespons
     )
 
 
-def _to_response(data: dict, needs_funding: bool) -> SpawnResponse:
+def _to_response(
+    data: dict,
+    needs_funding: bool,
+    requires_frontend_spawn: bool = False,
+    onchain_offspring_key: str | None = None,
+) -> SpawnResponse:
     """Sync wrapper kept for callers that already have all data locally.
     Comprehension falls back to zeros — use _build_agent_response when
     freshness matters (always for API requests)."""
@@ -317,6 +328,8 @@ def _to_response(data: dict, needs_funding: bool) -> SpawnResponse:
         total_events=data.get("total_events", 0),
         created_at=data.get("created_at", 0.0),
         needs_funding=needs_funding,
+        requires_frontend_spawn=requires_frontend_spawn,
+        onchain_offspring_key=onchain_offspring_key,
         personality=data.get("personality"),
         custom_instructions=data.get("custom_instructions"),
         auto_scout_enabled=data.get("auto_scout_enabled", False),
@@ -555,13 +568,31 @@ async def _spawn_bred_agent_on_chain(
     chain_id: int = 5003,
 ) -> None:
     """
-    Fire-and-forget: call spawnBredAgent() on V4 signed by MINTER_SERVICE.
+    Fire-and-forget: call spawnBredAgent() signed by MINTER_SERVICE (V4/V5 only).
     Sets isAgentSpawned[offspringWallet]=true on-chain, then updates Firestore.
     Runs after the breed response is already sent to the client.
 
+    On a V6 chain this is a deliberate no-op: V6's spawnBredAgent only accepts
+    the breeder's own wallet, so the backend has no key that can call it.
+    breed_agents() already told the frontend to call it directly instead
+    (requires_frontend_spawn + onchain_offspring_key in the response) — this
+    background task exists only for V4/V5, where MINTER_SERVICE still can.
+
     onchain_offspring_key is the bytes32 hex from the AgentsBred event — this is
-    what the V4 contract stored in its breedRecords mapping. Must match exactly.
+    what the contract stored in its breedRecords mapping. Must match exactly.
     """
+    try:
+        if web3_service.is_v6_chain(chain_id):
+            logger.info(
+                "spawnBredAgent for offspring %s left to the frontend (V6 chain %d)",
+                offspring_id, chain_id,
+            )
+            return
+    except Exception as exc:
+        logger.warning(
+            "Could not determine contract generation for chain %d (non-fatal, "
+            "assuming V4/V5): %s", chain_id, exc.__class__.__name__,
+        )
     if not onchain_offspring_key:
         logger.warning(
             "spawnBredAgent skipped for offspring %s: no on-chain offspringKey available "
@@ -947,10 +978,11 @@ async def breed_agents(req: BreedRequest) -> SpawnResponse:
         )
     )
 
-    # ── spawnBredAgent on V4 (non-blocking) ──────────────────────────────────
-    # MINTER_SERVICE calls spawnBredAgent(offspringWallet, offspringId) on V4,
+    # ── spawnBredAgent (non-blocking, V4/V5 only) ────────────────────────────
+    # MINTER_SERVICE calls spawnBredAgent(offspringWallet, offspringId),
     # setting isAgentSpawned=true so the offspring can self-sign (Mode B).
     # Firestore is updated (spawned_on_v4=True, funded=True) when tx confirms.
+    # No-ops on a V6 chain — see _spawn_bred_agent_on_chain's docstring.
     asyncio.create_task(
         _spawn_bred_agent_on_chain(
             db=db,
@@ -961,7 +993,25 @@ async def breed_agents(req: BreedRequest) -> SpawnResponse:
         )
     )
 
-    return _to_response(offspring_data, needs_funding=True)
+    # On V6, the backend has no key that can call spawnBredAgent — tell the
+    # frontend to call it directly with the breeder's own wallet, right after
+    # this response lands, the same way a genesis agent's needs_funding=True
+    # already triggers a frontend-signed spawnAgent() call today.
+    is_v6 = False
+    try:
+        is_v6 = web3_service.is_v6_chain(p1_chain_id)
+    except Exception as exc:
+        logger.warning(
+            "Could not determine contract generation for chain %d (non-fatal): %s",
+            p1_chain_id, exc.__class__.__name__,
+        )
+
+    return _to_response(
+        offspring_data,
+        needs_funding=True,
+        requires_frontend_spawn=is_v6,
+        onchain_offspring_key=onchain_offspring_key if is_v6 else None,
+    )
 
 
 @router.get("/list")
@@ -1203,8 +1253,15 @@ async def get_agent_scout_logs(agent_id: str) -> list[ScoutLogResponse]:
 @router.post("/{agent_id}/mark-funded")
 async def mark_agent_funded(agent_id: str) -> dict:
     """
-    Mark agent as funded after spawnAgent() transaction succeeds on-chain.
-    Called by frontend after user confirms spawnAgent() on smart contract.
+    Mark agent as funded after its on-chain spawn transaction succeeds.
+    Called by the frontend after the user confirms spawnAgent() (genesis) or
+    spawnBredAgent() (V6 offspring — the backend has no key for that call
+    anymore) on the smart contract.
+
+    Also sets spawned_on_v4=True unconditionally: it's meaningless for a
+    genesis agent (the frontend only reads it for ownership_status='bred'
+    agents), but required for a V6 offspring so AgentCard stops showing it
+    as "not yet activated" once this fires.
     """
     db = get_db()
     doc_ref = db.collection(AGENTS_COLLECTION).document(agent_id)
@@ -1219,12 +1276,12 @@ async def mark_agent_funded(agent_id: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
     try:
-        await doc_ref.update({"funded": True})
+        await doc_ref.update({"funded": True, "spawned_on_v4": True})
     except Exception as exc:
         logger.error("Firestore update failed for agent %s: %s", agent_id, exc)
         raise HTTPException(status_code=503, detail="Failed to update agent in database")
 
-    logger.info("Agent %s marked as funded in Firestore", agent_id)
+    logger.info("Agent %s marked as funded (+ spawned_on_v4) in Firestore", agent_id)
     return {"status": "success", "agent_id": agent_id, "funded": True}
 
 

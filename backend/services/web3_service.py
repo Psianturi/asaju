@@ -144,6 +144,14 @@ MAEF_ABI: list[dict] = [
         "stateMutability": "view",
         "type": "function",
     },
+    # V6 only — its presence is exactly how _is_v6() tells V5 and V6 apart.
+    {
+        "inputs": [],
+        "name": "minAgentBalanceForExecution",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
     {
         "inputs": [
             {"internalType": "address", "name": "agentWallet", "type": "address"},
@@ -196,6 +204,7 @@ class Web3Service:
         self._w3_cache: dict[int, Web3] = {}
         self._contract_cache: dict[int, Any] = {}
         self._is_v5_cache: dict[int, bool] = {}
+        self._is_v6_cache: dict[int, bool] = {}
 
     # ── Connection helpers ────────────────────────────────────────────────────
 
@@ -421,6 +430,39 @@ class Web3Service:
         logger.info("Contract on chain %s detected as %s", chain_id, "V5" if result else "V4")
         return result
 
+    def _is_v6(self, contract, chain_id: int) -> bool:
+        """
+        True when the deployed contract is V6 (has no MINTER_ROLE at all).
+        V6 also has agentOwner, so _is_v5() is true for it too — check this
+        one first when the two branches actually differ. Detected via
+        minAgentBalanceForExecution(), a getter that only exists on V6.
+
+        Where V6 changes behaviour vs V5:
+          - spawnBredAgent has no MINTER_ROLE fallback — only record.breeder
+            may call it, so the backend can never sign this tx itself anymore.
+          - mintAttendanceNFT / recordExecutedProposal have no Mode A path —
+            attempting one with MINTER_SERVICE's key reverts, wasting its gas
+            on a doomed transaction instead of failing fast in Python.
+        """
+        cached = self._is_v6_cache.get(chain_id)
+        if cached is not None:
+            return cached
+        try:
+            contract.functions.minAgentBalanceForExecution().call()
+            result = True
+        except Exception:
+            result = False
+        self._is_v6_cache[chain_id] = result
+        if result:
+            logger.info("Contract on chain %s detected as V6 (no MINTER_ROLE)", chain_id)
+        return result
+
+    def is_v6_chain(self, chain_id: int) -> bool:
+        """Public wrapper so routers can branch on contract generation without
+        reaching into _init_contract/_is_v6 directly."""
+        contract = self._init_contract(chain_id)
+        return self._is_v6(contract, chain_id)
+
     def check_minter_balance_health(self, chain_id: int = 5003) -> None:
         """
         Log-only early warning — call right before MINTER_SERVICE is about to spend
@@ -499,7 +541,8 @@ class Web3Service:
     ) -> dict[str, Any]:
         w3 = self._init_w3(chain_id)
         contract = self._init_contract(chain_id)
-        
+        is_v6 = self._is_v6(contract, chain_id)
+
         using_agent_key = bool(agent_private_key)
         if using_agent_key:
             private_key = agent_private_key
@@ -508,6 +551,13 @@ class Web3Service:
                 allow_mode_b_fallback,
             )
         else:
+            if is_v6:
+                # V6 has no MINTER_ROLE — this call would revert on-chain and
+                # still burn MINTER_SERVICE's gas. Fail fast in Python instead.
+                raise PermissionError(
+                    "mintAttendanceNFT on a V6 contract requires the agent's own "
+                    "key — there is no minter fallback anymore."
+                )
             private_key = get_minter_service_private_key()
             self.check_minter_balance_health(chain_id)
             logger.info("Minter service wallet signing transaction (Mode A)")
@@ -551,6 +601,11 @@ class Web3Service:
                     ) from exc
 
                 if lacks_minter or insufficient_gas:
+                    if is_v6:
+                        raise PermissionError(
+                            "Mode B failed and this is a V6 contract — there is no "
+                            "minter fallback to try. Top up the agent wallet and retry."
+                        ) from exc
                     logger.warning(
                         "Mode B fallback triggered (%s). Falling back to minter service wallet.",
                         "missing role" if lacks_minter else "insufficient gas",
@@ -665,10 +720,22 @@ class Web3Service:
     def _sync_spawn_bred_agent(
         self, offspring_wallet: str, offspring_id: str, chain_id: int = 5003
     ) -> dict[str, Any]:
-        self.check_minter_balance_health(chain_id)
         w3 = self._init_w3(chain_id)
         contract = self._init_contract(chain_id)
 
+        if self._is_v6(contract, chain_id):
+            # V6's spawnBredAgent has no MINTER_ROLE fallback — only
+            # record.breeder may call it, and MINTER_SERVICE is never that.
+            # Submitting anyway would revert on-chain and still burn its gas,
+            # so fail fast in Python instead. The caller (routers/agents.py)
+            # must have the breeder's own wallet call this from the browser.
+            raise PermissionError(
+                "spawnBredAgent is V6-only callable by the breeder's own wallet — "
+                "the backend has no key that can sign this. The frontend must call "
+                "it directly after breedAgents() confirms."
+            )
+
+        self.check_minter_balance_health(chain_id)
         private_key = get_minter_service_private_key()
         signer = Account.from_key(private_key)
 
@@ -777,6 +844,16 @@ class Web3Service:
                 agent_wallet_cs, chain_id,
             )
         else:
+            if self._is_v6(contract, chain_id):
+                # V6's recordExecutedProposal accepts only agentOwner or the
+                # agent itself — MINTER_SERVICE would revert. The proposals
+                # router already blocks this case before calling in (see the
+                # Mode A safety belt), but guard here too since this method
+                # has its own callers.
+                raise PermissionError(
+                    "recordExecutedProposal on a V6 contract requires the owner's "
+                    "or the agent's own key — there is no minter fallback."
+                )
             # Fallback: MINTER_SERVICE (Mode A). Only reached when the caller
             # explicitly skipped agent-key decryption. We still check balance
             # for log visibility but don't gate the call on it.

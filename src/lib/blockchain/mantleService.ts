@@ -252,6 +252,47 @@ export class MantleBlockchainService {
     }
   }
 
+  /**
+   * Activate a bred offspring — only the wallet that called breedAgents() can
+   * do this (contract enforces msg.sender === breeder, no backend fallback on
+   * V6). Mirrors spawnAgent(): called from the browser right after breeding
+   * confirms, using the offspring wallet + on-chain offspring key the backend
+   * already generated and returned in the breed response.
+   */
+  async spawnBredAgent(
+    offspringWallet: string,
+    offspringKeyHex: string,
+    chainId = this.currentChainId,
+  ): Promise<SpawnAgentOnChainResult> {
+    await this.activateChain(chainId)
+    if (!this.contract) {
+      return { success: false, error: 'Contract is not initialized. Check wallet connection.' }
+    }
+
+    try {
+      const chain = getChain(chainId)
+      const tx = await this.contract.spawnBredAgent(offspringWallet, offspringKeyHex)
+      const receipt: TransactionReceipt = await tx.wait()
+      const gasUsed = receipt.gasUsed.toString()
+      const gasPrice = receipt.gasPrice || BigInt(0)
+      const gasCost = (Number(gasUsed) * Number(gasPrice)) / 1e18
+
+      return {
+        success: true,
+        transactionHash: receipt.hash,
+        contractAddress: this.getContractAddress(chainId),
+        provisionAmount: chain?.agentProvision ?? '0',
+        gasUsed: gasCost.toFixed(6),
+      }
+    } catch (error) {
+      console.error('spawnBredAgent transaction error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      }
+    }
+  }
+
   async topUpAgentGas(agentWallet: string, amount: number, chainId = this.currentChainId): Promise<TopUpGasResult> {
     await this.activateChain(chainId)
     if (!this.signer || !this.provider) {

@@ -464,6 +464,8 @@ export const cloudRunService = {
       wisdom_heritage_score?: number
       lineage_biography?: string
       spawned_on_v4?: boolean
+      requires_frontend_spawn?: boolean
+      onchain_offspring_key?: string
     }>(response)
 
     const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
@@ -497,6 +499,8 @@ export const cloudRunService = {
       ownershipStatus: 'bred' as const,
       isGenesis: false,
       spawnedOnV4: raw.spawned_on_v4 ?? false,
+      requiresFrontendSpawn: raw.requires_frontend_spawn ?? false,
+      onchainOffspringKey: raw.onchain_offspring_key,
     }
   },
 
@@ -1168,7 +1172,7 @@ export const cloudRunService = {
   },
 
   /**
-   * Manual override — runs the full data ? prompt ? reasoning ? decision
+   * Manual override ï¿½ runs the full data ? prompt ? reasoning ? decision
    * pipeline synchronously against the live CMC snapshot without persisting
    * anything. Markets move fast: this lets the owner wake their agent
    * outside the Auto-Scout cycle when a high-priority signal appears (BTC
@@ -1332,7 +1336,7 @@ export const cloudRunService = {
   },
 
   /**
-   * CMC AI Market Thesis — the sponsor's own AI-generated market digest at
+   * CMC AI Market Thesis ï¿½ the sponsor's own AI-generated market digest at
    * /v5/cmc-ai/latest. Returns a compact dict the dashboard renders as the
    * "CMC AI Market Summary" card and the proposal prompt uses as its
    * highest-priority context. Falls back to `summary = {}` on transient errors.

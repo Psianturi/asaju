@@ -12,8 +12,8 @@ import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import { cloudRunService } from '@/services/cloudRunService'
 import { BrowserProvider, Contract, parseEther, keccak256, toUtf8Bytes } from 'ethers'
-import { CONTRACT_ADDRESSES } from '@/lib/blockchain/config'
-import { getChain } from '@/lib/blockchain/chains'
+import { getChain, breedTotalDue, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
+import { mantleService } from '@/lib/blockchain/mantleService'
 
 const BREED_ABI = [
   {
@@ -59,14 +59,15 @@ export function AgentBreedingDialog({
   const [showResult, setShowResult] = useState(false)
   const [breedingResult, setBreedingResult] = useState<BreedingResult | null>(null)
 
-  const BREEDING_COST = 2.5
-  // Breeding currency follows the chain of the first selected parent — both
-  // parents must be on the same chain (enforced by V5 contract), so this is
-  // unambiguous. If no parent is selected yet, fall back to the user's wallet
-  // chain (mantle as default until proven otherwise).
-  const breedingCurrency =
-    getChain(selectedParent1?.chainId ?? selectedParent2?.chainId ?? 5003)
-      ?.nativeSymbol ?? 'token'
+  // Breeding chain follows the first selected parent — both parents must be
+  // on the same chain (enforced by the contract), so this is unambiguous.
+  const breedingChainId = selectedParent1?.chainId ?? selectedParent2?.chainId ?? DEFAULT_CHAIN_ID
+  const breedingCurrency = getChain(breedingChainId)?.nativeSymbol ?? 'token'
+  // What breedAgents() actually charges on this chain — breedCost alone on
+  // Mantle (V4), breedCost + spawnFee everywhere else (V5/V6's escrow design
+  // prepays the offspring's own activation). Never hardcode this; it used to
+  // be a stale "2.5" that didn't match any deployed chain's real cost.
+  const BREEDING_COST = Number(breedTotalDue(breedingChainId))
 
   const eligibleAgents = agents.filter(a => 
     a.wisdomUnlocked && 
@@ -105,7 +106,10 @@ export function AgentBreedingDialog({
       try {
         const provider = new BrowserProvider(window.ethereum as any)
         const signer = await provider.getSigner()
-        const contractAddress = CONTRACT_ADDRESSES.sepolia.MAEF_NFT
+        const contractAddress = getChain(breedingChainId)?.contractAddress
+        if (!contractAddress) {
+          throw new Error(`No contract deployed for chain ${breedingChainId}`)
+        }
         const contract = new Contract(contractAddress, BREED_ABI, signer)
 
         // Unique key per breed attempt (timestamp prevents on-chain replay)
@@ -130,7 +134,7 @@ export function AgentBreedingDialog({
           offspringKey,
           offspringGeneration,
           offspringHeritageScore,
-          { value: parseEther('2.5') }
+          { value: parseEther(breedTotalDue(breedingChainId)) }
         )
 
         setBreedingProgress(20)
@@ -169,6 +173,34 @@ export function AgentBreedingDialog({
         offspringName,
         breedTxHash,
       })
+
+      // V6 chains: the backend has no key that can activate the offspring —
+      // only the wallet that just bred it can (contract-enforced). Do that
+      // now, from the browser, the same wallet that signed breedAgents().
+      if (offspring.requiresFrontendSpawn && offspring.onchainOffspringKey) {
+        toast.info('Activating offspring on-chain — confirm one more transaction...')
+        const activation = await mantleService.spawnBredAgent(
+          offspring.walletAddress,
+          offspring.onchainOffspringKey,
+          breedingChainId,
+        )
+        if (activation.success) {
+          offspring.spawnedOnV4 = true
+          try {
+            await cloudRunService.markAgentFunded(offspring.id)
+          } catch {
+            // Firestore flag lags the real on-chain state — non-fatal, the
+            // next fetch from chain still reflects the true isAgentSpawned.
+          }
+          toast.success('Offspring activated on-chain ✓')
+        } else {
+          // Offspring exists (bred + registered), just not yet activated.
+          // Non-fatal: surface it and let the user retry from the agent card.
+          toast.warning('Offspring created, but on-chain activation failed', {
+            description: activation.error?.slice(0, 150) ?? 'You can retry from the agent card.',
+          })
+        }
+      }
 
       clearInterval(tick)
       setBreedingProgress(100)

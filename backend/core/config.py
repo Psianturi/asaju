@@ -23,7 +23,7 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "name": "BNB Smart Chain Testnet",
         "native_symbol": "tBNB",
         "rpc_url": "https://bsc-testnet-rpc.publicnode.com",
-        "contract_address": "0x4cCB2f96f66B4E06E5A78da25797b7386814C313",  # ASAJU V5, 25 Sep 2026
+        "contract_address": "0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C",  # ASAJU V6, 30 Sep 2026 — no MINTER_ROLE
         "explorer_url": "https://testnet.bscscan.com",
     },
 }

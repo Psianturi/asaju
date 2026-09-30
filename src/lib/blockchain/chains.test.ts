@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getSupportedChains, getChain, txUrl, nftUrl, CHAIN_CONFIGS, DEFAULT_CHAIN_ID } from './chains'
+import { getSupportedChains, getChain, txUrl, nftUrl, breedTotalDue, CHAIN_CONFIGS, DEFAULT_CHAIN_ID } from './chains'
 
 describe('chain registry', () => {
   it('exposes every configured chain that has a contract', () => {
@@ -100,6 +100,35 @@ describe('spawn economics', () => {
         spawnFee: chain.spawnFee,
         agentProvision: chain.agentProvision,
       }).toEqual(onChain[chain.chainId])
+    }
+  })
+})
+
+describe('breedTotalDue', () => {
+  // Mantle (5003) is still V4 — breedAgents() only ever charged breedCost,
+  // no escrow prepay. Every other chain is V5/V6, which charges
+  // breedCost + spawnFee together. Sending the wrong total reverts on-chain
+  // with no clue why — this is exactly the "AgentBreedingDialog hardcoded
+  // 2.5" bug this function replaced, so it stays pinned to live values.
+  it('charges breedCost alone on Mantle (V4)', () => {
+    expect(breedTotalDue(5003)).toBe('2')
+  })
+
+  it('charges breedCost + spawnFee on ETH Sepolia (V5)', () => {
+    expect(breedTotalDue(11155111)).toBe('0.03')
+  })
+
+  it('charges breedCost + spawnFee on BNB testnet (V6)', () => {
+    expect(breedTotalDue(97)).toBe('0.03')
+  })
+
+  it('returns 0 for an unknown chain rather than throwing', () => {
+    expect(breedTotalDue(999999)).toBe('0')
+  })
+
+  it('every supported chain declares a positive breedCost', () => {
+    for (const chain of getSupportedChains()) {
+      expect(Number(chain.breedCost)).toBeGreaterThan(0)
     }
   })
 })

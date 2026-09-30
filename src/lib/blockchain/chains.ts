@@ -29,6 +29,11 @@ export interface ChainConfig {
    *  Must match the deployed agentProvision(); derived per chain from live gas
    *  price by contracts/scripts/calibrate-fees.js, not picked by hand. */
   agentProvision: string
+  /** breedAgents() cost, in native token units. On Mantle (V4) this alone is
+   *  what a breed transaction sends. On every other chain (V5/V6's escrow
+   *  design) the transaction must send breedCost + spawnFee together — see
+   *  breedTotalDue() below, which is the one place that distinction lives. */
+  breedCost: string
   color: string           // brand color for UI badges
   testnet: boolean
 }
@@ -45,6 +50,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     contractAddress: contractFor(5003, '0x66fD8b5411856D42c08D9356e879a6e7dF0c9419'),
     spawnFee: '1',
     agentProvision: '0.5',
+    breedCost: '2',   // V4 — breedAgents() only ever charged breedCost, no escrow prepay
     color: '#00F3FF',
     testnet: true,
   },
@@ -58,6 +64,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     contractAddress: contractFor(11155111, '0x0fE75B47bFE360A305F5D56607d976448fF7c9e7'),  // V5, 25 Sep 2026
     spawnFee: '0.01',       // set on-chain 26 Sep via calibrate-fees.js
     agentProvision: '0.005',  // ~26 mints of runway at current Sepolia gas
+    breedCost: '0.02',      // V5 — user pays breedCost + spawnFee together, see breedTotalDue()
     color: '#8B5CF6',
     testnet: true,
   },
@@ -72,9 +79,10 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
       'https://data-seed-prebsc-1-s1.bnbchain.org:8545',
     ],
     explorerUrl: 'https://testnet.bscscan.com',
-    contractAddress: contractFor(97, '0x4cCB2f96f66B4E06E5A78da25797b7386814C313'),  // V5, 25 Sep 2026
-    spawnFee: '0.01',       // set on-chain 26 Sep via calibrate-fees.js
+    contractAddress: contractFor(97, '0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C'),  // V6, 30 Sep 2026 — no MINTER_ROLE
+    spawnFee: '0.01',
     agentProvision: '0.005',  // far past the runway floor, but a balance the owner can actually see
+    breedCost: '0.02',      // V6 — user pays breedCost + spawnFee together, see breedTotalDue()
     color: '#F0B90B',
     testnet: true,
   },
@@ -112,6 +120,20 @@ export function nftUrl(chainId: number, tokenId: string | number): string {
     return `${base}/token/${chain.contractAddress}?type=nft&tokenId=${tokenId}`
   }
   return `${base}/nft/${chain.contractAddress}/${tokenId}`
+}
+
+/**
+ * What a breedAgents() transaction must actually send. V4 (Mantle) only ever
+ * charged breedCost. V5/V6's escrow design charges breedCost + spawnFee in
+ * one transaction, prepaying the offspring's own activation — see
+ * AsajuAgentV6.sol's breedAgents(). This is the one place that split lives;
+ * callers should never add breedCost + spawnFee by hand.
+ */
+export function breedTotalDue(chainId: number): string {
+  const chain = getChain(chainId)
+  if (!chain) return '0'
+  if (chainId === 5003) return chain.breedCost
+  return (Number(chain.breedCost) + Number(chain.spawnFee)).toString()
 }
 
 export const DEFAULT_CHAIN_ID = 97

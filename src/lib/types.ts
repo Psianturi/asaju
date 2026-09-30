@@ -22,6 +22,11 @@ export interface Agent {
   contractAddress?: string
   deploymentTxHash?: string
   needsFunding?: boolean
+  /** Set only for a just-bred offspring on a V6 chain — no MINTER_SERVICE
+   *  fallback exists there, so the frontend must call spawnBredAgent() itself
+   *  with the breeder's own wallet, using onchainOffspringKey below. */
+  requiresFrontendSpawn?: boolean
+  onchainOffspringKey?: string
   eventsAttended: number
   level: number
   status: AgentStatus
