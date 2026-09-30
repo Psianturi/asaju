@@ -138,6 +138,9 @@ export interface BackendProposal {
   title: string
   description: string
   category: 'defi' | 'governance' | 'education' | 'community'
+  // Recommended action axis (Phase 1: record-only, never auto-executed).
+  action_type?: 'BUY' | 'SELL' | 'HOLD' | 'RESEARCH'
+  action_asset?: string | null
   proposal_hash: string
   status: 'pending' | 'approving' | 'approved' | 'rejected' | 'expired' | 'ephemeral'
   created_at: number

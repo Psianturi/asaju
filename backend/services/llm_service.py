@@ -674,6 +674,11 @@ async def generate_lineage_biography(
 
 _PROPOSAL_CATEGORIES = ["defi", "governance", "education", "community"]
 
+# Proposal action axis — what the agent recommends the owner do. This is a
+# recommendation only; nothing executes without the owner's signature, and no
+# execution path is wired yet (Phase 1: the action is recorded, not performed).
+_PROPOSAL_ACTION_TYPES = ["BUY", "SELL", "HOLD", "RESEARCH"]
+
 _PROPOSAL_FALLBACKS = [
     {
         "title": "Deploy Capital in Yield Optimization Protocol",
@@ -1046,22 +1051,31 @@ Recent Wisdom (events attended):
 {cmc_signals_text}
 {owner_block}
 Generate ONE strategic proposal this agent should present to its human owner for approval.
-The proposal must be actionable, specific to the agent's niche, and executable within 7 days.
-This is a recommendation for human review, not autonomous execution — do not propose
-moving funds or executing trades directly.
+The proposal must be actionable, specific to the agent's niche, and grounded in the data above.
+
+You may recommend a specific market action — buy, sell, or hold a named token — when the live
+data justifies it. This is a RECOMMENDATION the owner reviews and approves; it is NEVER an
+autonomous trade and nothing moves without the owner's explicit signature. Tie the action to a
+specific data point above. Use "RESEARCH" when the proposal is about learning or governance
+rather than a trade.
 
 Respond ONLY with valid JSON in this exact format:
 {{
   "title": "Short action-oriented title (max 60 chars)",
-  "description": "2-3 sentence description of the proposal and its expected impact on the agent's growth and heritage score.",
-  "category": "defi" | "governance" | "education" | "community"
+  "description": "2-3 sentence description of the proposal, the specific data point behind it, and its expected impact.",
+  "category": "defi" | "governance" | "education" | "community",
+  "action": {{
+    "type": "BUY" | "SELL" | "HOLD" | "RESEARCH",
+    "asset": "token ticker like SOL or BTC, or null when not asset-specific",
+    "rationale": "one short sentence tying the action to a live data point above"
+  }}
 }}"""
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.7,
-            "maxOutputTokens": 300,
+            "maxOutputTokens": 400,
             "topP": 0.9,
             "thinkingConfig": {"thinkingBudget": 0},
         },
@@ -1088,6 +1102,24 @@ Respond ONLY with valid JSON in this exact format:
         category = parsed.get("category", "education")
         if category not in _PROPOSAL_CATEGORIES:
             category = "education"
+
+        # Recommended action — Phase 1 is record-only: the type/asset are shown
+        # to the owner and stored, but nothing executes. Default to RESEARCH so
+        # a malformed or missing action never implies a trade.
+        action_raw = parsed.get("action") or {}
+        action_type = str(action_raw.get("type", "RESEARCH")).strip().upper()
+        if action_type not in _PROPOSAL_ACTION_TYPES:
+            action_type = "RESEARCH"
+        action_asset = action_raw.get("asset")
+        if action_asset:
+            action_asset = str(action_asset).strip().upper()[:12]
+            if action_asset in ("", "NULL", "NONE", "N/A"):
+                action_asset = None
+        else:
+            action_asset = None
+        # A trade action needs a concrete asset; without one it is just research.
+        if action_type in ("BUY", "SELL") and not action_asset:
+            action_type = "RESEARCH"
 
         # Build a structured reasoning trace so the UI can show what data the
         # agent had, what it said in the prompt, and what it returned. This is
@@ -1164,6 +1196,8 @@ Respond ONLY with valid JSON in this exact format:
             "title": str(parsed.get("title", "Strategic Proposal"))[:80],
             "description": str(parsed.get("description", "")),
             "category": category,
+            "action_type": action_type,
+            "action_asset": action_asset,
             "trigger_tags": trigger_tags[:6],
             "_reasoning": {
                 "prompt": prompt,

@@ -76,6 +76,13 @@ const CATEGORY_CONFIG = {
   },
 } as const
 
+const ACTION_STYLE: Record<'BUY' | 'SELL' | 'HOLD' | 'RESEARCH', { cls: string }> = {
+  BUY: { cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' },
+  SELL: { cls: 'bg-rose-500/15 text-rose-300 border-rose-500/40' },
+  HOLD: { cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40' },
+  RESEARCH: { cls: 'bg-slate-500/15 text-slate-300 border-slate-500/40' },
+}
+
 function formatTTL(expiresAt: number): string {
   const remaining = Math.max(0, expiresAt - Date.now() / 1000)
   if (remaining <= 0) return 'Expired'
@@ -142,6 +149,11 @@ function ProposalCard({
             <Badge className={`text-[10px] font-bold px-2 py-0 border ${cat.bg} ${cat.color} ${cat.border}`}>
               {cat.label}
             </Badge>
+            {proposal.action_type && proposal.action_type !== 'RESEARCH' && (
+              <Badge className={`text-[10px] font-bold px-2 py-0 border ${ACTION_STYLE[proposal.action_type].cls}`}>
+                {proposal.action_type}{proposal.action_asset ? ` ${proposal.action_asset}` : ''}
+              </Badge>
+            )}
             {isPending && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono">
                 <Clock size={10} />
@@ -184,6 +196,15 @@ function ProposalCard({
                   Trigger: {tag}
                 </span>
               ))}
+            </div>
+          )}
+          {(proposal.action_type === 'BUY' || proposal.action_type === 'SELL') && (
+            <div className="mt-2 flex items-start gap-1.5 rounded-md border border-slate-500/30 bg-slate-500/[0.06] px-2 py-1.5">
+              <Eye size={12} weight="duotone" className="text-slate-300 shrink-0 mt-0.5" />
+              <span className="text-[10px] text-slate-300/90 leading-snug">
+                Recommendation only — approving records this decision on-chain for the agent's history.
+                No trade is executed; autonomous trade execution is not yet enabled.
+              </span>
             </div>
           )}
         </div>

@@ -151,6 +151,9 @@ class ProposalResponse(BaseModel):
     title: str
     description: str
     category: str
+    # Recommended action axis (Phase 1: record-only, never auto-executed).
+    action_type: str | None = None
+    action_asset: str | None = None
     proposal_hash: str
     status: str
     created_at: float
@@ -346,6 +349,8 @@ def _doc_to_response(doc_id: str, data: dict) -> ProposalResponse:
         title=data["title"],
         description=data["description"],
         category=data["category"],
+        action_type=data.get("action_type"),
+        action_asset=data.get("action_asset"),
         proposal_hash=data["proposal_hash"],
         status=data["status"],
         created_at=data["created_at"],
@@ -584,6 +589,8 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         "title": proposal_data["title"],
         "description": proposal_data["description"],
         "category": proposal_data["category"],
+        "action_type": proposal_data.get("action_type"),
+        "action_asset": proposal_data.get("action_asset"),
         "proposal_hash": proposal_hash,
         "status": "pending",
         "created_at": now,
@@ -768,6 +775,8 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
         "title": proposal_data["title"],
         "description": proposal_data["description"],
         "category": proposal_data["category"],
+        "action_type": proposal_data.get("action_type"),
+        "action_asset": proposal_data.get("action_asset"),
         "proposal_hash": "",  # not a real proposal
         "status": "ephemeral",  # marker so UI knows not to render Approve/Reject
         "created_at": now,
