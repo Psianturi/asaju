@@ -5,7 +5,7 @@ import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeHemisphereEast, Medal, Article, ArrowRight } from '@phosphor-icons/react'
 import { Agent, Event, NFT } from '@/lib/types'
-import { cloudRunService } from '@/services/cloudRunService'
+import { cloudRunService, type MarketSnapshot } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
@@ -85,6 +85,7 @@ export function DashboardView({
   const [featuredLoading, setFeaturedLoading] = useState(false)
   const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false)
   const [youtubeAgent, setYoutubeAgent] = useState<Agent | null>(null)
+  const [marketSnapshot, setMarketSnapshot] = useState<MarketSnapshot | null>(null)
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -114,6 +115,17 @@ export function DashboardView({
       .then(items => { if (!cancelled) setFeaturedWisdom(Array.isArray(items) ? items.slice(0, 3) : []) })
       .catch(() => { if (!cancelled) setFeaturedWisdom([]) })
       .finally(() => { if (!cancelled) setFeaturedLoading(false) })
+    return () => { cancelled = true }
+  }, [isConnected])
+
+  // Fetch the CMC snapshot once here and hand it to AgentPulse so the pulse
+  // doesn't fire its own duplicate request.
+  useEffect(() => {
+    if (!isConnected) return
+    let cancelled = false
+    cloudRunService.getMarketSnapshot()
+      .then(s => { if (!cancelled) setMarketSnapshot(s) })
+      .catch(() => { if (!cancelled) setMarketSnapshot(null) })
     return () => { cancelled = true }
   }, [isConnected])
 
@@ -269,7 +281,7 @@ export function DashboardView({
 
       {isConnected && liveAgent && (
         <button type="button" onClick={() => onOpenAgent(liveAgent)} className="block w-full text-left">
-          <AgentPulse agent={liveAgent} />
+          <AgentPulse agent={liveAgent} marketSnapshot={marketSnapshot} />
         </button>
       )}
 

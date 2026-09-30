@@ -25,7 +25,7 @@ function toMs(ts: number | undefined | null): number {
   return ts < 1e12 ? ts * 1000 : ts
 }
 
-type PulseState = 'thinking' | 'learning' | 'watching' | 'dormant'
+type PulseState = 'learning' | 'watching' | 'dormant'
 
 /**
  * AgentPulse — a "living" view of one agent driven only by real activity:
@@ -33,6 +33,9 @@ type PulseState = 'thinking' | 'learning' | 'watching' | 'dormant'
  * over (right stream). The core animates energetically only when something
  * genuinely happened recently; when the agent is idle it stays calm and says
  * so, rather than faking perpetual motion.
+ *
+ * Aliveness comes from scout recency, not agent.status — the backend serves
+ * every agent as 'idle', so status carries no live signal here.
  */
 export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps) {
   const [selfSnapshot, setSelfSnapshot] = useState<MarketSnapshot | null>(null)
@@ -57,16 +60,12 @@ export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps
   }, [agent.recentScoutLog, agent.lastScoutAt])
 
   const now = Date.now()
-  const learningActive =
-    agent.status === 'processing' ||
-    agent.status === 'active' ||
-    (lastLearnedMs > 0 && now - lastLearnedMs < SIX_HOURS)
+  const learningActive = lastLearnedMs > 0 && now - lastLearnedMs < SIX_HOURS
 
   const marketFresh = !!snapshot && now - toMs(snapshot.generated_at) < FIFTEEN_MIN
 
   const state: PulseState =
-    agent.status === 'processing' ? 'thinking'
-    : learningActive ? 'learning'
+    learningActive ? 'learning'
     : agent.autoScoutEnabled ? 'watching'
     : 'dormant'
 
@@ -75,7 +74,6 @@ export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps
   const btcChange = snapshot?.prices?.bitcoin?.usd_24h_change
 
   const STATE_META: Record<PulseState, { label: string; color: string; core: string }> = {
-    thinking: { label: 'Reasoning', color: 'text-secondary', core: 'from-secondary/60 to-primary/40' },
     learning: { label: 'Learning', color: 'text-emerald-400', core: 'from-emerald-400/60 to-cyan-400/40' },
     watching: { label: 'Watching the market', color: 'text-cyan-300', core: 'from-cyan-400/50 to-primary/30' },
     dormant: { label: 'Dormant', color: 'text-muted-foreground', core: 'from-muted/40 to-muted/10' },
@@ -142,7 +140,7 @@ export function AgentPulse({ agent, marketSnapshot, className }: AgentPulseProps
 }
 
 function Core({ state, coreClass }: { state: PulseState; coreClass: string }) {
-  const energetic = state === 'thinking' || state === 'learning'
+  const energetic = state === 'learning'
   return (
     <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center shrink-0">
       <motion.div
