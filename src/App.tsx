@@ -1382,6 +1382,7 @@ function App() {
               onViewEvolution={handleViewEvolution}
               onToggleAutoReplenish={handleToggleAutoReplenish}
               onOpenProposals={(agent) => setProposalModalAgent(agent)}
+              onListMarketplace={(agent) => setListingDialogAgent(agent)}
               onDeleteAgent={handleDeleteAgent}
               onRetrySpawn={handleRetrySpawn}
               onToggleScout={handleToggleScout}

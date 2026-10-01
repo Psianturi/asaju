@@ -25,6 +25,7 @@ interface MyAgentsViewProps {
   onViewEvolution: (agent: Agent) => void
   onToggleAutoReplenish: (agent: Agent, enabled: boolean) => void
   onOpenProposals: (agent: Agent) => void
+  onListMarketplace?: (agent: Agent) => void
   onDeleteAgent: (agent: Agent) => void
   onRetrySpawn: (agent: Agent) => void
   onToggleScout: (agentId: string, enabled: boolean) => void
@@ -51,6 +52,7 @@ export function MyAgentsView({
   onViewEvolution,
   onToggleAutoReplenish,
   onOpenProposals,
+  onListMarketplace,
   onDeleteAgent,
   onRetrySpawn,
   onToggleScout,
@@ -181,6 +183,7 @@ export function MyAgentsView({
                 onToggleAutoReplenish={onToggleAutoReplenish}
                 pendingProposalCount={proposalCounts[agent.id] ?? 0}
                 onOpenProposals={onOpenProposals}
+                onListMarketplace={onListMarketplace}
                 onDeleteAgent={onDeleteAgent}
                 onRetrySpawn={onRetrySpawn}
               />

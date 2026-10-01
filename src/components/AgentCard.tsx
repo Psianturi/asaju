@@ -10,7 +10,7 @@ import { motion } from 'framer-motion'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { GasStatusBadge } from './GasStatusBadge'
 import { ChainBadge } from './ChainBadge'
-import { DEFAULT_CHAIN_ID, getChain, autoReplenish } from '@/lib/blockchain/chains'
+import { DEFAULT_CHAIN_ID, getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from './NicheAvatar'
 
@@ -732,7 +732,7 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 Evolution Path
               </Button>
             )}
-            {onListMarketplace && agent.ownershipStatus === 'original-creator' && (
+            {onListMarketplace && agent.ownershipStatus === 'original-creator' && supportsMarketplace(agent.chainId ?? DEFAULT_CHAIN_ID) && (
               <Button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -743,7 +743,7 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 className="w-full border-accent/30 hover:bg-accent/10 hover:border-accent/50 transition-all text-accent"
               >
                 <ShoppingCart className="mr-1.5" weight="duotone" size={16} />
-                List on Marketplace
+                Sell / Transfer
               </Button>
             )}
             <div className="grid grid-cols-2 gap-2">
