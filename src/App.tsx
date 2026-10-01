@@ -33,6 +33,7 @@ import { ContractDeploymentProgress } from '@/components/ContractDeploymentProgr
 import { ContractVerificationTracker } from '@/components/ContractVerificationTracker'
 import { AgentEvolutionDialog } from '@/components/AgentEvolutionDialog'
 import { TopUpGasDialog } from '@/components/TopUpGasDialog'
+import { MarketplaceListingDialog } from '@/components/MarketplaceListingDialog'
 import { GenesisMintConfirmation } from '@/components/GenesisMintConfirmation'
 import { AgentBreedingDialog } from '@/components/AgentBreedingDialog'
 import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
@@ -286,7 +287,20 @@ function App() {
     const interval = setInterval(tick, 30_000)
     return () => { cancelled = true; clearInterval(interval) }
   }, [blockchain.isConnected, blockchain.address, blockchain.chainId, blockchain.refreshBalance])
-  const [marketplaceAgents, setMarketplaceAgents] = useLocalStorage<MarketplaceAgent[]>('maef-marketplace', [])
+  // Real marketplace listings come from the backend (not localStorage) so every
+  // viewer sees the same live board.
+  const [marketplaceAgents, setMarketplaceAgents] = useState<MarketplaceAgent[]>([])
+  const [listingDialogAgent, setListingDialogAgent] = useState<Agent | null>(null)
+
+  const refreshMarketplaceListings = useCallback(() => {
+    cloudRunService.getMarketplaceListings()
+      .then(setMarketplaceAgents)
+      .catch(() => setMarketplaceAgents([]))
+  }, [])
+
+  useEffect(() => {
+    if (mainView === 'marketplace') refreshMarketplaceListings()
+  }, [mainView, refreshMarketplaceListings])
   const [breedingDialogOpen, setBreedingDialogOpen] = useState(false)
   const [proposalModalAgent, setProposalModalAgent] = useState<Agent | null>(null)
   const [proposalCounts, setProposalCounts] = useState<Record<string, number>>({})
@@ -1429,6 +1443,7 @@ function App() {
                 onToggleScout={handleToggleScout}
                 pendingProposalCount={proposalCounts[agent.id] ?? 0}
                 onOpenProposals={(a) => setProposalModalAgent(a)}
+                onListMarketplace={(a) => setListingDialogAgent(a)}
                 onDeleteAgent={handleDeleteAgent}
               />
             )
@@ -1437,6 +1452,16 @@ function App() {
 
         </main>
       </div>
+
+      {listingDialogAgent && walletAddress && (
+        <MarketplaceListingDialog
+          open={!!listingDialogAgent}
+          onOpenChange={(o) => { if (!o) setListingDialogAgent(null) }}
+          agent={listingDialogAgent}
+          sellerWallet={walletAddress}
+          onChanged={() => { refreshMarketplaceListings(); setListingDialogAgent(null) }}
+        />
+      )}
 
       <SpawnAgentDialog
         open={spawnDialogOpen}

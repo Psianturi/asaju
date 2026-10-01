@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Robot } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Robot, Storefront } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +9,7 @@ import { Agent, Event, NFT } from '@/lib/types'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
-import { getChain, autoReplenish } from '@/lib/blockchain/chains'
+import { getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
 import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
@@ -30,6 +30,7 @@ interface AgentDetailViewProps {
   onToggleScout?: (agentId: string, enabled: boolean) => void
   pendingProposalCount?: number
   onOpenProposals?: (agent: Agent) => void
+  onListMarketplace?: (agent: Agent) => void
   onDeleteAgent?: (agent: Agent) => void
 }
 
@@ -56,6 +57,7 @@ export function AgentDetailView({
   onToggleScout,
   pendingProposalCount,
   onOpenProposals,
+  onListMarketplace,
   onDeleteAgent,
 }: AgentDetailViewProps) {
   const avatar = useMemo(() => getAgentAvatar(agent.id, agent.name), [agent.id, agent.name])
@@ -275,6 +277,16 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 {pendingProposalCount}
               </span>
             )}
+          </Button>
+        )}
+        {onListMarketplace && agent.ownershipStatus === 'original-creator' && supportsMarketplace(agent.chainId ?? 0) && (
+          <Button
+            onClick={() => onListMarketplace(agent)}
+            variant="outline"
+            className="border-border/40 hover:border-secondary/50 justify-start text-secondary"
+          >
+            <Storefront className="mr-2" weight="duotone" size={16} />
+            Sell / Transfer
           </Button>
         )}
       </div>

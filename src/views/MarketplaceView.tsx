@@ -74,7 +74,7 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
           </div>
         </div>
         <div className="text-sm text-muted-foreground font-mono">
-          {marketplaceAgents?.length ?? 0} available · 1.8–4.5 MNT
+          {marketplaceAgents?.length ?? 0} listed · BNB &amp; ETH Sepolia
         </div>
       </div>
 
@@ -84,30 +84,23 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
         totalAgents={marketplaceAgents?.length ?? 0}
       />
 
-      {/* Coming Soon banner */}
+      {/* Honest Fase 1 banner — direct transfer works on testnet; escrow is next. */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
-        className="flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-accent/5 to-secondary/10"
+        className="flex items-start gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-accent/5 to-secondary/10"
       >
         <div className="w-8 h-8 rounded-lg bg-primary/20 border border-primary/40 flex items-center justify-center flex-shrink-0">
           <LockKey size={16} weight="duotone" className="text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="text-xs font-mono text-muted-foreground tracking-[0.2em] uppercase">On-chain P2P Marketplace · </span>
-          <span className="text-sm font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">Coming Soon</span>
-          <span className="text-xs text-muted-foreground/70 ml-2">— launching after mainnet deployment</span>
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {[0, 0.25, 0.5].map((delay, i) => (
-            <motion.div
-              key={i}
-              animate={{ scale: [1, 1.5, 1], opacity: [0.35, 1, 0.35] }}
-              transition={{ repeat: Infinity, duration: 1.2, delay, ease: 'easeInOut' }}
-              className="w-1.5 h-1.5 rounded-full bg-primary"
-            />
-          ))}
+          <p className="text-sm font-bold text-foreground">Direct ownership transfer — live on testnet</p>
+          <p className="text-xs text-muted-foreground/80 leading-snug mt-0.5">
+            Owners list an agent here and transfer it on-chain to a buyer; everything the agent
+            learned carries forward. Arrange payment with the seller directly — the platform does
+            not hold funds yet. Escrowed, trustless payment is the next phase.
+          </p>
         </div>
       </motion.div>
 
