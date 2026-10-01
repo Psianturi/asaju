@@ -76,17 +76,23 @@ async def _migrate_transfer(agent_wallet: str, new_owner: str, previous_owner_ev
     identity is preserved — only ownership-related fields are touched.
     """
     db = get_db()
-    agent_ref = db.collection("agents").document(agent_wallet)
 
-    snapshot = await agent_ref.get()
-    if not snapshot.exists:
+    # Agent docs are keyed by a hashed agent_id, with the wallet stored in a
+    # field — so find the agent by its agent_wallet field, not by document id.
+    agent_snap = None
+    async for d in db.collection("agents").where("agent_wallet", "==", agent_wallet).limit(1).stream():
+        agent_snap = d
+        break
+
+    if agent_snap is None:
         logger.warning(
-            "marketplace_indexer: agent doc %s not found for transfer, skipping",
+            "marketplace_indexer: agent doc for wallet %s not found for transfer, skipping",
             agent_wallet,
         )
         return {"skipped": 1}
 
-    data = snapshot.to_dict() or {}
+    data = agent_snap.to_dict() or {}
+    agent_id = agent_snap.id
     firestore_owner = (data.get("user_wallet") or "").lower()
 
     # The "skip if Firestore disagrees with the event" guard. We compare
@@ -105,17 +111,29 @@ async def _migrate_transfer(agent_wallet: str, new_owner: str, previous_owner_ev
             )
             return {"skipped": 1, "reason": "owner_mismatch"}
 
+    # Proposals are keyed by the hashed agent_id, not the wallet.
     proposals_updated = 0
-    proposals_ref = db.collection("proposals").where("agent_id", "==", agent_wallet)
-    async for prop_doc in proposals_ref.stream():
-        prop_doc.reference.update({"owner_wallet_at_proposal": new_owner})
+    async for prop_doc in db.collection("proposals").where("agent_id", "==", agent_id).stream():
+        await prop_doc.reference.update({"owner_wallet_at_proposal": new_owner})
         proposals_updated += 1
 
-    await agent_ref.update({"user_wallet": new_owner, "ownership_updated_at": time.time()})
+    await agent_snap.reference.update({"user_wallet": new_owner, "ownership_updated_at": time.time()})
+
+    # Close out any active marketplace listing for this agent now that it sold.
+    listings_sold = 0
+    try:
+        listing_ref = db.collection("marketplace_listings").document(agent_id)
+        listing_snap = await listing_ref.get()
+        if listing_snap.exists and (listing_snap.to_dict() or {}).get("status") == "active":
+            await listing_ref.update({"status": "sold", "sold_to": new_owner, "sold_at": time.time()})
+            listings_sold = 1
+    except Exception as exc:
+        logger.warning("marketplace_indexer: could not mark listing sold for %s: %s", agent_id, exc.__class__.__name__)
 
     return {
         "migrated_agent": 1,
         "migrated_proposals": proposals_updated,
+        "listings_sold": listings_sold,
     }
 
 

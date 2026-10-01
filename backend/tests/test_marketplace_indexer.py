@@ -2,19 +2,19 @@
 
 We mock web3_service.get_event_logs + Firestore so the migration logic is
 testable without a real chain. The point of these tests is the safety rails:
+  - Agents are keyed by a hashed agent_id with the wallet in a FIELD, so the
+    indexer must look them up by the agent_wallet field, not by document id.
   - Skip when Firestore user_wallet != event.previousOwner (someone edited)
-  - Reassign pending proposals to new_owner
+  - Reassign pending proposals (keyed by the hashed agent_id) to new_owner
+  - Mark an active marketplace listing sold once the transfer lands
   - Persist the new high-water-mark so we don't reprocess the same block range
   - Don't write to private_key_enc (we explicitly don't touch it)
 """
 
 import pytest
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from services.marketplace_indexer import (
-    DEFAULT_CHAIN_ID,
-    MARKETPLACE_COLLECTION,
     _latest_processed_block,
     _migrate_transfer,
     poll_chain,
@@ -22,21 +22,6 @@ from services.marketplace_indexer import (
 
 
 pytestmark = pytest.mark.asyncio
-
-
-class FakeDoc:
-    def __init__(self, data=None, exists=True):
-        self._data = data or {}
-        self.exists = exists
-
-    def to_dict(self):
-        return dict(self._data)
-
-    async def update(self, data):
-        self._data.update(data)
-
-    async def set(self, data):
-        self._data.update(data)
 
 
 class FakeRef:
@@ -47,17 +32,34 @@ class FakeRef:
         return self._doc
 
     async def update(self, data):
-        # Real Firestore's `Ref.update()` mutates the server-side document.
-        # Our fake routes it through the doc so assertions can read the new value.
         await self._doc.update(data)
 
     async def set(self, data):
         await self._doc.set(data)
 
 
+class FakeDoc:
+    def __init__(self, data=None, exists=True, doc_id="doc"):
+        self._data = data or {}
+        self.exists = exists
+        self.id = doc_id
+        self.reference = FakeRef(self)
+
+    def to_dict(self):
+        return dict(self._data)
+
+    async def update(self, data):
+        self._data.update(data)
+        self.exists = True
+
+    async def set(self, data):
+        self._data.update(data)
+        self.exists = True
+
+
 class FakeStream:
     def __init__(self, docs):
-        self._docs = docs
+        self._docs = list(docs)
 
     def __aiter__(self):
         return self
@@ -65,56 +67,60 @@ class FakeStream:
     async def __anext__(self):
         if not self._docs:
             raise StopAsyncIteration
-        return self._docs.pop()
+        return self._docs.pop(0)
 
 
 class FakeQuery:
     def __init__(self, docs):
-        self._docs = docs
+        self._docs = list(docs)
+
+    def where(self, field, _op, value):
+        return FakeQuery([d for d in self._docs if d.to_dict().get(field) == value])
+
+    def limit(self, n):
+        return FakeQuery(self._docs[:n])
 
     def stream(self):
-        return FakeStream(list(self._docs))
+        return FakeStream(self._docs)
 
-    def where(self, *_, **__):
-        return self
+    async def get(self):
+        return list(self._docs)
 
 
 class FakeCollection:
-    def __init__(self, docs):
-        self._docs = docs
+    def __init__(self):
+        self._docs: dict[str, FakeDoc] = {}
+
+    def add_doc(self, doc: FakeDoc):
+        self._docs[doc.id] = doc
 
     def document(self, doc_id):
-        return FakeRef(self._docs.setdefault(doc_id, FakeDoc({}, exists=False)))
+        if doc_id not in self._docs:
+            self._docs[doc_id] = FakeDoc({}, exists=False, doc_id=doc_id)
+        return self._docs[doc_id].reference
 
-    def where(self, *_, **__):
-        return FakeQuery([])
-
-    def __contains__(self, key):
-        return key in self._docs
+    def where(self, field, _op, value):
+        return FakeQuery([d for d in self._docs.values() if d.to_dict().get(field) == value])
 
 
 class FakeFirestore:
     def __init__(self):
-        # Top-level dict keyed by doc id, used when code reads directly via
-        # `firestore.docs[doc_id]` (mirrors `get_db().collection(...).document(...)`).
-        # FakeCollection has its own per-collection dict so writes to one
-        # collection don't leak into another.
-        self.docs: dict[str, FakeDoc] = {}
         self.collection_docs: dict[str, FakeCollection] = {}
 
     def collection(self, name):
         if name not in self.collection_docs:
-            self.collection_docs[name] = FakeCollection({})
+            self.collection_docs[name] = FakeCollection()
         return self.collection_docs[name]
 
 
-def _agent_doc(user_wallet: str, agent_wallet: str) -> FakeDoc:
+def _agent_doc(user_wallet: str, agent_wallet: str, doc_id: str = "agenthash01") -> FakeDoc:
     return FakeDoc(
         {
             "user_wallet": user_wallet,
             "agent_wallet": agent_wallet,
             "private_key_enc": "ENCRYPTED_BLOB",
-        }
+        },
+        doc_id=doc_id,
     )
 
 
@@ -123,14 +129,52 @@ async def test_migrate_transfer_updates_user_wallet():
     agent_wallet = "0x" + "a" * 40
     previous = "0x" + "1" * 40
     new = "0x" + "2" * 40
-    firestore.collection("agents")._docs[agent_wallet] = _agent_doc(previous, agent_wallet)
+    agent = _agent_doc(previous, agent_wallet, doc_id="agenthash01")
+    firestore.collection("agents").add_doc(agent)
 
     with patch("services.marketplace_indexer.get_db", return_value=firestore):
         result = await _migrate_transfer(agent_wallet, new, previous_owner_event=previous)
 
     assert result["migrated_agent"] == 1
     assert result["migrated_proposals"] == 0
-    assert firestore.collection_docs["agents"]._docs[agent_wallet].to_dict()["user_wallet"] == new
+    # The agent is found by its wallet field even though the doc id is a hash.
+    assert agent.to_dict()["user_wallet"] == new
+    # On-chain signing material is never touched.
+    assert agent.to_dict()["private_key_enc"] == "ENCRYPTED_BLOB"
+
+
+async def test_migrate_transfer_reassigns_proposals_by_agent_id():
+    firestore = FakeFirestore()
+    agent_wallet = "0x" + "a" * 40
+    previous = "0x" + "1" * 40
+    new = "0x" + "2" * 40
+    firestore.collection("agents").add_doc(_agent_doc(previous, agent_wallet, doc_id="agenthash01"))
+    # Proposals are keyed by the hashed agent_id (the doc id), not the wallet.
+    prop = FakeDoc({"agent_id": "agenthash01", "title": "P1"}, doc_id="prop1")
+    firestore.collection("proposals").add_doc(prop)
+
+    with patch("services.marketplace_indexer.get_db", return_value=firestore):
+        result = await _migrate_transfer(agent_wallet, new, previous_owner_event=previous)
+
+    assert result["migrated_proposals"] == 1
+    assert prop.to_dict()["owner_wallet_at_proposal"] == new
+
+
+async def test_migrate_transfer_marks_active_listing_sold():
+    firestore = FakeFirestore()
+    agent_wallet = "0x" + "a" * 40
+    previous = "0x" + "1" * 40
+    new = "0x" + "2" * 40
+    firestore.collection("agents").add_doc(_agent_doc(previous, agent_wallet, doc_id="agenthash01"))
+    listing = FakeDoc({"status": "active", "price": 1.5}, doc_id="agenthash01")
+    firestore.collection("marketplace_listings").add_doc(listing)
+
+    with patch("services.marketplace_indexer.get_db", return_value=firestore):
+        result = await _migrate_transfer(agent_wallet, new, previous_owner_event=previous)
+
+    assert result["listings_sold"] == 1
+    assert listing.to_dict()["status"] == "sold"
+    assert listing.to_dict()["sold_to"] == new
 
 
 async def test_migrate_transfer_skips_when_firestore_owner_mismatch():
@@ -139,14 +183,15 @@ async def test_migrate_transfer_skips_when_firestore_owner_mismatch():
     event_previous = "0x" + "1" * 40
     firestore_previous = "0x" + "9" * 40  # someone edited Firestore manually
     new = "0x" + "2" * 40
-    firestore.collection("agents")._docs[agent_wallet] = _agent_doc(firestore_previous, agent_wallet)
+    agent = _agent_doc(firestore_previous, agent_wallet, doc_id="agenthash01")
+    firestore.collection("agents").add_doc(agent)
 
     with patch("services.marketplace_indexer.get_db", return_value=firestore):
         result = await _migrate_transfer(agent_wallet, new, previous_owner_event=event_previous)
 
     # Should NOT overwrite; just skip with a warning
     assert result["skipped"] == 1
-    assert firestore.collection_docs["agents"]._docs[agent_wallet].to_dict()["user_wallet"] == firestore_previous
+    assert agent.to_dict()["user_wallet"] == firestore_previous
 
 
 async def test_migrate_transfer_skips_missing_agent_doc():
@@ -161,11 +206,12 @@ async def test_poll_chain_calls_get_event_logs_and_persists_block():
     new_owner = "0x" + "2" * 40
     previous_owner = "0x" + "1" * 40
     agent_wallet = "0x" + "a" * 40
-    firestore.collection("agents")._docs[agent_wallet] = _agent_doc(previous_owner, agent_wallet)
+    firestore.collection("agents").add_doc(_agent_doc(previous_owner, agent_wallet, doc_id="agenthash01"))
 
     # Set high-water mark to current block so we don't reprocess old events
-    state_coll = firestore.collection("marketplace_indexer_state")
-    state_coll._docs["chain_97"] = FakeDoc({"last_processed_block": 100})
+    firestore.collection("marketplace_indexer_state").add_doc(
+        FakeDoc({"last_processed_block": 100}, doc_id="chain_97")
+    )
 
     event_log = {
         "blockNumber": 101,
@@ -200,8 +246,9 @@ async def test_poll_chain_calls_get_event_logs_and_persists_block():
 
 async def test_poll_chain_handles_no_events():
     firestore = FakeFirestore()
-    state_coll = firestore.collection("marketplace_indexer_state")
-    state_coll._docs["chain_97"] = FakeDoc({"last_processed_block": 100})
+    firestore.collection("marketplace_indexer_state").add_doc(
+        FakeDoc({"last_processed_block": 100}, doc_id="chain_97")
+    )
 
     async def fake_get_event_logs(**kwargs):
         return []
@@ -219,8 +266,9 @@ async def test_poll_chain_handles_no_events():
 async def test_poll_chain_skips_zero_address_new_owner():
     """The mint path emits Transfer with newOwner=address(0). Filter that out."""
     firestore = FakeFirestore()
-    state_coll = firestore.collection("marketplace_indexer_state")
-    state_coll._docs["chain_97"] = FakeDoc({"last_processed_block": 100})
+    firestore.collection("marketplace_indexer_state").add_doc(
+        FakeDoc({"last_processed_block": 100}, doc_id="chain_97")
+    )
     agent_wallet = "0x" + "a" * 40
 
     event_log = {
