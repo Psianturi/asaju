@@ -138,6 +138,16 @@ export function breedTotalDue(chainId: number): string {
 
 export const DEFAULT_CHAIN_ID = 97
 
+// Chains whose live contract is V6 — the only ones with the on-chain
+// transferAgentOwnership() primitive the marketplace settles with. Mantle (5003)
+// is still V4 and has no ownership transfer, so it can't list or sell agents.
+const MARKETPLACE_CHAIN_IDS = new Set([97, 11155111])
+
+/** Whether an agent on this chain can be listed/sold (V6 ownership transfer). */
+export function supportsMarketplace(chainId: number): boolean {
+  return MARKETPLACE_CHAIN_IDS.has(chainId)
+}
+
 
 export function getChain(chainId: number): ChainConfig | undefined {
   return CHAIN_CONFIGS[chainId]

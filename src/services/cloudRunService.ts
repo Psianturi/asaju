@@ -1,4 +1,4 @@
-import { Agent, BackendProposal, Event, Niche, Personality, SubAgentType } from '@/lib/types'
+import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
 
 export const GCP_BACKEND_URL =
@@ -1285,6 +1285,70 @@ export const cloudRunService = {
       },
     )
     return handleAPIResponse<BackendProposal>(response)
+  },
+
+  async getMarketplaceListings(chainId?: number): Promise<MarketplaceAgent[]> {
+    try {
+      const url = chainId != null
+        ? `${GCP_BACKEND_URL}/api/v1/marketplace/listings?chain_id=${chainId}`
+        : `${GCP_BACKEND_URL}/api/v1/marketplace/listings`
+      const response = await fetchWithTimeout(url, { method: 'GET' })
+      const raw = await handleAPIResponse<{ listings: Array<Record<string, unknown>> }>(response)
+      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
+      return (raw.listings ?? []).map(l => ({
+        id: String(l.agent_id),
+        name: String(l.agent_name ?? 'Agent'),
+        personality: (validPersonalities.includes(l.personality as Personality) ? l.personality : 'Analytical') as Personality,
+        niche: (validNiches.includes(l.niche as Niche) ? l.niche : 'Blockchain/DeFi') as Niche,
+        walletAddress: String(l.agent_wallet ?? ''),
+        eventsAttended: Number(l.total_events ?? 0),
+        level: Number(l.level ?? 1),
+        wisdomUnlocked: Boolean(l.wisdom_unlocked),
+        price: Number(l.price ?? 0),
+        chainId: l.chain_id != null ? Number(l.chain_id) : undefined,
+        seller: String(l.seller_wallet ?? ''),
+        sellerAddress: String(l.seller_wallet ?? ''),
+        listedAt: Number(l.created_at ?? 0) * 1000,
+        agentGasBalance: l.agent_gas_balance != null ? Number(l.agent_gas_balance) : undefined,
+        status: 'idle' as const,
+        subAgents: [],
+        createdAt: Date.now(),
+        gasSpent: l.gas_spent != null ? Number(l.gas_spent) : undefined,
+        generation: l.generation != null ? Number(l.generation) : undefined,
+      }))
+    } catch (error) {
+      console.warn('[cloudRunService] getMarketplaceListings failed:', error)
+      return []
+    }
+  },
+
+  async listAgentForSale(agentId: string, sellerWallet: string, price: number): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/marketplace/list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, seller_wallet: sellerWallet, price }),
+      })
+      await handleAPIResponse(response)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to list agent' }
+    }
+  },
+
+  async cancelListing(agentId: string, sellerWallet: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/marketplace/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, seller_wallet: sellerWallet }),
+      })
+      await handleAPIResponse(response)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to cancel listing' }
+    }
   },
 
   async getMarketSnapshot(coins: string[] = ['bitcoin', 'ethereum', 'mantle']): Promise<MarketSnapshot> {

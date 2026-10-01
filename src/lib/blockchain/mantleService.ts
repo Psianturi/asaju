@@ -293,6 +293,25 @@ export class MantleBlockchainService {
     }
   }
 
+  async transferAgentOwnership(
+    agentWallet: string,
+    newOwner: string,
+    chainId = this.currentChainId,
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    await this.activateChain(chainId)
+    if (!this.contract) {
+      return { success: false, error: 'Contract is not initialized. Check wallet connection.' }
+    }
+    try {
+      const tx = await this.contract.transferAgentOwnership(agentWallet, newOwner)
+      const receipt: TransactionReceipt = await tx.wait()
+      return { success: true, transactionHash: receipt.hash }
+    } catch (error) {
+      console.error('transferAgentOwnership transaction error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error occurred' }
+    }
+  }
+
   async topUpAgentGas(agentWallet: string, amount: number, chainId = this.currentChainId): Promise<TopUpGasResult> {
     await this.activateChain(chainId)
     if (!this.signer || !this.provider) {
