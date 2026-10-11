@@ -86,6 +86,25 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     color: '#F0B90B',
     testnet: true,
   },
+  46630: {
+    chainId: 46630,
+    name: 'Robinhood Chain Testnet',
+    shortName: 'VibeVibe',
+    nativeSymbol: 'ETH',
+    rpcUrl: 'https://rpc.testnet.chain.robinhood.com/rpc',
+    rpcUrls: [
+      'https://rpc.testnet.chain.robinhood.com/rpc',
+      'https://rpc.testnet.chain.robinhood.com',
+    ],
+    explorerUrl: 'https://explorer.testnet.chain.robinhood.com',
+    // Set after deploy: contracts/scripts/deploy-v6.js --network robinhoodTestnet
+    contractAddress: contractFor(46630, '0x0000000000000000000000000000000000000000'),
+    spawnFee: '0.005',      // placeholder — sync via sync-fees-robinhood.js after deploy
+    agentProvision: '0.0025',
+    breedCost: '0.01',      // V6 — user pays breedCost + spawnFee together
+    color: '#00D26A',       // Robinhood green
+    testnet: true,
+  },
 }
 
 /**

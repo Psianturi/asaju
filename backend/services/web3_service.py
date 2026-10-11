@@ -199,6 +199,15 @@ MAEF_ABI: list[dict] = [
 
 
 class Web3Service:
+    # Chains still running the legacy V4 contract, where the six live Mantle
+    # agents live. V4 has a MINTER_ROLE, so Mode A (minter signs) is the only
+    # way to mint for those agents. Everything else must be V5/V6.
+    #
+    # This allow-list exists so adding a new chain can't silently re-enable a
+    # platform-funded gas path: on a chain that isn't listed here, Mode A is
+    # refused in Python before we build a doomed transaction. Retire a chain
+    # from this set once its agents migrate or are wound down.
+    LEGACY_MODE_A_CHAINS: frozenset[int] = frozenset({5003})  # Mantle Sepolia (V4)
     def __init__(self) -> None:
         # Per-chain caches — keyed by chain_id (e.g. 5003, 11155111)
         self._w3_cache: dict[int, Web3] = {}
@@ -430,6 +439,23 @@ class Web3Service:
         logger.info("Contract on chain %s detected as %s", chain_id, "V5" if result else "V4")
         return result
 
+    def _mode_a_allowed(self, chain_id: int) -> bool:
+        """Mode A (minter signs, platform pays gas) is only ever permitted on the
+        legacy V4 chains we still have live agents on. Everything else must run
+        agent-signed (Mode B), so no user action is ever subsidised by us."""
+        return chain_id in self.LEGACY_MODE_A_CHAINS
+
+    def _require_mode_b(self, chain_id: int, operation: str) -> None:
+        """Raise if this chain is not allowed to fall back to a platform-funded
+        signer. Call at the top of any path that would otherwise reach
+        get_minter_service_private_key()."""
+        if self._mode_a_allowed(chain_id):
+            return
+        raise PermissionError(
+            f"{operation} on chain {chain_id} must be signed by the agent or its "
+            f"owner. Mode A (platform-funded gas) is retired on this chain."
+        )
+
     def _is_v6(self, contract, chain_id: int) -> bool:
         """
         True when the deployed contract is V6 (has no MINTER_ROLE at all).
@@ -610,6 +636,7 @@ class Web3Service:
                         "Mode B fallback triggered (%s). Falling back to minter service wallet.",
                         "missing role" if lacks_minter else "insufficient gas",
                     )
+                    self._require_mode_b(chain_id, "mintAttendanceNFT")
                     private_key = get_minter_service_private_key()
                     self.check_minter_balance_health(chain_id)
                     signer = Account.from_key(private_key)
@@ -736,6 +763,7 @@ class Web3Service:
             )
 
         self.check_minter_balance_health(chain_id)
+        self._require_mode_b(chain_id, "spawnBredAgent activation")
         private_key = get_minter_service_private_key()
         signer = Account.from_key(private_key)
 
@@ -854,9 +882,10 @@ class Web3Service:
                     "recordExecutedProposal on a V6 contract requires the owner's "
                     "or the agent's own key — there is no minter fallback."
                 )
-            # Fallback: MINTER_SERVICE (Mode A). Only reached when the caller
-            # explicitly skipped agent-key decryption. We still check balance
-            # for log visibility but don't gate the call on it.
+            # Fallback: MINTER_SERVICE (Mode A). Only reached on the legacy V4
+            # chains listed in LEGACY_MODE_A_CHAINS — anywhere else this raises
+            # before we spend the platform wallet's gas.
+            self._require_mode_b(chain_id, "recordExecutedProposal")
             self.check_minter_balance_health(chain_id)
             logger.info(
                 "recordExecutedProposal Mode A fallback (minter service): "

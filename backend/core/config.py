@@ -26,6 +26,21 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "contract_address": "0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C",  # ASAJU V6, 30 Sep 2026 — no MINTER_ROLE
         "explorer_url": "https://testnet.bscscan.com",
     },
+    # VibeVibe testnet runs on Robinhood Chain (an Arbitrum Orbit L2). This is
+    # where the ASA token lives, so the ERC-20 marketplace settles in ASA here.
+    46630: {
+        "name": "Robinhood Chain Testnet",
+        "native_symbol": "ETH",
+        "rpc_url": "https://rpc.testnet.chain.robinhood.com/rpc",
+        "contract_address": "",  # filled in after AsajuAgentV6 deploy on this chain
+        "explorer_url": "https://explorer.testnet.chain.robinhood.com",
+        # ASA (name "Asaju", symbol ASA, 18 decimals) — the marketplace unit of account here.
+        "payment_token": "0x1c919078B57326EeE9990E9C30D92a182eDe8f5C",
+        "payment_token_symbol": "ASA",
+        "payment_token_decimals": 18,
+        # Marketplace escrow contract; set after deploy-marketplace-erc20.js
+        "marketplace_address": "",
+    },
 }
 
 

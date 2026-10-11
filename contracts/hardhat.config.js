@@ -47,6 +47,17 @@ export default defineConfig({
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
     },
+    // VibeVibe testnet runs on Robinhood Chain (an Arbitrum Orbit L2). The ASA
+    // token (0x1c919078B57326EeE9990E9C30D92a182eDe8f5C) is deployed here, so
+    // the ERC-20 marketplace settles in ASA on this network.
+    robinhoodTestnet: {
+      type: "http",
+      url: "https://rpc.testnet.chain.robinhood.com/rpc",
+      chainId: 46630,
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
     polygonAmoy: {
       type: "http",
       url: "https://rpc-amoy.polygon.technology",

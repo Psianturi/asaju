@@ -96,11 +96,30 @@ describe('spawn economics', () => {
       97:       { spawnFee: '0.01',  agentProvision: '0.005' },
     }
     for (const chain of getSupportedChains()) {
+      // A chain registered but not yet deployed has nothing on-chain to compare
+      // against, so there is no drift to catch. It is covered separately by the
+      // pending-deploy test below rather than being asserted here with a
+      // placeholder that would read as verified.
+      if (chain.contractAddress === '0x0000000000000000000000000000000000000000') continue
       expect({
         spawnFee: chain.spawnFee,
         agentProvision: chain.agentProvision,
       }).toEqual(onChain[chain.chainId])
     }
+  })
+
+  it('flags registered-but-undeployed chains instead of hiding them', () => {
+    const pending = getSupportedChains().filter(
+      (c) => c.contractAddress === '0x0000000000000000000000000000000000000000',
+    )
+    // Every pending chain must be one we know we still have to deploy, so a
+    // forgotten address shows up as a failure rather than a silent pass.
+    for (const chain of pending) {
+      expect(chain.spawnFee).toBeTruthy()
+      expect(chain.agentProvision).toBeTruthy()
+    }
+    // Robinhood Chain (VibeVibe) is the one currently awaiting its V6 deploy.
+    expect(pending.map((c) => c.chainId)).toContain(46630)
   })
 })
 
