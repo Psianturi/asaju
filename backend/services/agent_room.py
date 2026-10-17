@@ -23,8 +23,8 @@ Safety model
 
 Cost model
 ----------
-Every turn is one LLM call and wrapping up is one more, so a room costs at most
-``max_turns + 1`` calls. Hard caps: participants, turns, owner messages, rooms
+Every turn is one LLM call; wrapping up is two more (the summary, then a
+check of its claims), so a room costs at most ``max_turns + 2`` calls. Hard caps: participants, turns, owner messages, rooms
 per owner per day, and output tokens per call.
 """
 from __future__ import annotations
@@ -154,7 +154,7 @@ async def issue_room_challenge(db, *, owner: str, agent_ids: list[str], topic: s
         "expires_at": expires_at, "created_at": time.time(),
     })
     return {"nonce": nonce, "message": message, "expires_at": expires_at,
-            "max_llm_calls": max_turns + 1}
+            "max_llm_calls": max_turns + 2}
 
 
 # ── Memory ───────────────────────────────────────────────────────────────────
@@ -307,14 +307,58 @@ def _parse_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400) -> str:
-    """One bounded LLM call. Separate function so tests can replace it."""
+# MiniMax M3.1 always thinks, and thinking tokens count against max_tokens, so
+# the reply budget gets an allowance on top or the answer itself is cut off.
+_MINIMAX_URL = "https://api.minimax.io/v1/chat/completions"
+_MINIMAX_THINKING_ALLOWANCE = 1536
+# After a quota or rate-limit answer, skip MiniMax for a while instead of
+# paying a failed round-trip on every turn.
+_MINIMAX_COOLDOWN_SECONDS = 10 * 60
+_minimax_state = {"paused_until": 0.0, "send_effort": True}
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+async def _call_minimax(prompt: str, *, api_key: str, max_tokens: int, context: str,
+                        temperature: float = 0.9) -> str:
+    import httpx
+
+    from core.secrets import get_minimax_effort, get_minimax_model
+
+    payload: dict[str, Any] = {
+        "model": get_minimax_model(),
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens + _MINIMAX_THINKING_ALLOWANCE,
+        "temperature": temperature,
+    }
+    if _minimax_state["send_effort"]:
+        payload["reasoning_effort"] = get_minimax_effort()
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with httpx.AsyncClient(timeout=40.0) as client:
+        resp = await client.post(_MINIMAX_URL, json=payload, headers=headers)
+        if resp.status_code == 400 and "reasoning_effort" in payload:
+            # Parameter name is not settled across MiniMax routes; drop it once
+            # and remember, rather than losing MiniMax over an optional knob.
+            logger.warning("room llm: MiniMax rejected reasoning_effort for %s, retrying without it", context)
+            _minimax_state["send_effort"] = False
+            payload.pop("reasoning_effort")
+            resp = await client.post(_MINIMAX_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    # MiniMax can answer HTTP 200 with an error in base_resp.
+    base = data.get("base_resp") or {}
+    if base.get("status_code"):
+        raise RuntimeError(f"MiniMax error {base.get('status_code')}: {base.get('status_msg')}")
+    text = (data["choices"][0]["message"].get("content") or "").strip()
+    return _THINK_BLOCK.sub("", text).strip()
+
+
+async def _call_gemini(prompt: str, *, max_tokens: int, context: str, temperature: float = 0.8) -> str:
     from services.llm_service import _call_gemini_with_retry, get_llm_api_key
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.8,
+            "temperature": temperature,
             "maxOutputTokens": max_tokens,
             "responseMimeType": "application/json",
             "thinkingConfig": {"thinkingBudget": 0},
@@ -323,6 +367,119 @@ async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400) -> 
     data = await _call_gemini_with_retry(get_llm_api_key(), payload, timeout=25.0, context=context)
     parts = data["candidates"][0]["content"]["parts"]
     return next((p["text"] for p in reversed(parts) if p.get("text", "").strip()), "")
+
+
+async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400,
+                        temperature: float | None = None) -> str:
+    """One bounded LLM call. Separate function so tests can replace it.
+
+    Rooms prefer MiniMax when MINIMAX_API_KEY is set (it reads more naturally
+    in dialogue) and fall back to Gemini on any failure, so a spent quota
+    slows nothing down beyond one failed call per cooldown window.
+    """
+    from core.secrets import get_minimax_api_key
+
+    key = get_minimax_api_key()
+    if key and time.time() >= _minimax_state["paused_until"]:
+        try:
+            text = await _call_minimax(prompt, api_key=key, max_tokens=max_tokens, context=context,
+                                       **({"temperature": temperature} if temperature is not None else {}))
+            if text:
+                return text
+            logger.warning("room llm: MiniMax returned no text for %s, using Gemini", context)
+        except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            spent = any(w in str(exc).lower() for w in ("quota", "balance", "limit"))
+            if status in (401, 403, 429) or (status is None and spent):
+                _minimax_state["paused_until"] = time.time() + _MINIMAX_COOLDOWN_SECONDS
+            logger.warning("room llm: MiniMax failed for %s (%s %s), using Gemini",
+                           context, exc.__class__.__name__, status or "")
+    return await _call_gemini(prompt, max_tokens=max_tokens, context=context,
+                              **({"temperature": temperature} if temperature is not None else {}))
+
+
+# ── Claim check ──────────────────────────────────────────────────────────────
+# Borrowed from generator/verifier set-ups such as MaxProof: the pass that
+# writes the summary is not trusted to judge it. A second, conservative pass
+# checks each claim against the lessons that were actually cited, so the owner
+# can tell what the agents know apart from what they guessed.
+
+VERDICTS = ("supported", "partial", "unsupported")
+
+
+def build_check_prompt(claims: list[str], lessons: list[dict]) -> str:
+    rows = "\n".join(
+        f'<lesson ref="{_quote(l["event_id"], 80)}" title="{_quote(l["title"], 120)}">'
+        f'{_quote(l["text"], MEMORY_EXCERPT_CHARS)}</lesson>'
+        for l in lessons
+    )
+    numbered = "\n".join(f"{i}. {_quote(c, 300)}" for i, c in enumerate(claims))
+    return (
+        "You are a strict fact-checker for an ASAJU Agent Room summary.\n"
+        f"{_GUARD.replace('<memory> and <transcript>', '<lesson> and <claim>')}\n\n"
+        f"Lessons the agents cited:\n{rows or '(none)'}\n\n"
+        f"<claim>\n{numbered}\n</claim>\n\n"
+        "For each numbered claim decide: \"supported\" if the lessons directly back it, "
+        "\"partial\" if they back only part of it, \"unsupported\" otherwise. Be conservative: "
+        "when unsure, say \"unsupported\". General market knowledge does not count — only these lessons.\n"
+        'Reply with JSON only: {"checks": [{"claim": 0, "verdict": "supported", "refs": ["<lesson ref>"]}]}'
+    )
+
+
+async def _cited_lessons_with_text(db, room: dict) -> list[dict]:
+    """Cited lessons with their text, read back from where they are stored."""
+    out, seen = [], set()
+    for agent_id, cites in _cited_by_agent(room).items():
+        for c in cites:
+            if c["event_id"] in seen:
+                continue
+            seen.add(c["event_id"])
+            text = ""
+            snap = await db.collection(EVENTS_COLLECTION).document(c["event_id"]).get()
+            if snap.exists:
+                text = ((snap.to_dict() or {}).get("wisdom_summary") or "").strip()
+            if not text:
+                peer = await db.collection(PEER_LESSONS_COLLECTION).document(f"{agent_id}_{c['event_id']}").get()
+                if peer.exists:
+                    text = ((peer.to_dict() or {}).get("text") or "").strip()
+            if text:
+                out.append({"event_id": c["event_id"], "title": c["title"], "text": text})
+    return out
+
+
+async def check_claims(db, room: dict, claims: list[str], llm) -> list[dict]:
+    """One verifier call. Returns a verdict per claim; any claim the checker
+    skipped, or any failure, counts as unsupported rather than passing."""
+    if not claims:
+        return []
+    lessons = await _cited_lessons_with_text(db, room)
+    verdicts = [{"verdict": "unsupported", "refs": []} for _ in claims]
+    if not lessons:
+        return verdicts
+    known = {l["event_id"]: l["title"] for l in lessons}
+    try:
+        raw = await llm(build_check_prompt(claims, lessons), context="room claim check",
+                        max_tokens=500, temperature=0.1)
+        parsed = _parse_json(raw)
+    except Exception as exc:
+        logger.warning("room %s: claim check failed: %s", room.get("room_id"), exc.__class__.__name__)
+        return verdicts
+    for row in parsed.get("checks") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            i = int(row.get("claim"))
+        except (TypeError, ValueError):
+            continue
+        verdict = row.get("verdict")
+        if not 0 <= i < len(claims) or verdict not in VERDICTS:
+            continue
+        refs = [r for r in (row.get("refs") or []) if isinstance(r, str) and r in known]
+        # A claim marked supported must point at a real cited lesson.
+        if verdict != "unsupported" and not refs:
+            verdict = "unsupported"
+        verdicts[i] = {"verdict": verdict, "refs": [{"event_id": r, "title": known[r]} for r in dict.fromkeys(refs)]}
+    return verdicts
 
 
 # ── Rooms ────────────────────────────────────────────────────────────────────
@@ -567,6 +724,11 @@ async def conclude_room(db, room_id: str, llm=None) -> dict:
         "next_steps": _strings("next_steps", 4),
         "transfers": transfers,
     }
+    claims = room["synthesis"]["key_insights"] + room["synthesis"]["next_steps"]
+    checks = await check_claims(db, room, claims, llm)
+    n = len(room["synthesis"]["key_insights"])
+    room["synthesis"]["insight_checks"] = checks[:n]
+    room["synthesis"]["next_step_checks"] = checks[n:]
     room["status"] = "concluded"
     await _save(db, room)
     return room["synthesis"]

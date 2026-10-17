@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Toaster } from '@/components/ui/sonner'
 import { NotificationBell } from '@/components/NotificationBell'
-import { Agent, NFT, TerminalLog, Event, SubAgentType, MarketplaceAgent } from '@/lib/types'
+import { Agent, NFT, Event, MarketplaceAgent } from '@/lib/types'
 import { cn, isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { buildScoutedOpportunities } from '@/lib/scoutUtils'
 import { AnalyticsView } from '@/views/AnalyticsView'
@@ -19,7 +19,6 @@ import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
 import { NFTCard } from '@/components/NFTCard'
 import { SpawnAgentDialog } from '@/components/SpawnAgentDialog'
-import { TerminalConsole } from '@/components/TerminalConsole'
 import { WalletConnect } from '@/components/WalletConnect'
 import { WisdomReportDialog } from '@/components/WisdomReportDialog'
 import { AgentConfigDialog } from '@/components/AgentConfigDialog'
@@ -70,7 +69,6 @@ function App() {
 
   const [nfts, setNFTs] = useState<NFT[]>([])
   const [events, setEvents] = useState<Event[]>([])
-  const [logs, setLogs] = useState<TerminalLog[]>([])
   const [walletConnected, setWalletConnected] = useState(false)
   const [walletAddress, setWalletAddress] = useState<string>()
   const [selectedChainId, setSelectedChainId] = useState(DEFAULT_CHAIN_ID)
@@ -451,7 +449,6 @@ function App() {
       setAgents([])
       setEvents([])
       setNFTs([])
-      setLogs([])
       toast.success('Wallet connected successfully!', {
         description: `Connected to ${getChain(selectedChainId)?.name ?? 'the selected network'}`
       })
@@ -491,49 +488,6 @@ function App() {
       setEvents(restoredEvents)
       setNFTs(restoredNFTs)
 
-      // Seed Mission Control terminal with real event history from backend
-      if (cloudHistory.length > 0) {
-        const agentNameMap: Record<string, string> = {}
-        for (const a of cloudAgents) agentNameMap[a.id] = a.name
-        const recent = [...cloudHistory]
-          .sort((a, b) => b.attendedAt - a.attendedAt)
-          .slice(0, 15)
-          .reverse()
-        const historyLogs: TerminalLog[] = []
-        for (const item of recent) {
-          const agentName = agentNameMap[item.agentId] || 'Agent'
-          const ts = item.attendedAt > 0 ? item.attendedAt * 1000 : Date.now()
-          historyLogs.push({
-            id: `hist-sec-${item.id}`,
-            agentId: item.agentId,
-            subAgentType: 'secretary' as SubAgentType,
-            message: `[${agentName} - Secretary] Attended: "${item.eventTitle}"`,
-            timestamp: ts,
-            type: 'info',
-          })
-          if (item.wisdomSummary) {
-            historyLogs.push({
-              id: `hist-scribe-${item.id}`,
-              agentId: item.agentId,
-              subAgentType: 'scribe' as SubAgentType,
-              message: `[${agentName} - Scribe] "${item.wisdomSummary.slice(0, 90)}${item.wisdomSummary.length > 90 ? '...' : ''}"`,
-              timestamp: ts + 1000,
-              type: 'success',
-            })
-          }
-          if (item.txHash) {
-            historyLogs.push({
-              id: `hist-mint-${item.id}`,
-              agentId: item.agentId,
-              subAgentType: 'mint-master' as SubAgentType,
-              message: `[${agentName} - Mint-Master] NFT minted on ${getChain(item.chainId)?.shortName ?? 'chain'}. TX: ${item.txHash.slice(0, 18)}...`,
-              timestamp: ts + 2000,
-              type: 'success',
-            })
-          }
-        }
-        setLogs(historyLogs.slice(-50))
-      }
 
       if (cloudAgents.length > 0) {
         // Enrich with live gas balance from RPC (best-effort, non-blocking)
@@ -586,9 +540,7 @@ function App() {
       description: `Wallet: ${newAgent.walletAddress.slice(0, 10)}...`
     })
     
-    addLog(newAgent.id, 'secretary', `[${newAgent.name} - secretary] Agent initialization complete`, 'success')
     
-    addLog(newAgent.id, 'secretary', `[${newAgent.name} - secretary] Registered agent wallet on the ASAJU smart contract`, 'success')
 
     const contractAddress = newAgent.contractAddress || CONTRACT_ADDRESSES.sepolia.MAEF_NFT
     const deploymentTxHash = newAgent.deploymentTxHash || ''
@@ -642,17 +594,6 @@ function App() {
     )
   }
 
-  const addLog = (agentId: string, subAgentType: Agent['subAgents'][0]['type'], message: string, type: TerminalLog['type']) => {
-    const log: TerminalLog = {
-      id: `log-${Date.now()}-${Math.random()}`,
-      agentId,
-      subAgentType,
-      message,
-      timestamp: Date.now(),
-      type
-    }
-    setLogs((current) => [...current, log])
-  }
 
   // Derive a human-readable title from a YouTube URL (no extra input needed)
   const deriveTitleFromUrl = (url: string): string => {
@@ -699,11 +640,8 @@ function App() {
 
     // â”€â”€ Real backend flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
-      addLog(agent.id, 'secretary', `[${agent.name} - Secretary] Connecting to Agent Engine (Cloud Run)...`, 'info')
       await new Promise(resolve => setTimeout(resolve, 400))
 
-      addLog(agent.id, 'scribe', `[${agent.name} - Scribe] Sending event to Gemini AI for analysis...`, 'info')
-      addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Preparing on-chain mint. NFT recipient: ${agent.walletAddress.slice(0, 10)}...${agent.walletAddress.slice(-4)}`, 'info')
       toast.info('Processing event...', { description: 'Gemini AI is analyzing. This takes 15-40s.' })
 
       // Mode B (Autonomous Signing): Agent signs with its own private key
@@ -721,25 +659,18 @@ function App() {
       })
 
       const resolvedTitle = eventTitle
-      const signingMode = result.txHash ? (result.txHash.includes('agent') ? 'Agent' : 'Backend') : 'Unknown'
 
-      addLog(agent.id, 'scribe', `[${agent.name} - Scribe] Wisdom generated: "${result.wisdomSummary.slice(0, 80)}..."`, 'success')
 
       // Milestone-gated minting: most videos are analyzed and recorded without
       // spending gas on an NFT â€” only a level-up mints one. Never claim a mint
       // that didn't happen.
       if (result.minted) {
-        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Transaction signed by ${signingMode}. TX: ${result.txHash.slice(0, 18)}...`, 'info')
-        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Milestone reached â€” NFT minted on ${agentChain?.shortName ?? 'chain'}! Token #${result.tokenId} | Block ${result.blockNumber}`, 'success')
-        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Gas used: ${Number(result.gasUsed || 0).toLocaleString()} units`, 'info')
 
         const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Health #Wellness #Web3'
         const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + 'â€¦' : result.wisdomSummary
         const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #ASAJU`
         setLastSocialPost({ agentId: agent.id, text: socialPostText, eventTitle: resolvedTitle })
-        addLog(agent.id, 'social-lite', `[${agent.name} - Social-Lite] Post draft ready for "${resolvedTitle}"`, 'success')
       } else {
-        addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Video analyzed and recorded â€” no NFT minted this time, saving gas until the next milestone.`, 'info')
       }
 
       const newEvent: Event = {
@@ -837,7 +768,6 @@ function App() {
       }
 
       const msg = error instanceof Error ? error.message : 'Unknown error from Agent Engine'
-      addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Error: ${msg}`, 'error')
       if (!modeBOutOfGas) {
         toast.error('Event attendance failed', {
           description: msg,
@@ -892,7 +822,6 @@ function App() {
     // separate backend call that won't otherwise see this top-up.
     setInboxRefreshKey((k) => k + 1)
 
-    addLog(agent.id, 'mint-master', `[${agent.name} - Mint-Master] Gas topped up by owner. TX: ${tx.transactionHash?.slice(0, 18)}...`, 'success')
 
     // Auto-retry pending Mode B request for the same agent.
     if (pendingAttendContext && pendingAttendContext.agentId === agentId) {
@@ -1128,7 +1057,6 @@ function App() {
       toast.success('Auto-Replenishment Activated', {
         description: `${agent.name} will auto-replenish gas when below ${threshold} ${currency}`
       })
-      addLog(agent.id, 'mint-master', `[SYSTEM] Auto-replenishment active. Agent is fully self-sustaining.`, 'success')
     } else {
       toast.info('Auto-Replenishment Deactivated', {
         description: `${agent.name} will no longer auto-replenish gas`
@@ -1204,11 +1132,7 @@ function App() {
       duration: 5000
     })
 
-    addLog(newAgent.id, 'secretary', `[SYSTEM] Agent "${offspringName}" bred successfully. Inherited ${result.wisdomMerge.inheritedWisdom} events worth of wisdom. Wallet: ${newAgent.walletAddress}`, 'success')
 
-    if (parent1 && parent2) {
-      addLog(newAgent.id, 'secretary', `[SYSTEM] Parents: "${parent1.name}" + "${parent2.name}" | Generation ${newAgent.generation} | ${result.geneticBonus.length} genetic bonuses`, 'info')
-    }
   }
 
   const handleCooldownBoost = (agentId: string) => {
@@ -1228,10 +1152,6 @@ function App() {
       description: `${agent?.name} is now ready for fusion. Cooldown bypassed.`,
       duration: 4000
     })
-
-    if (agent) {
-      addLog(agent.id, 'mint-master', `[SYSTEM] Neural recovery boost applied. Agent is ready for immediate fusion.`, 'success')
-    }
 
   }
 
@@ -1587,7 +1507,6 @@ function App() {
         />
       )}
 
-      <TerminalConsole logs={logs} />
       <Toaster />
       <NotificationBell />
     </div>

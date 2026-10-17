@@ -111,11 +111,14 @@ def get_llm_api_key() -> str:
     return _get_secret("LLM_API_KEY")
 
 
+@lru_cache(maxsize=None)
 def get_minimax_api_key() -> str | None:
     """Return MINIMAX_API_KEY if configured, else None.
 
     Optional. The app runs entirely on Gemini without this; MiniMax is only
     used where a dialogue-tuned model reads better (Agent Room).
+    Cached like the Gemini key: Agent Room asks on every turn, and an unset
+    key would otherwise cost a failed Secret Manager call each time.
     """
     try:
         key = _get_secret("MINIMAX_API_KEY").strip()
@@ -124,11 +127,13 @@ def get_minimax_api_key() -> str | None:
     return key or None
 
 
+@lru_cache(maxsize=None)
 def get_minimax_model() -> str:
     """Model name for MiniMax calls."""
     return _get_env_or_secret("MINIMAX_MODEL", default="MiniMax-M3.1-Flash-Preview")
 
 
+@lru_cache(maxsize=None)
 def get_minimax_effort() -> str:
     """Thinking depth for M3.1: low | medium | high | xhigh | max.
 

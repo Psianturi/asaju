@@ -2,7 +2,7 @@ import { motion } from 'framer-motion'
 import { Dna } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { AgentCard } from '@/components/AgentCard'
+import { NicheAvatar } from '@/components/NicheAvatar'
 import { FusionCooldownTimer } from '@/components/FusionCooldownTimer'
 import { BreedingCooldownBoost } from '@/components/BreedingCooldownBoost'
 import { Agent } from '@/lib/types'
@@ -11,16 +11,8 @@ interface NeuralFusionLabProps {
   agents: Agent[]
   walletConnected: boolean
   userBalance: number
-  proposalCounts: Record<string, number>
   onConnectWallet: () => void
   onInitiateFusion: () => void
-  onConfigureAgent: (agent: Agent) => void
-  onChatWithAgent: (agent: Agent) => void
-  onViewEvolution: (agent: Agent) => void
-  onToggleAutoReplenish: (agent: Agent, enabled: boolean) => void
-  onOpenProposals: (agent: Agent) => void
-  onDeleteAgent: (agent: Agent) => void
-  onRetrySpawn: (agent: Agent) => void
   onCooldownBoost: (agentId: string) => void
 }
 
@@ -28,16 +20,8 @@ export function NeuralFusionLab({
   agents,
   walletConnected,
   userBalance,
-  proposalCounts,
   onConnectWallet,
   onInitiateFusion,
-  onConfigureAgent,
-  onChatWithAgent,
-  onViewEvolution,
-  onToggleAutoReplenish,
-  onOpenProposals,
-  onDeleteAgent,
-  onRetrySpawn,
   onCooldownBoost,
 }: NeuralFusionLabProps) {
   const wisdomUnlockedCount = agents.filter(a => a.wisdomUnlocked).length
@@ -69,29 +53,35 @@ export function NeuralFusionLab({
           Need {Math.max(0, 2 - wisdomUnlockedCount)} more wisdom-unlocked agent(s) — analyze more videos to unlock
         </p>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+      {/* Fusion status only — the full agent cards are already shown above,
+          rendering them a second time here doubled the page. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4">
         {agents.map((agent, idx) => {
-          const isOnCooldown = agent.lastBreedingTime && agent.breedingCooldownHours &&
+          const isOnCooldown = !!agent.lastBreedingTime && !!agent.breedingCooldownHours &&
             (Date.now() - agent.lastBreedingTime) < (agent.breedingCooldownHours * 60 * 60 * 1000)
+          const status = isOnCooldown ? 'Cooling down' : agent.wisdomUnlocked ? 'Ready to fuse' : 'Wisdom locked'
           return (
             <motion.div
               key={agent.id}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: idx * 0.08 }}
-              className="space-y-2"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.04 }}
+              className="rounded-lg border border-border/50 bg-white/[0.02] px-3 py-2.5 space-y-2"
             >
-              <AgentCard
-                agent={agent}
-                onConfigure={onConfigureAgent}
-                onChat={onChatWithAgent}
-                onViewEvolution={onViewEvolution}
-                onToggleAutoReplenish={onToggleAutoReplenish}
-                pendingProposalCount={proposalCounts[agent.id] ?? 0}
-                onOpenProposals={onOpenProposals}
-                onDeleteAgent={onDeleteAgent}
-                onRetrySpawn={onRetrySpawn}
-              />
+              <div className="flex items-center gap-2.5">
+                <NicheAvatar agent={agent} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate">{agent.name}</p>
+                  <p className="text-[11px] text-muted-foreground">Gen {agent.generation ?? 1} · Lv {agent.level}</p>
+                </div>
+                <span className={
+                  'text-[10px] rounded px-1.5 py-0.5 border shrink-0 ' + (isOnCooldown
+                    ? 'border-sky-400/40 text-sky-300'
+                    : agent.wisdomUnlocked ? 'border-emerald-500/40 text-emerald-300' : 'border-border/60 text-muted-foreground')
+                }>
+                  {status}
+                </span>
+              </div>
               {isOnCooldown && (
                 <div className="space-y-2">
                   <FusionCooldownTimer agent={agent} />

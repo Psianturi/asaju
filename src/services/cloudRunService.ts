@@ -1561,12 +1561,20 @@ export interface RoomTransfer {
   why: string
 }
 
+export interface RoomClaimCheck {
+  verdict: 'supported' | 'partial' | 'unsupported'
+  refs: Array<{ event_id: string; title: string }>
+}
+
 export interface RoomSynthesis {
   summary: string
   key_insights: string[]
   disagreements: string[]
   next_steps: string[]
   transfers: RoomTransfer[]
+  /** Wrap-up fact-check, one per insight / next step. Absent on older rooms. */
+  insight_checks?: RoomClaimCheck[]
+  next_step_checks?: RoomClaimCheck[]
 }
 
 export interface AgentRoom {
@@ -1608,6 +1616,10 @@ async function roomRequest<T>(path: string, init: RequestInit = {}, roomKey?: st
       if (typeof body?.detail === 'string') detail = body.detail
     } catch {
       // keep the status message
+    }
+    // A bare 404 means the route itself is missing: the backend predates Agent Room.
+    if (response.status === 404 && detail === 'Not Found') {
+      detail = 'Agent Room is not live on the server yet. Redeploy the backend to enable it.'
     }
     throw new CloudRunAPIError(detail, response.status)
   }

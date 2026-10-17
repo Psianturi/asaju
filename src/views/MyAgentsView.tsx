@@ -237,16 +237,8 @@ export function MyAgentsView({
           agents={agents}
           walletConnected={walletConnected}
           userBalance={userBalance}
-          proposalCounts={proposalCounts}
           onConnectWallet={onConnectWallet}
           onInitiateFusion={onInitiateFusion}
-          onConfigureAgent={onConfigure}
-          onChatWithAgent={onChat}
-          onViewEvolution={onViewEvolution}
-          onToggleAutoReplenish={onToggleAutoReplenish}
-          onOpenProposals={onOpenProposals}
-          onDeleteAgent={onDeleteAgent}
-          onRetrySpawn={onRetrySpawn}
           onCooldownBoost={onCooldownBoost}
         />
       )}

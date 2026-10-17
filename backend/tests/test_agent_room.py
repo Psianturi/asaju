@@ -33,7 +33,7 @@ class ScriptedLLM:
         self.replies = list(replies)
         self.prompts: list[str] = []
 
-    async def __call__(self, prompt, *, context, max_tokens=400):
+    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None):
         self.prompts.append(prompt)
         reply = self.replies.pop(0) if self.replies else {"message": "ok", "cited": []}
         return reply if isinstance(reply, str) else json.dumps(reply)
@@ -290,3 +290,148 @@ async def test_http_bad_request_is_400(http, owner):
         "owner": owner.address, "agent_ids": ["Atlas"], "topic": "solo topic here",
     })
     assert r.status_code == 400
+
+
+# ── LLM routing: MiniMax first, Gemini on any failure ────────────────────────
+
+class _Resp:
+    def __init__(self, status, body):
+        self.status_code = status
+        self._body = body
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx
+            raise httpx.HTTPStatusError("err", request=None, response=self)
+
+
+class _FakeHttp:
+    """Stands in for httpx.AsyncClient; replies are queued per test."""
+    replies: list = []
+    sent: list = []
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, json=None, headers=None, **kw):
+        _FakeHttp.sent.append(json)
+        return _FakeHttp.replies.pop(0)
+
+
+def _ok(text):
+    return _Resp(200, {"choices": [{"message": {"content": text}}], "base_resp": {"status_code": 0}})
+
+
+@pytest.fixture
+def llm_routes(monkeypatch):
+    import httpx
+    from core import secrets
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeHttp)
+    monkeypatch.setattr(secrets, "get_minimax_api_key", lambda: "sk-cp-test")
+    monkeypatch.setattr(secrets, "get_minimax_model", lambda: "MiniMax-M3.1-Flash-Preview")
+    monkeypatch.setattr(secrets, "get_minimax_effort", lambda: "medium")
+    monkeypatch.setattr(agent_room, "_minimax_state", {"paused_until": 0.0, "send_effort": True})
+    gemini_calls = []
+
+    async def fake_gemini(prompt, *, max_tokens, context, temperature=0.8):
+        gemini_calls.append(prompt)
+        return '{"message": "from gemini"}'
+
+    monkeypatch.setattr(agent_room, "_call_gemini", fake_gemini)
+    _FakeHttp.replies, _FakeHttp.sent = [], []
+    return gemini_calls
+
+
+async def test_minimax_answers_and_thinking_is_stripped(llm_routes):
+    _FakeHttp.replies = [_ok('<think>plan the reply</think>{"message": "from minimax"}')]
+    out = await agent_room.call_room_llm("hi", context="t", max_tokens=400)
+    assert out == '{"message": "from minimax"}'
+    assert llm_routes == []
+    sent = _FakeHttp.sent[0]
+    # Thinking cannot be disabled, so the budget includes room for it.
+    assert sent["max_tokens"] > 400 and sent["reasoning_effort"] == "medium"
+
+
+async def test_quota_error_falls_back_and_pauses_minimax(llm_routes):
+    _FakeHttp.replies = [_Resp(429, {})]
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    # Paused: the next turn goes straight to Gemini without another round-trip.
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    assert len(_FakeHttp.sent) == 1 and len(llm_routes) == 2
+
+
+async def test_rejected_effort_param_is_dropped_once(llm_routes):
+    _FakeHttp.replies = [_Resp(400, {}), _ok('{"message": "ok"}'), _ok('{"message": "ok2"}')]
+    assert await agent_room.call_room_llm("hi", context="t") == '{"message": "ok"}'
+    assert await agent_room.call_room_llm("hi", context="t") == '{"message": "ok2"}'
+    assert "reasoning_effort" not in _FakeHttp.sent[1] and "reasoning_effort" not in _FakeHttp.sent[2]
+    assert llm_routes == []
+
+
+async def test_error_in_body_falls_back(llm_routes):
+    _FakeHttp.replies = [_Resp(200, {"base_resp": {"status_code": 1008, "status_msg": "insufficient balance"}})]
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+
+
+async def test_without_minimax_key_only_gemini_runs(llm_routes, monkeypatch):
+    from core import secrets
+
+    monkeypatch.setattr(secrets, "get_minimax_api_key", lambda: None)
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    assert _FakeHttp.sent == []
+
+
+# ── Claim check at wrap-up ───────────────────────────────────────────────────
+
+async def _room_with_checks(db, owner, check_reply):
+    room, _ = await _open(db, owner)
+    llm = ScriptedLLM(
+        {"message": "Funding is stretched.", "cited": ["m1"]},
+        {"message": "Flows matter more.", "cited": ["m1"]},
+        {"summary": "s", "key_insights": ["Funding extremes precede squeezes", "Gold always rises"],
+         "next_steps": ["Watch stablecoin inflows"], "transfers": []},
+        check_reply,
+    )
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    synthesis = await agent_room.conclude_room(db, room["room_id"], llm=llm)
+    return synthesis, llm
+
+
+async def test_claims_are_checked_against_cited_lessons_only(db, owner):
+    synthesis, llm = await _room_with_checks(db, owner, {"checks": [
+        {"claim": 0, "verdict": "supported", "refs": ["ev-atlas-1"]},
+        {"claim": 1, "verdict": "supported", "refs": []},            # no evidence -> unsupported
+        {"claim": 2, "verdict": "partial", "refs": ["ev-atlas-2"]},  # never cited -> unsupported
+    ]})
+    verdicts = [c["verdict"] for c in synthesis["insight_checks"] + synthesis["next_step_checks"]]
+    assert verdicts == ["supported", "unsupported", "unsupported"]
+    assert synthesis["insight_checks"][0]["refs"] == [{"event_id": "ev-atlas-1", "title": "Funding rates"}]
+    # The checker sees the lesson text, and only the lessons that were cited.
+    check_prompt = llm.prompts[-1]
+    assert "Extreme funding rates" in check_prompt and "Stablecoin inflows to exchanges" in check_prompt
+    assert "Unrelated note about weather" not in check_prompt
+
+
+async def test_failed_or_partial_check_counts_as_unsupported(db, owner):
+    synthesis, _ = await _room_with_checks(db, owner, "not json")
+    assert {c["verdict"] for c in synthesis["insight_checks"] + synthesis["next_step_checks"]} == {"unsupported"}
+    synthesis, _ = await _room_with_checks(db, owner, {"checks": [{"claim": 9, "verdict": "supported", "refs": ["ev-atlas-1"]},
+                                                                {"claim": 0, "verdict": "certain", "refs": ["ev-atlas-1"]}]})
+    assert {c["verdict"] for c in synthesis["insight_checks"]} == {"unsupported"}
+
+
+async def test_room_cost_includes_the_check(db, owner):
+    ch = await agent_room.issue_room_challenge(db, owner=owner.address, agent_ids=["Atlas", "Brisa"],
+                                               topic="a real topic", mode="exchange", max_turns=4)
+    assert ch["max_llm_calls"] == 6
