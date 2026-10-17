@@ -40,7 +40,7 @@ export function EvolutionShowcase({ totalBredAgents, totalProposalsApproved }: E
             </p>
             <div className="flex items-baseline gap-2 pt-3 border-t border-violet-500/10">
               <span className="text-2xl font-black font-mono text-violet-300">{totalBredAgents}</span>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">agents bred on-chain</span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">agents bred on-chain</span>
             </div>
           </div>
         </motion.div>
@@ -63,7 +63,7 @@ export function EvolutionShowcase({ totalBredAgents, totalProposalsApproved }: E
             </p>
             <div className="flex items-baseline gap-2 pt-3 border-t border-cyan-500/10">
               <span className="text-2xl font-black font-mono text-cyan-300">{totalProposalsApproved}</span>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">proposals approved on-chain</span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">proposals approved on-chain</span>
             </div>
           </div>
         </motion.div>

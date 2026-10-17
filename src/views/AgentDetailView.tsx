@@ -14,6 +14,8 @@ import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
+import { TermHint } from '@/components/TermHint'
+import { GLOSSARY } from '@/lib/glossary'
 
 interface AgentDetailViewProps {
   agent: Agent
@@ -182,16 +184,21 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 <p className="text-xl font-bold font-mono mt-1">{agentEvents.length}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">NFTs Minted</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1">NFTs Minted <TermHint term="milestoneNft" /></p>
                 <p className="text-xl font-bold font-mono mt-1">{agentNfts.length}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Heritage</p>
-                <p className="text-xl font-bold font-mono mt-1">{agent.breedingCount ?? 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1">Heritage <TermHint term="heritage" /></p>
+                {/* Heritage is the on-chain reputation score; this card used to show
+                    the breeding count under that name. Offspring stay visible below. */}
+                <p className="text-xl font-bold font-mono mt-1">{agent.wisdomHeritageScore ?? 0}</p>
+                {(agent.breedingCount ?? 0) > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{agent.breedingCount} offspring</p>
+                )}
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1">
-                  <Wallet size={9} /> Gas Balance
+                  <Wallet size={9} /> Gas Balance <TermHint term="gas" />
                 </p>
                 <p className={cn(
                   'text-xl font-bold font-mono mt-1 flex items-center gap-2',
@@ -206,7 +213,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
 
           <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto">
             {agent.wisdomUnlocked && onViewEvolution && (
-              <Button onClick={() => onViewEvolution(agent)} className="bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25">
+              <Button onClick={() => onViewEvolution(agent)} title={GLOSSARY.evolution} className="bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25">
                 <Sparkle className="mr-2" weight="duotone" size={16} />
                 Evolution
               </Button>
@@ -378,7 +385,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
             <ChartLine className="text-primary" weight="duotone" size={20} />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-bold">Wisdom timeline</h3>
+            <h3 className="text-base font-bold flex items-center gap-1.5">Wisdom timeline <TermHint term="wisdom" /></h3>
             <p className="text-xs text-muted-foreground">{agentEvents.length} videos analyzed</p>
           </div>
         </div>

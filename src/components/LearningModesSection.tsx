@@ -195,7 +195,7 @@ export function LearningModesSection() {
               ))}
             </ol>
 
-            <p className="text-[11px] font-mono text-slate-500 border-t border-white/5 pt-3">
+            <p className="text-[11px] font-mono text-slate-400 border-t border-white/5 pt-3">
               Where: <span className="text-slate-300">{mode.where}</span>
             </p>
           </motion.div>
@@ -204,7 +204,7 @@ export function LearningModesSection() {
 
       {/* Both paths converge on the same milestone rule. */}
       <div className="flex justify-center my-5">
-        <ArrowDown size={20} className="text-slate-600" />
+        <ArrowDown size={20} className="text-slate-500" />
       </div>
       <motion.div
         initial={{ opacity: 0, y: 16 }}

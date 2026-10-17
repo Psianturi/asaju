@@ -67,7 +67,7 @@ export function AgentShowcase() {
 
               <div>
                 <h3 className="text-sm font-bold text-white truncate">{agent.agentName}</h3>
-                <p className="text-[10px] text-slate-500 font-mono uppercase tracking-wide">{agent.niche}</p>
+                <p className="text-[10px] text-slate-400 font-mono uppercase tracking-wide">{agent.niche}</p>
               </div>
 
               <div className="flex items-center gap-4 mt-auto pt-3 border-t border-cyan-500/10 text-[10px] font-mono">

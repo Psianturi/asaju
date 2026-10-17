@@ -179,7 +179,7 @@ export function LandingPage() {
               <img src={maefLogo} alt="ASAJU AI" className="h-9 w-auto object-contain" />
               <div>
                 <span className="text-sm font-black tracking-widest text-cyan-300">ASAJU AI</span>
-                <p className="text-[9px] text-slate-500 font-mono hidden sm:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
+                <p className="text-[9px] text-slate-400 font-mono hidden sm:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
               </div>
             </div>
             <Button
@@ -241,7 +241,7 @@ export function LandingPage() {
                     className="flex items-center gap-1.5 h-12 px-5 rounded-md border border-white/15 text-sm font-semibold text-slate-200 hover:border-cyan-400/50 hover:text-cyan-300 transition-colors"
                   >
                     See live agents
-                    <span className="text-[11px] font-normal text-slate-500">· no wallet needed</span>
+                    <span className="text-[11px] font-normal text-slate-400">· no wallet needed</span>
                   </a>
                 </div>
 
@@ -257,7 +257,7 @@ export function LandingPage() {
                         <p className="text-2xl font-black font-mono text-cyan-300">
                           <AnimatedNumber value={value} decimals={decimals} />
                         </p>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">{label}</p>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">{label}</p>
                       </div>
                     ))}
                   </div>
@@ -323,8 +323,8 @@ export function LandingPage() {
 
               {/* Center label */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">learning</p>
-                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">loop</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">learning</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">loop</p>
               </div>
 
               {/* Stage nodes positioned on circle */}
@@ -399,7 +399,7 @@ export function LandingPage() {
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
                 </div>
-                <span className="text-[10px] text-slate-600">activity</span>
+                <span className="text-[10px] text-slate-500">activity</span>
               </div>
 
               <div className="p-4 space-y-2.5 min-h-[280px]">
@@ -411,7 +411,7 @@ export function LandingPage() {
                     </div>
                   ))
                 ) : activity.length === 0 ? (
-                  <div className="text-center py-12 text-slate-600 text-xs">
+                  <div className="text-center py-12 text-slate-500 text-xs">
                     <Pulse size={28} className="mx-auto mb-3 text-slate-700" weight="duotone" />
                     No verified mints yet.
                   </div>
@@ -425,7 +425,7 @@ export function LandingPage() {
                         className="flex items-start gap-2 text-xs leading-relaxed"
                       >
                         <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-emerald-400" />
-                        <span className="text-slate-600 text-[10px] mt-0.5 flex-shrink-0 w-12">
+                        <span className="text-slate-500 text-[10px] mt-0.5 flex-shrink-0 w-12">
                           {formatRelativeTime(entry.timestamp)}
                         </span>
                         <span className="text-slate-300 flex-1">
@@ -446,7 +446,7 @@ export function LandingPage() {
               {wisdomPreview.length === 0 ? (
                 <div className="sm:col-span-2 rounded-2xl border border-cyan-500/10 bg-[#0f1124]/40 p-8 text-center">
                   <Brain size={32} className="mx-auto mb-3 text-slate-700" weight="duotone" />
-                  <p className="text-sm text-slate-500">Wisdom summaries appear here once agents analyze YouTube videos.</p>
+                  <p className="text-sm text-slate-400">Wisdom summaries appear here once agents analyze YouTube videos.</p>
                 </div>
               ) : (
                 wisdomPreview.slice(0, 4).map((w, i) => (
@@ -465,7 +465,7 @@ export function LandingPage() {
                     <h4 className="text-sm font-bold text-white line-clamp-2 leading-snug">{w.eventTitle}</h4>
                     <p className="text-xs text-slate-400 leading-relaxed line-clamp-3 flex-1">{w.wisdomSummary}</p>
                     <div className="flex items-center justify-between pt-2 border-t border-cyan-500/10">
-                      <span className="text-[10px] font-mono text-slate-600">{w.platform}</span>
+                      <span className="text-[10px] font-mono text-slate-500">{w.platform}</span>
                       {w.txHash && (
                         <a
                           href={`${getSupportedChains().find(c => c.chainId === (w.chainId ?? 5003))?.explorerUrl}/tx/${w.txHash}`}
@@ -595,7 +595,7 @@ export function LandingPage() {
           <div className="max-w-screen-xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <img src={maefLogo} alt="ASAJU AI" className="h-7 w-auto object-contain" />
-              <span className="text-xs font-bold tracking-widest text-slate-500">ASAJU AI</span>
+              <span className="text-xs font-bold tracking-widest text-slate-400">ASAJU AI</span>
             </div>
 
             <div className="flex items-center gap-3 text-[10px] font-mono">
@@ -605,7 +605,7 @@ export function LandingPage() {
                   href={`${chain.explorerUrl}/address/${chain.contractAddress}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-cyan-400 transition-colors"
+                  className="flex items-center gap-1.5 text-slate-400 hover:text-cyan-400 transition-colors"
                 >
                   <span className="w-1 h-1 rounded-full" style={{ background: chain.color }} />
                   {chain.shortName} ↗
@@ -613,7 +613,7 @@ export function LandingPage() {
               ))}
             </div>
 
-            <p className="text-[10px] text-slate-600 font-mono">Testnet · Not financial advice</p>
+            <p className="text-[10px] text-slate-500 font-mono">Testnet · Not financial advice</p>
           </div>
         </footer>
       </div>

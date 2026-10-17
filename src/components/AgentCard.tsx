@@ -13,6 +13,7 @@ import { ChainBadge } from './ChainBadge'
 import { DEFAULT_CHAIN_ID, getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from './NicheAvatar'
+import { TermHint } from '@/components/TermHint'
 
 interface AgentCardProps {
   agent: Agent
@@ -509,6 +510,7 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 <span className="text-muted-foreground font-medium flex items-center gap-1">
                   <Target size={12} weight="duotone" className="text-accent" />
                   Comprehension
+                  <TermHint term="comprehension" />
                 </span>
                 <span className="font-mono font-bold text-accent tabular-nums">
                   {agent.comprehensionScore}/100
