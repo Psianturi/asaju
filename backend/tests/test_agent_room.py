@@ -33,7 +33,7 @@ class ScriptedLLM:
         self.replies = list(replies)
         self.prompts: list[str] = []
 
-    async def __call__(self, prompt, *, context, max_tokens=400):
+    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None):
         self.prompts.append(prompt)
         reply = self.replies.pop(0) if self.replies else {"message": "ok", "cited": []}
         return reply if isinstance(reply, str) else json.dumps(reply)
@@ -343,7 +343,7 @@ def llm_routes(monkeypatch):
     monkeypatch.setattr(agent_room, "_minimax_state", {"paused_until": 0.0, "send_effort": True})
     gemini_calls = []
 
-    async def fake_gemini(prompt, *, max_tokens, context):
+    async def fake_gemini(prompt, *, max_tokens, context, temperature=0.8):
         gemini_calls.append(prompt)
         return '{"message": "from gemini"}'
 
@@ -389,3 +389,49 @@ async def test_without_minimax_key_only_gemini_runs(llm_routes, monkeypatch):
     monkeypatch.setattr(secrets, "get_minimax_api_key", lambda: None)
     assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
     assert _FakeHttp.sent == []
+
+
+# ── Claim check at wrap-up ───────────────────────────────────────────────────
+
+async def _room_with_checks(db, owner, check_reply):
+    room, _ = await _open(db, owner)
+    llm = ScriptedLLM(
+        {"message": "Funding is stretched.", "cited": ["m1"]},
+        {"message": "Flows matter more.", "cited": ["m1"]},
+        {"summary": "s", "key_insights": ["Funding extremes precede squeezes", "Gold always rises"],
+         "next_steps": ["Watch stablecoin inflows"], "transfers": []},
+        check_reply,
+    )
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    synthesis = await agent_room.conclude_room(db, room["room_id"], llm=llm)
+    return synthesis, llm
+
+
+async def test_claims_are_checked_against_cited_lessons_only(db, owner):
+    synthesis, llm = await _room_with_checks(db, owner, {"checks": [
+        {"claim": 0, "verdict": "supported", "refs": ["ev-atlas-1"]},
+        {"claim": 1, "verdict": "supported", "refs": []},            # no evidence -> unsupported
+        {"claim": 2, "verdict": "partial", "refs": ["ev-atlas-2"]},  # never cited -> unsupported
+    ]})
+    verdicts = [c["verdict"] for c in synthesis["insight_checks"] + synthesis["next_step_checks"]]
+    assert verdicts == ["supported", "unsupported", "unsupported"]
+    assert synthesis["insight_checks"][0]["refs"] == [{"event_id": "ev-atlas-1", "title": "Funding rates"}]
+    # The checker sees the lesson text, and only the lessons that were cited.
+    check_prompt = llm.prompts[-1]
+    assert "Extreme funding rates" in check_prompt and "Stablecoin inflows to exchanges" in check_prompt
+    assert "Unrelated note about weather" not in check_prompt
+
+
+async def test_failed_or_partial_check_counts_as_unsupported(db, owner):
+    synthesis, _ = await _room_with_checks(db, owner, "not json")
+    assert {c["verdict"] for c in synthesis["insight_checks"] + synthesis["next_step_checks"]} == {"unsupported"}
+    synthesis, _ = await _room_with_checks(db, owner, {"checks": [{"claim": 9, "verdict": "supported", "refs": ["ev-atlas-1"]},
+                                                                {"claim": 0, "verdict": "certain", "refs": ["ev-atlas-1"]}]})
+    assert {c["verdict"] for c in synthesis["insight_checks"]} == {"unsupported"}
+
+
+async def test_room_cost_includes_the_check(db, owner):
+    ch = await agent_room.issue_room_challenge(db, owner=owner.address, agent_ids=["Atlas", "Brisa"],
+                                               topic="a real topic", mode="exchange", max_turns=4)
+    assert ch["max_llm_calls"] == 6

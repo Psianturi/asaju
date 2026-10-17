@@ -14,7 +14,7 @@ import { Agent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import {
-  agentRoomService, type AgentRoom, type RoomMessage, type RoomMode, type RoomParticipant, type RoomCitation,
+  agentRoomService, type AgentRoom, type RoomClaimCheck, type RoomMessage, type RoomMode, type RoomParticipant, type RoomCitation,
 } from '@/services/cloudRunService'
 import {
   OWNER_SEAT, ROOM_LIMITS, ROOM_MODES, loadSavedRooms, saveRoom, seatPositions, transferKey,
@@ -250,7 +250,7 @@ function RoomSetup({ agents, owner, onOpened }: { agents: Agent[]; owner: string
             <Slider min={ROOM_LIMITS.minTurns} max={ROOM_LIMITS.maxTurns} step={1} value={[turns]} onValueChange={([v]) => setTurns(v)} />
             <p className="text-[11px] text-muted-foreground flex items-center gap-1">
               <Lightning size={12} weight="fill" className="text-amber-400" />
-              Up to {turns + 1} AI calls, including the wrap-up. Talk only — no trades, no signing.
+              Up to {turns + 2} AI calls, including the wrap-up and its fact-check. Talk only — no trades, no signing.
             </p>
           </div>
 
@@ -659,11 +659,19 @@ function SynthesisCard({ room, transferring, onHandOver }: {
   onHandOver: (eventId: string, toAgentId: string, toName: string) => void
 }) {
   const s = room.synthesis!
-  const section = (title: string, items: string[]) => items.length > 0 && (
+  const section = (title: string, items: string[], checks?: RoomClaimCheck[]) => items.length > 0 && (
     <div className="space-y-1">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-      <ul className="space-y-1">
-        {items.map((it, i) => <li key={i} className="text-sm leading-snug flex gap-1.5"><span className="text-primary">›</span>{it}</li>)}
+      <ul className="space-y-1.5">
+        {items.map((it, i) => (
+          <li key={i} className="text-sm leading-snug flex gap-1.5">
+            <span className="text-primary">›</span>
+            <span className="min-w-0">
+              {it}
+              {checks?.[i] && <CheckBadge check={checks[i]} />}
+            </span>
+          </li>
+        ))}
       </ul>
     </div>
   )
@@ -674,9 +682,9 @@ function SynthesisCard({ room, transferring, onHandOver }: {
         <Sparkle size={14} weight="fill" /> What the room concluded
       </p>
       {s.summary && <p className="text-sm leading-relaxed">{s.summary}</p>}
-      {section('Key insights', s.key_insights)}
+      {section('Key insights', s.key_insights, s.insight_checks)}
       {section('Still disputed', s.disagreements)}
-      {section('Next steps for you', s.next_steps)}
+      {section('Next steps for you', s.next_steps, s.next_step_checks)}
 
       <div className="space-y-2 pt-2 border-t border-border/40">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
@@ -711,5 +719,26 @@ function SynthesisCard({ room, transferring, onHandOver }: {
         })}
       </div>
     </Card>
+  )
+}
+
+const CHECK_STYLE: Record<RoomClaimCheck['verdict'], { label: string; cls: string }> = {
+  supported: { label: 'backed by lessons', cls: 'border-emerald-500/40 text-emerald-300' },
+  partial: { label: 'partly backed', cls: 'border-amber-400/40 text-amber-300' },
+  unsupported: { label: 'not from lessons', cls: 'border-border/60 text-muted-foreground' },
+}
+
+/** Result of the wrap-up fact-check: whether a claim rests on cited lessons
+ *  or on the model's general knowledge. */
+function CheckBadge({ check }: { check: RoomClaimCheck }) {
+  const style = CHECK_STYLE[check.verdict] ?? CHECK_STYLE.unsupported
+  const sources = check.refs.map(r => r.title).join(', ')
+  return (
+    <span
+      className={cn('ml-1.5 inline-flex items-center rounded border px-1 py-px text-[9px] font-mono align-middle', style.cls)}
+      title={sources ? `From: ${sources}` : 'None of the cited lessons backs this. Treat it as the agents\' opinion.'}
+    >
+      {style.label}
+    </span>
   )
 }

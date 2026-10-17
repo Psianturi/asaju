@@ -1561,12 +1561,20 @@ export interface RoomTransfer {
   why: string
 }
 
+export interface RoomClaimCheck {
+  verdict: 'supported' | 'partial' | 'unsupported'
+  refs: Array<{ event_id: string; title: string }>
+}
+
 export interface RoomSynthesis {
   summary: string
   key_insights: string[]
   disagreements: string[]
   next_steps: string[]
   transfers: RoomTransfer[]
+  /** Wrap-up fact-check, one per insight / next step. Absent on older rooms. */
+  insight_checks?: RoomClaimCheck[]
+  next_step_checks?: RoomClaimCheck[]
 }
 
 export interface AgentRoom {
