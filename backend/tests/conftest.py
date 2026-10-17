@@ -32,6 +32,17 @@ def chain_owner_matches_firestore(monkeypatch):
     return _OWNER_OVERRIDE
 
 
+@pytest_asyncio.fixture(autouse=True)
+def reset_cmc_feed_failures():
+    """CMC feed failures are remembered per process (retry window), so one test's
+    simulated outage must not leak into the next test's happy path."""
+    from services import market_data_service
+
+    market_data_service._FEED_FAILURES.clear()
+    yield
+    market_data_service._FEED_FAILURES.clear()
+
+
 def make_wallet() -> str:
     """Fresh, valid checksummed Ethereum address — avoids hand-typed checksums."""
     return Account.create().address
