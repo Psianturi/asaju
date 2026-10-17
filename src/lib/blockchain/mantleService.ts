@@ -387,7 +387,10 @@ export class MantleBlockchainService {
       const connected = market.connect(this.signer) as unknown as {
         list: (a: string, p: bigint) => Promise<{ wait: () => Promise<TransactionReceipt> }>
       }
-      const tx = await connected.list(agentWallet, ethers.parseUnits(price, 18))
+      // Price is in the escrow's settlement unit: the ERC-20's decimals on
+      // token-settled chains (ASA on Robinhood), the native coin's 18 elsewhere.
+      const decimals = getChain(chainId)?.paymentTokenDecimals ?? 18
+      const tx = await connected.list(agentWallet, ethers.parseUnits(price, decimals))
       const receipt: TransactionReceipt = await tx.wait()
       return { success: true, transactionHash: receipt.hash }
     } catch (error) {

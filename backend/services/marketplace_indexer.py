@@ -30,24 +30,38 @@ import logging
 import time
 from typing import Any
 
+from core.config import CHAIN_CONFIGS
 from core.database import get_db
+from services.marketplace_listings import reconcile_active_listings, record_listed_event
 from services.web3_service import web3_service
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHAIN_ID = 97  # BNB Testnet — the default chain new visitors land on
-SUPPORTED_CHAIN_IDS = (97, 5003, 11155111)
+SUPPORTED_CHAIN_IDS = (97, 5003, 11155111, 46630)
 MARKETPLACE_COLLECTION = "marketplace_indexer_state"
+
+# Escrow event scanning. Public RPCs cap eth_getLogs ranges, so the AgentListed
+# scan walks bounded windows and persists its watermark after each one. A chain
+# seen for the first time starts LISTING_SCAN_LOOKBACK blocks back (or at the
+# chain's `marketplace_start_block` when configured) rather than at genesis.
+LISTING_SCAN_CHUNK = 5_000
+LISTING_SCAN_MAX_CHUNKS_PER_POLL = 20
+LISTING_SCAN_LOOKBACK = 200_000
 
 
 async def _latest_processed_block(chain_id: int) -> int:
     """Read the high-water-mark block from Firestore. Default = 0 if missing."""
+    return await _latest_processed_block_for(f"chain_{chain_id}")
+
+
+async def _latest_processed_block_for(state_key: str) -> int:
     db = get_db()
-    state_ref = db.collection(MARKETPLACE_COLLECTION).document(f"chain_{chain_id}")
+    state_ref = db.collection(MARKETPLACE_COLLECTION).document(state_key)
     try:
         doc = await state_ref.get()
     except Exception as exc:
-        logger.warning("marketplace_indexer: state read failed for chain %s: %s", chain_id, exc.__class__.__name__)
+        logger.warning("marketplace_indexer: state read failed for %s: %s", state_key, exc.__class__.__name__)
         return 0
     if not doc.exists:
         return 0
@@ -56,13 +70,17 @@ async def _latest_processed_block(chain_id: int) -> int:
 
 async def _set_latest_processed_block(chain_id: int, block_number: int) -> None:
     """Persist the new high-water-mark so the next poll doesn't reprocess."""
+    await _set_latest_processed_block_for(f"chain_{chain_id}", block_number)
+
+
+async def _set_latest_processed_block_for(state_key: str, block_number: int) -> None:
     db = get_db()
-    state_ref = db.collection(MARKETPLACE_COLLECTION).document(f"chain_{chain_id}")
+    state_ref = db.collection(MARKETPLACE_COLLECTION).document(state_key)
     try:
         await state_ref.set({"last_processed_block": block_number, "updated_at": time.time()})
     except Exception as exc:
         # Non-fatal — worst case we re-poll the same events next time.
-        logger.warning("marketplace_indexer: state write failed for chain %s: %s", chain_id, exc.__class__.__name__)
+        logger.warning("marketplace_indexer: state write failed for %s: %s", state_key, exc.__class__.__name__)
 
 
 async def _migrate_transfer(agent_wallet: str, new_owner: str, previous_owner_event: str | None = None) -> dict[str, int]:
@@ -197,11 +215,68 @@ async def poll_chain(chain_id: int) -> dict[str, int]:
     return summary
 
 
+async def poll_marketplace_listings(chain_id: int) -> dict:
+    """Mirror the chain's escrow listings into Firestore.
+
+    Two passes: scan new AgentListed logs (discovers listings made outside the
+    UI), then re-read every row still marked active (drops cancelled, sold and
+    off-market-transferred agents). Chains without an escrow are skipped.
+    """
+    cfg = CHAIN_CONFIGS.get(chain_id, {})
+    if not cfg.get("marketplace_address"):
+        return {"skipped": 1}
+
+    state_key = f"listings_{chain_id}"
+    summary: dict[str, int] = {"listed_logs": 0, "errors": 0}
+    try:
+        latest = await web3_service.get_block_number(chain_id)
+    except Exception as exc:
+        logger.warning("marketplace_indexer: block number read failed chain %s: %s", chain_id, exc.__class__.__name__)
+        return {"errors": 1}
+
+    since = await _latest_processed_block_for(state_key)
+    if since <= 0:
+        since = int(cfg.get("marketplace_start_block") or max(0, latest - LISTING_SCAN_LOOKBACK)) - 1
+
+    for _ in range(LISTING_SCAN_MAX_CHUNKS_PER_POLL):
+        if since >= latest:
+            break
+        start, end = since + 1, min(since + LISTING_SCAN_CHUNK, latest)
+        try:
+            logs = await web3_service.get_marketplace_event_logs(
+                "AgentListed", chain_id=chain_id, from_block=start, to_block=end
+            )
+        except Exception as exc:
+            logger.warning(
+                "marketplace_indexer: AgentListed scan failed chain %s [%s, %s]: %s",
+                chain_id, start, end, exc.__class__.__name__,
+            )
+            summary["errors"] += 1
+            break
+        for log in logs:
+            agent_wallet = (log.get("args") or {}).get("agentWallet")
+            if not agent_wallet:
+                continue
+            summary["listed_logs"] += 1
+            try:
+                await record_listed_event(agent_wallet)
+            except Exception as exc:
+                logger.warning("marketplace_indexer: listing sync failed for %s: %s", agent_wallet, exc.__class__.__name__)
+                summary["errors"] += 1
+        since = end
+        await _set_latest_processed_block_for(state_key, since)
+
+    summary["reconcile"] = await reconcile_active_listings(chain_id)
+    return summary
+
+
 async def poll_all_supported_chains() -> dict[str, dict]:
     """Iterate every chain we support and poll its events. Each chain's
     state is independent — a failure on BNB doesn't skip Mantle polling.
     """
     out: dict[str, dict] = {}
     for chain_id in SUPPORTED_CHAIN_IDS:
-        out[str(chain_id)] = await poll_chain(chain_id)
+        result = await poll_chain(chain_id)
+        result["listings"] = await poll_marketplace_listings(chain_id)
+        out[str(chain_id)] = result
     return out

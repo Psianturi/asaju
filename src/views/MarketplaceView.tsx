@@ -15,9 +15,11 @@ interface MarketplaceFiltersState {
 
 interface MarketplaceViewProps {
   marketplaceAgents: MarketplaceAgent[]
+  /** Refresh the board, e.g. after a purchase settles. */
+  onListingsChanged?: () => void
 }
 
-export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
+export function MarketplaceView({ marketplaceAgents, onListingsChanged }: MarketplaceViewProps) {
   const [marketplaceFilters, setMarketplaceFilters] = useState<MarketplaceFiltersState>({
     generation: [],
     niche: [],
@@ -74,7 +76,7 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
           </div>
         </div>
         <div className="text-sm text-muted-foreground font-mono">
-          {marketplaceAgents?.length ?? 0} listed · BNB &amp; ETH Sepolia
+          {marketplaceAgents?.length ?? 0} listed · BNB, ETH Sepolia &amp; Robinhood
         </div>
       </div>
 
@@ -84,7 +86,7 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
         totalAgents={marketplaceAgents?.length ?? 0}
       />
 
-      {/* Honest Fase 1 banner — direct transfer works on testnet; escrow is next. */}
+      {/* Escrow is live: the banner says what a buyer can rely on, testnet included. */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -95,11 +97,11 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
           <LockKey size={16} weight="duotone" className="text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-foreground">Direct ownership transfer — live on testnet</p>
+          <p className="text-sm font-bold text-foreground">Escrow marketplace — live on testnet</p>
           <p className="text-xs text-muted-foreground/80 leading-snug mt-0.5">
-            Owners list an agent here and transfer it on-chain to a buyer; everything the agent
-            learned carries forward. Arrange payment with the seller directly — the platform does
-            not hold funds yet. Escrowed, trustless payment is the next phase.
+            Listings live in an on-chain escrow. Paying and taking ownership happen in one
+            transaction, so neither side has to trust the other; everything the agent learned
+            carries forward. Testnet funds only.
           </p>
         </div>
       </motion.div>
@@ -109,13 +111,14 @@ export function MarketplaceView({ marketplaceAgents }: MarketplaceViewProps) {
           <Storefront size={64} className="mx-auto mb-4 text-muted-foreground animate-float" weight="duotone" />
           <h3 className="text-base font-bold mb-2">No Agents Available</h3>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Check back later for agents listed by other users.
+            Check back later for agents listed by other users — or sell one of yours from
+            My Agents → Sell (BNB Testnet, ETH Sepolia or Robinhood Chain).
           </p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredAndSortedMarketplace().map((agent) => (
-            <MarketplaceAgentCard key={agent.id} agent={agent} />
+            <MarketplaceAgentCard key={agent.id} agent={agent} onPurchased={onListingsChanged} />
           ))}
         </div>
       )}
