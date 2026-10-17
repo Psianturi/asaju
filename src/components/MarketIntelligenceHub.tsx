@@ -267,6 +267,9 @@ export function MarketIntelligenceHub() {
   // source answered, OFFLINE when no tab has a single row to show.
   const failedTabs = Object.keys(state.problems).length
   const tabsWithRows = TABS.filter(t => state[t.key].length > 0).length
+  // "down" means every feed failed. When the feeds answered but none of them
+  // had a row to show, claiming LIVE would be a lie — say so instead.
+  const empty = !state.loading && tabsWithRows === 0 && failedTabs === 0
   const down = !state.loading && tabsWithRows === 0 && failedTabs > 0
   const partial = !state.loading && !down && failedTabs > 0
   const tabProblem = state.problems[tab]
@@ -332,12 +335,14 @@ export function MarketIntelligenceHub() {
                 ? 'bg-white/5 border-white/15 text-muted-foreground'
                 : down
                 ? 'bg-red-400/10 border-red-400/30 text-red-300'
-                : partial
-                  ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
-                  : 'bg-emerald-400/15 border-emerald-400/30 text-emerald-300'
+                : empty
+                  ? 'bg-white/5 border-white/15 text-muted-foreground'
+                  : partial
+                    ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
+                    : 'bg-emerald-400/15 border-emerald-400/30 text-emerald-300'
             }`}>
-              <RadioButton size={8} weight="fill" className={state.loading || down || partial ? '' : 'animate-pulse'} />
-              {state.loading ? 'LOADING' : down ? 'OFFLINE' : partial ? 'PARTIAL' : 'LIVE'}
+              <RadioButton size={8} weight="fill" className={state.loading || down || partial || empty ? '' : 'animate-pulse'} />
+              {state.loading ? 'LOADING' : down ? 'OFFLINE' : empty ? 'NO DATA' : partial ? 'PARTIAL' : 'LIVE'}
             </span>
           </div>
           <div className="flex flex-col items-end gap-0.5">

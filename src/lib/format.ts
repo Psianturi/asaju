@@ -51,10 +51,28 @@ export function isFiniteNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
 }
 
+/**
+ * Normalise a timestamp to milliseconds.
+ *
+ * Firestore stores times as seconds since the epoch, JavaScript's Date wants
+ * milliseconds, and some call sites already pass milliseconds. Anything below
+ * 1e12 is a second-scale value (1e12 ms is 2001; a plausible ms timestamp is
+ * always far above that). Getting this wrong is silent — it renders "20723d ago"
+ * instead of "2h ago" — so it is handled once, here, rather than at each call
+ * site.
+ */
+export function toMs(ts: number | Date | null | undefined): number {
+  if (ts == null) return 0
+  const raw = ts instanceof Date ? ts.getTime() : ts
+  if (!Number.isFinite(raw) || raw <= 0) return 0
+  return raw < 1e12 ? raw * 1000 : raw
+}
+
 /** Relative "time ago" for small spans: 'just now', '2m ago', '1h ago'. */
 export function fmtTimeAgo(ts: number | Date | null | undefined): string {
   if (ts == null) return '—'
-  const ms = typeof ts === 'number' ? ts : ts.getTime()
+  const ms = toMs(ts)
+  if (!ms) return '—'
   const diff = Date.now() - ms
   if (diff < 45_000) return 'just now'
   if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`

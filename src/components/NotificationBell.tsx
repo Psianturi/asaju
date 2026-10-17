@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bell, ClipboardText, Lightning, Pause, Coins, X, Eye, Target, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   Sheet,
   SheetContent,
@@ -417,9 +416,6 @@ function InboxItem({
           ) : (
             <span className="text-xs font-semibold text-foreground truncate">{title}</span>
           )}
-          <Badge variant="outline" className="text-[9px] py-0 shrink-0">
-            {accent}
-          </Badge>
         </div>
         <p className="text-[10px] text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">
           {subtitle}
