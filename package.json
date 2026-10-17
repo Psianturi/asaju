@@ -13,7 +13,6 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@github/spark": ">=0.43.1 <1",
         "@heroicons/react": "^2.2.0",
         "@hookform/resolvers": "^4.1.3",
         "@octokit/core": "^6.1.4",
@@ -103,7 +102,8 @@
         "picomatch": "4.0.4",
         "path-to-regexp": "8.4.0",
         "lodash": "4.18.0",
-        "brace-expansion": "^5.0.8",
+        "brace-expansion": "^5.0.12",
+        "source-map-js": "^1.2.2",
         "minimatch": "^10.0.3",
         "js-yaml": "^4.3.2",
         "qs": "^6.16.0",
