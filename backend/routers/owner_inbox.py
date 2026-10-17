@@ -39,7 +39,10 @@ async def _safe_call(coro, default):
     try:
         return await coro
     except Exception as exc:
-        logger.warning("inbox aggregator call failed: %s", exc.__class__.__name__)
+        # Include the message: for FailedPrecondition Firestore puts the missing
+        # composite index (and a link to create it) there, and the class name
+        # alone hid that for every inbox load.
+        logger.warning("inbox aggregator call failed: %s: %s", exc.__class__.__name__, str(exc)[:500])
         return default
 
 
