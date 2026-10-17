@@ -66,6 +66,20 @@ const EMPTY_INBOX: InboxPayload = {
   recent_mints: [],
 }
 
+// The inbox drives several memos that index into its arrays; a partial payload
+// (an older backend, an error body) must degrade to "nothing waiting", not
+// blank the whole dashboard.
+function normalizeInbox(data: unknown): InboxPayload {
+  const d = (data && typeof data === 'object' ? data : {}) as Partial<InboxPayload>
+  return {
+    counts: { ...EMPTY_INBOX.counts, ...(d.counts ?? {}) },
+    pending_proposals: Array.isArray(d.pending_proposals) ? d.pending_proposals : [],
+    low_gas_agents: Array.isArray(d.low_gas_agents) ? d.low_gas_agents : [],
+    paused_agents: Array.isArray(d.paused_agents) ? d.paused_agents : [],
+    recent_mints: Array.isArray(d.recent_mints) ? d.recent_mints : [],
+  }
+}
+
 export function DashboardView({
   agents,
   events,
@@ -104,7 +118,7 @@ export function DashboardView({
     setInboxLoading(true)
     cloudRunService
       .getOwnerInbox(address)
-      .then(data => { if (!cancelled) setInbox(data as InboxPayload) })
+      .then(data => { if (!cancelled) setInbox(normalizeInbox(data)) })
       .catch(() => { if (!cancelled) setInbox(EMPTY_INBOX) })
       .finally(() => { if (!cancelled) setInboxLoading(false) })
     return () => { cancelled = true }

@@ -1,0 +1,55 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "scout_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "agent_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "run_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "scout_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "agent_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "run_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chat_topics",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "agent_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_wallet",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

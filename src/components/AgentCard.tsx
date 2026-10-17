@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge, Target, ChartLine, MagnifyingGlass } from '@phosphor-icons/react'
+import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge, Target, ChartLine, MagnifyingGlass } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { GasStatusBadge } from './GasStatusBadge'
@@ -14,6 +14,8 @@ import { DEFAULT_CHAIN_ID, getChain, autoReplenish, supportsMarketplace } from '
 import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from './NicheAvatar'
 import { TermHint } from '@/components/TermHint'
+import { useGasStatus } from '@/hooks/useGasStatus'
+import { monitoringService } from '@/services/monitoringService'
 
 interface AgentCardProps {
   agent: Agent
@@ -72,6 +74,15 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
   const currency = getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'
   const { threshold: autoReplenishThreshold, refill: autoReplenishAmount } =
     autoReplenish(agent.chainId ?? DEFAULT_CHAIN_ID)
+  const walletBalance = agent.agentGasBalance ?? agent.nativeBalance ?? 0
+  // Same source as the "Live status" badge (shared, cached poll), so the card
+  // never says "Healthy" and "Low gas" at once. Thresholds are relative to the
+  // chain's provision on the backend; fall back to the chain's replenish
+  // threshold only while that status hasn't loaded.
+  const { gasStatus } = useGasStatus(agent.walletAddress, agent.chainId ?? DEFAULT_CHAIN_ID)
+  const gasIsLow = gasStatus
+    ? monitoringService.isGasLow(gasStatus.status)
+    : walletBalance < autoReplenishThreshold
 
   const copyWalletAddress = async () => {
     await navigator.clipboard.writeText(agent.walletAddress)
@@ -264,51 +275,31 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
           </div>
 
           <div className="mb-5 space-y-3">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-3 rounded-lg bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 cursor-help">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <CurrencyCircleDollar size={18} className="text-primary" weight="duotone" />
-                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Agent Native Balance</span>
-                </div>
-                <span className="text-sm font-bold font-mono text-primary">{agent.nativeBalance?.toFixed(3) || '0.000'} {getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Gas Used:</span>
-                <span className="text-xs font-mono text-muted-foreground">{agent.gasSpent?.toLocaleString() || '0'} units</span>
-              </div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
-                  <p className="text-xs text-muted-foreground">
-                    Self-funded via gas provisioning. Each agent starts with{' '}
-                    <span className="font-bold text-primary">
-                      {autoReplenishAmount} {currency}
-                    </span>{' '}
-                    reserved for autonomous operations.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
             <div className="p-3 rounded-lg bg-gradient-to-r from-secondary/10 to-accent/10 border border-secondary/30">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Wallet size={18} className="text-secondary" weight="duotone" />
-                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Agentic Smart Account</span>
+                  {/* One block for the agent's single wallet (it used to appear twice,
+                      as "native balance" and "smart account", with two different
+                      numbers). It is a regular wallet, not a smart account. */}
+                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Agent wallet</span>
                 </div>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {agent.gasSpent?.toLocaleString() || '0'} gas used
+                </span>
               </div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-muted-foreground">Agent Gas Balance:</span>
+                <span className="text-xs text-muted-foreground">Balance:</span>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-sm font-bold font-mono text-secondary cursor-help">{(agent.agentGasBalance ?? 0).toFixed(4)} {currency}</span>
+                      <span className="text-sm font-bold font-mono text-secondary cursor-help">{walletBalance.toFixed(4)} {currency}</span>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
-                      <p className="text-xs text-muted-foreground">Self-funded via Gas Provisioning</p>
+                      <p className="text-xs text-muted-foreground">
+                        Pays the agent's own transaction fees. Each agent starts with{' '}
+                        <span className="font-bold text-primary">{autoReplenishAmount} {currency}</span> from the spawn fee.
+                      </p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -320,10 +311,10 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 <GasStatusBadge agentWallet={agent.walletAddress} chainId={agent.chainId} showLabel={true} />
               </div>
               
-              {(agent.agentGasBalance ?? 0) < 0.08 && (
+              {gasIsLow && (
                 <div
                   className={`mb-3 flex items-center gap-2 px-2.5 py-2 rounded-md border ${
-                    (agent.agentGasBalance ?? 0) === 0
+                    walletBalance === 0
                       ? 'bg-rose-500/15 border-rose-500/40'
                       : 'bg-amber-500/10 border-amber-500/30'
                   }`}
@@ -331,16 +322,16 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                   <Warning
                     size={13}
                     className={`flex-shrink-0 ${
-                      (agent.agentGasBalance ?? 0) === 0 ? 'text-rose-400' : 'text-amber-400'
+                      walletBalance === 0 ? 'text-rose-400' : 'text-amber-400'
                     }`}
                     weight="fill"
                   />
                   <span
                     className={`text-[10px] font-semibold leading-tight ${
-                      (agent.agentGasBalance ?? 0) === 0 ? 'text-rose-300' : 'text-amber-400'
+                      walletBalance === 0 ? 'text-rose-300' : 'text-amber-400'
                     }`}
                   >
-                    {(agent.agentGasBalance ?? 0) === 0
+                    {walletBalance === 0
                       ? 'Needs gas — top up before next proposal execution'
                       : 'Low gas — top up to keep agent operational'}
                   </span>

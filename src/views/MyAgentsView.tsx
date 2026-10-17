@@ -10,9 +10,13 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Agent, Niche, Event } from '@/lib/types'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
+import { getChain } from '@/lib/blockchain/chains'
 
 interface MyAgentsViewProps {
   agents: Agent[]
+  /** Network the wallet is on. Agents live on one chain each; this view leads
+   * with the ones on the current network and keeps the rest one tap away. */
+  currentChainId?: number
   /** All event docs in the current session — used for per-agent actual video
    * counts so the AgentCard Wisdom Progress reflects documents, not counters. */
   events?: Event[]
@@ -42,6 +46,7 @@ const niches: Array<'all' | Niche> = ['all', 'Blockchain/DeFi', 'Trading/Investm
 
 export function MyAgentsView({
   agents,
+  currentChainId,
   events,
   walletConnected,
   onConnectWallet,
@@ -65,16 +70,26 @@ export function MyAgentsView({
   const [query, setQuery] = useState('')
   const [niche, setNiche] = useState<'all' | Niche>('all')
   const [status, setStatus] = useState<StatusFilter>('all')
+  // null = follow the default: this network when it has agents, else all.
+  const [networkScope, setNetworkScope] = useState<'current' | 'all' | null>(null)
+
+  const onCurrentNetwork = useMemo(
+    () => agents.filter((a) => currentChainId != null && (a.chainId ?? 5003) === currentChainId),
+    [agents, currentChainId],
+  )
+  const effectiveScope = networkScope ?? (onCurrentNetwork.length > 0 ? 'current' : 'all')
+  const currentChain = currentChainId != null ? getChain(currentChainId) : undefined
 
   const filteredAgents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    return agents.filter((agent) => {
+    const pool = effectiveScope === 'current' ? onCurrentNetwork : agents
+    return pool.filter((agent) => {
       const matchesQuery = !normalizedQuery || `${agent.name} ${agent.niche}`.toLowerCase().includes(normalizedQuery)
       const matchesNiche = niche === 'all' || agent.niche === niche
       const matchesStatus = status === 'all' || agent.status === status
       return matchesQuery && matchesNiche && matchesStatus
     })
-  }, [agents, niche, query, status])
+  }, [agents, onCurrentNetwork, effectiveScope, niche, query, status])
 
   if (!walletConnected) {
     return (
@@ -153,6 +168,16 @@ export function MyAgentsView({
               </Button>
             ))}
           </div>
+          {currentChain && (
+            <div className="flex items-center gap-1 rounded-md border border-border/50 p-0.5" role="group" aria-label="Network">
+              <Button type="button" size="sm" variant={effectiveScope === 'current' ? 'default' : 'ghost'} onClick={() => setNetworkScope('current')} className="h-8 text-xs whitespace-nowrap">
+                {currentChain.shortName} · {onCurrentNetwork.length}
+              </Button>
+              <Button type="button" size="sm" variant={effectiveScope === 'all' ? 'default' : 'ghost'} onClick={() => setNetworkScope('all')} className="h-8 text-xs whitespace-nowrap">
+                All networks · {agents.length}
+              </Button>
+            </div>
+          )}
           <select value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)} className="h-9 rounded-md border border-border/50 bg-background/60 px-3 text-xs text-foreground">
             <option value="all">All statuses</option>
             <option value="active">Active</option>
@@ -167,7 +192,16 @@ export function MyAgentsView({
         <Card className="glass-card p-10 text-center border border-dashed border-primary/30">
           <Robot size={34} className="mx-auto mb-3 text-muted-foreground/60" weight="duotone" />
           <h3 className="font-bold">No agents match this view</h3>
-          <p className="text-xs text-muted-foreground mt-1">Clear the filters or spawn a new agent.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {effectiveScope === 'current' && agents.length > onCurrentNetwork.length
+              ? `${agents.length - onCurrentNetwork.length} of your agents live on other networks.`
+              : 'Clear the filters or spawn a new agent.'}
+          </p>
+          {effectiveScope === 'current' && agents.length > onCurrentNetwork.length && (
+            <Button size="sm" variant="outline" className="mt-3 self-center w-fit mx-auto" onClick={() => setNetworkScope('all')}>
+              Show all networks
+            </Button>
+          )}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
