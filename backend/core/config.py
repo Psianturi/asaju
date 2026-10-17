@@ -18,6 +18,7 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "rpc_url": "https://ethereum-sepolia-rpc.publicnode.com",
         "contract_address": "0xD8F5691436B6647bE7a05BeF7dD637FbbCf819ab",  # ASAJU V6, 30 Sep 2026 — no MINTER_ROLE
         "explorer_url": "https://sepolia.etherscan.io",
+        "marketplace_address": "0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C",  # native escrow, 17 Oct 2026
     },
     97: {
         "name": "BNB Smart Chain Testnet",
@@ -25,6 +26,7 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "rpc_url": "https://bsc-testnet-rpc.publicnode.com",
         "contract_address": "0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C",  # ASAJU V6, 30 Sep 2026 — no MINTER_ROLE
         "explorer_url": "https://testnet.bscscan.com",
+        "marketplace_address": "0xa32977dFE542C244F5375c618Da091191C841001",  # native escrow, 17 Oct 2026
     },
     # VibeVibe testnet runs on Robinhood Chain (an Arbitrum Orbit L2). This is
     # where the ASA token lives, so the ERC-20 marketplace settles in ASA here.
@@ -38,8 +40,8 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "payment_token": "0x1c919078B57326EeE9990E9C30D92a182eDe8f5C",
         "payment_token_symbol": "ASA",
         "payment_token_decimals": 18,
-        # Marketplace escrow contract; set after deploy-marketplace-erc20.js
-        "marketplace_address": "",
+        # Marketplace escrow contract (ERC-20 / ASA settlement)
+        "marketplace_address": "0x110edEa5DB874589ec4492d15660082634E173f0",  # 17 Oct 2026
     },
 }
 
