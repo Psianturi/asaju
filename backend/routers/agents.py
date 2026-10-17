@@ -1062,10 +1062,13 @@ async def list_agents_by_wallet(
     if docs:
         await asyncio.gather(*(_refresh_balance(d) for d in docs), return_exceptions=True)
 
-    result = [
-        await _build_agent_response(d, needs_funding=not d.get("funded", False))
+    # Each response reads that agent's events for comprehension and the scout
+    # log; build them concurrently so the list costs one round-trip, not N.
+    # gather() keeps the input order.
+    result = list(await asyncio.gather(*(
+        _build_agent_response(d, needs_funding=not d.get("funded", False))
         for d in docs
-    ]
+    )))
     logger.info("Listed %d agents for wallet %s", len(result), wallet[:10])
     return result
 
