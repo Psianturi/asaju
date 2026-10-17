@@ -8,6 +8,11 @@
  *  6. Vignette + noise texture (3% opacity)
  * DataFlow canvas remains as a separate layer (streams over grid).
  *
+ * Toned down so it reads as atmosphere, not content: the dashboard's cards sit
+ * on top of this layer, and at full strength the sun glow and grid lines ran
+ * straight through the text of every panel in the middle of the screen. The
+ * sun and horizon now sit low and faint, and the grid only fills the bottom.
+ *
  * Micro-interactions added per design review:
  *   - Slow "breathing" animation on the sun orb (6s cycle, opacity 0.6 → 1.0)
  *   - Subtle mouse parallax on grid + stars (max ±10px offset)
@@ -64,23 +69,23 @@ export function RetroFuturisticBackground() {
       <div
         className="retro-sun absolute left-1/2 -translate-x-1/2"
         style={{
-          top: '55%',
+          top: '72%',
           width: '44vmin',
           height: '22vmin',
           borderRadius: '50% 50% 0 0',
-          background: 'linear-gradient(180deg, rgba(255,46,151,0.55) 0%, rgba(157,78,221,0.45) 50%, rgba(0,240,255,0.35) 100%)',
-          filter: 'blur(28px)',
+          background: 'linear-gradient(180deg, rgba(255,46,151,0.22) 0%, rgba(157,78,221,0.18) 50%, rgba(0,240,255,0.12) 100%)',
+          filter: 'blur(36px)',
         }}
       />
       {/* Hard-edged sun silhouette under the glow */}
       <div
         className="retro-sun absolute left-1/2 -translate-x-1/2"
         style={{
-          top: '55%',
+          top: '72%',
           width: '32vmin',
           height: '16vmin',
           borderRadius: '50% 50% 0 0',
-          background: 'linear-gradient(180deg, rgba(255,46,151,0.20) 0%, rgba(157,78,221,0.18) 60%, rgba(0,240,255,0.10) 100%)',
+          background: 'linear-gradient(180deg, rgba(255,46,151,0.08) 0%, rgba(157,78,221,0.07) 60%, rgba(0,240,255,0.04) 100%)',
           filter: 'blur(6px)',
         }}
       />
@@ -89,17 +94,17 @@ export function RetroFuturisticBackground() {
       <div
         className="absolute left-0 right-0"
         style={{
-          top: '55%',
+          top: '72%',
           height: '1px',
-          background: 'linear-gradient(90deg, transparent 0%, rgba(0,240,255,0.45) 20%, rgba(255,46,151,0.55) 50%, rgba(0,240,255,0.45) 80%, transparent 100%)',
-          boxShadow: '0 0 24px rgba(0,240,255,0.4), 0 0 48px rgba(255,46,151,0.25)',
+          background: 'linear-gradient(90deg, transparent 0%, rgba(0,240,255,0.18) 20%, rgba(255,46,151,0.22) 50%, rgba(0,240,255,0.18) 80%, transparent 100%)',
+          boxShadow: '0 0 18px rgba(0,240,255,0.12)',
         }}
       />
 
       {/* Perspective grid plane — bottom half only — mouse parallax */}
       <svg
         className="retro-grid-svg absolute left-0 right-0 bottom-0 w-full"
-        style={{ height: '45%', opacity: 0.5, transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
+        style={{ height: '28%', opacity: 0.16, transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
         viewBox="0 0 1440 405"
         preserveAspectRatio="none"
       >

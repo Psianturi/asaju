@@ -1363,6 +1363,7 @@ function App() {
               dataLoaded={dataLoaded}
               isPlatformView={isPlatformView}
               walletAddress={walletAddress}
+              chainId={walletChainId ?? selectedChainId}
               inboxRefreshKey={inboxRefreshKey}
               onSelectAgent={(agent) => agent ? setSelectedAgent(agent) : setSelectedAgent(null)}
               onOpenAgent={(agent) => setAgentDetailId(agent.id)}

@@ -9,6 +9,7 @@ import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeH
 import { Agent, Event, NFT } from '@/lib/types'
 import { cloudRunService, type MarketSnapshot } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
+import { fmtTimeAgo } from '@/lib/format'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
@@ -27,6 +28,8 @@ interface DashboardViewProps {
   dataLoaded: boolean
   isPlatformView: boolean
   walletAddress?: string
+  /** Network selected in the header — market panels follow it. */
+  chainId?: number
   inboxRefreshKey?: number
   onSelectAgent: (agent: Agent) => void
   onOpenAgent: (agent: Agent) => void
@@ -70,6 +73,7 @@ export function DashboardView({
   dataLoaded,
   isPlatformView,
   walletAddress,
+  chainId,
   inboxRefreshKey,
   onSelectAgent,
   onOpenAgent,
@@ -140,7 +144,9 @@ export function DashboardView({
       const ownerAgent = agents.find(a => a.id === firstProposal.agent_id)
       return { kind: 'pending-proposal' as const, agent: ownerAgent, proposal: firstProposal, cta: 'Review proposal' }
     }
-    const firstPaused = inbox.paused_agents[0]
+    // A paused-scout item asks the owner to re-enable Auto-Scout, which can't
+    // run while it is paused platform-wide — don't lead with a dead end.
+    const firstPaused = AUTO_SCOUT_AVAILABLE ? inbox.paused_agents[0] : undefined
     if (firstPaused) {
       const ownerAgent = agents.find(a => a.id === firstPaused.agent_id)
       return { kind: 'paused-agent' as const, agent: ownerAgent, paused: firstPaused, cta: 'Re-enable scout' }
@@ -161,6 +167,36 @@ export function DashboardView({
   }), [agents, events, isPlatformView, inbox.counts.pending_proposals])
 
   const autoAgents = agents.filter(isAgentAutoScouting)
+
+  // Most recent lesson across the owner's agents — a real activity signal to
+  // show in place of the Auto-Scout count while Auto-Scout is paused.
+  const lastLearned = useMemo(() => {
+    const mine = new Set(agents.map(a => a.id))
+    let latest: Event | null = null
+    for (const e of events) {
+      if (mine.has(e.agentId) && (!latest || e.date > latest.date)) latest = e
+    }
+    if (!latest) return null
+    return { at: latest.date, agent: agents.find(a => a.id === latest!.agentId) }
+  }, [agents, events])
+
+  // The banner above already shows the single most urgent item; the inbox
+  // lists only what remains so the same agent never appears twice.
+  const featuredInboxKey = urgentAction == null
+    ? null
+    : urgentAction.kind === 'pending-proposal'
+      ? `pp:${urgentAction.proposal.proposal_id}`
+      : urgentAction.kind === 'paused-agent'
+        ? `p:${urgentAction.paused.agent_id}`
+        : `g:${urgentAction.gas.agent_id}`
+  const remainingInbox = useMemo<InboxPayload>(() => ({
+    ...inbox,
+    pending_proposals: inbox.pending_proposals.filter(p => `pp:${p.proposal_id}` !== featuredInboxKey),
+    paused_agents: AUTO_SCOUT_AVAILABLE ? inbox.paused_agents.filter(p => `p:${p.agent_id}` !== featuredInboxKey) : [],
+    low_gas_agents: inbox.low_gas_agents.filter(p => `g:${p.agent_id}` !== featuredInboxKey),
+  }), [inbox, featuredInboxKey])
+  const remainingInboxCount =
+    remainingInbox.pending_proposals.length + remainingInbox.paused_agents.length + remainingInbox.low_gas_agents.length
 
   // Surface the agent with the freshest real activity for the "living" pulse —
   // recency comes from actual scout timestamps, never a fixed pick.
@@ -274,7 +310,17 @@ export function DashboardView({
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={14} />} tone="primary" />
-              <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={!AUTO_SCOUT_AVAILABLE ? 'paused' : stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
+              {AUTO_SCOUT_AVAILABLE ? (
+                <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
+              ) : (
+                <CompactStat
+                  label="Last learned"
+                  value={lastLearned ? fmtTimeAgo(lastLearned.at) : '—'}
+                  icon={<Lightning size={14} />}
+                  tone="emerald"
+                  sublabel={lastLearned?.agent ? lastLearned.agent.name : 'submit a video to start'}
+                />
+              )}
               <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={14} />} tone="accent" />
               <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={14} />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
             </div>
@@ -312,9 +358,11 @@ export function DashboardView({
         </section>
       )}
 
-      {isConnected && inbox.counts.total > 0 && (
+      {isConnected && remainingInboxCount > 0 && (
         <InboxBody
-          inbox={inbox}
+          inbox={remainingInbox}
+          remainingCount={remainingInboxCount}
+          hasFeatured={featuredInboxKey != null}
           loading={inboxLoading}
           agents={agents}
           onOpenAgent={onOpenAgent}
@@ -340,7 +388,7 @@ export function DashboardView({
           </h2>
         </div>
         <MarketIntelligenceHub />
-        <MarketSnapshotCard />
+        <MarketSnapshotCard chainId={chainId} />
         <CmcAiSummaryCard />
       </section>
 
@@ -651,7 +699,7 @@ function CompactStat({
   sublabel,
 }: {
   label: string
-  value: number
+  value: number | string
   icon: React.ReactNode
   tone: 'primary' | 'emerald' | 'accent' | 'amber' | 'slate'
   sublabel?: string
@@ -671,7 +719,7 @@ function CompactStat({
         </p>
         {icon}
       </div>
-      <p className="text-3xl font-bold font-mono tabular-nums text-foreground leading-none">{value}</p>
+      <p className={`${typeof value === 'string' ? 'text-2xl' : 'text-3xl'} font-bold font-mono tabular-nums text-foreground leading-none`}>{value}</p>
       {sublabel && (
         <p className="text-[10px] text-muted-foreground mt-1.5">{sublabel}</p>
       )}
@@ -724,12 +772,17 @@ function VisitorStat({
 
 function InboxBody({
   inbox,
+  remainingCount,
+  hasFeatured,
   loading,
   agents,
   onOpenAgent,
   onOpenMyAgents,
 }: {
   inbox: InboxPayload
+  /** Items listed here — excludes the one already shown in the banner above. */
+  remainingCount: number
+  hasFeatured: boolean
   loading: boolean
   agents: Agent[]
   onOpenAgent: (a: Agent) => void
@@ -749,7 +802,7 @@ function InboxBody({
             Needs your attention
           </p>
           <p className="text-sm font-semibold">
-            {inbox.counts.total} item{inbox.counts.total === 1 ? '' : 's'} waiting on you
+            {remainingCount} {hasFeatured ? 'more ' : ''}item{remainingCount === 1 ? '' : 's'} waiting on you
           </p>
         </div>
         <button
@@ -808,7 +861,7 @@ function InboxBody({
                   primary={p.agent_name}
                   secondary={`Balance ${p.agent_gas_balance?.toFixed(4) ?? '?'} ${
                     getChain(agentById.get(p.agent_id)?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''
-                  } — top up to keep scouting`}
+                  } — top up so it can keep acting on-chain`}
                   onClick={() => {
                     const a = agentById.get(p.agent_id)
                     if (a) onOpenAgent(a)

@@ -102,7 +102,9 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
       initial={{ opacity: 0, x: -6 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(index * 0.03, 0.2), duration: 0.25 }}
-      className="group grid grid-cols-[20px_1fr_56px_64px_60px_64px] items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 min-h-9"
+      // One column per visible cell at every width: hiding a cell without
+      // dropping its column shifted the row and collapsed the name on phones.
+      className="group grid grid-cols-[16px_1fr_auto_auto] sm:grid-cols-[20px_1fr_56px_auto_64px] md:grid-cols-[20px_1fr_56px_72px_auto_68px] items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 min-h-9"
     >
       <span className="text-[10px] font-mono tabular-nums text-muted-foreground/60 w-5">{index + 1}</span>
       <div className="min-w-0 flex items-baseline gap-1.5">
@@ -113,17 +115,19 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
         <span className="text-[11px] text-gray-300 truncate hidden lg:inline">{coin.name}</span>
       </div>
       {/* 7-day sparkline — visualizes trend direction with no axis labels */}
-      <Sparkline pct1h={pct1h} pct24h={change} pct7d={pct7d} />
+      <div className="hidden sm:block">
+        <Sparkline pct1h={pct1h} pct24h={change} pct7d={pct7d} />
+      </div>
       <div className="text-[12px] font-mono tabular-nums text-right text-muted-foreground/80 hidden md:block">
         {volume24h != null ? fmtCompactUsd(volume24h) : '—'}
       </div>
-      <div className="text-base font-mono font-semibold tabular-nums text-right text-white">{fmtPrice(quote?.price)}</div>
+      <div className="text-sm sm:text-base font-mono font-semibold tabular-nums text-right text-white whitespace-nowrap">{fmtPrice(quote?.price)}</div>
       {change != null ? (
-        <span className={`text-[13px] font-mono font-bold tabular-nums w-16 text-right ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
+        <span className={`text-[12px] sm:text-[13px] font-mono font-bold tabular-nums text-right whitespace-nowrap ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
           {up ? '▲ +' : '▼ '}{Math.abs(change).toFixed(1)}%
         </span>
       ) : (
-        <span className="text-[13px] text-muted-foreground/40 w-16 text-right">—</span>
+        <span className="text-[13px] text-muted-foreground/40 text-right">—</span>
       )}
     </motion.div>
   )

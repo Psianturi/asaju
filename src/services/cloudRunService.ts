@@ -1407,8 +1407,13 @@ export const cloudRunService = {
   },
 
   async getMantleDexPools(): Promise<{ network: string; page: number; pools: DexPool[] }> {
+    return this.getDexPools('mantle')
+  },
+
+  /** Top DEX pools on one GeckoTerminal network (eth, bsc, arbitrum, mantle, …). */
+  async getDexPools(network: string): Promise<{ network: string; page: number; pools: DexPool[] }> {
     const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/mantle`,
+      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/${encodeURIComponent(network)}`,
       { method: 'GET' },
     )
     return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
