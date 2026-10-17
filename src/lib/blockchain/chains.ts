@@ -62,9 +62,9 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     contractAddress: contractFor(11155111, '0xD8F5691436B6647bE7a05BeF7dD637FbbCf819ab'),  // V6, 30 Sep 2026 — no MINTER_ROLE
-    spawnFee: '0.01',       // set on-chain 26 Sep via calibrate-fees.js
-    agentProvision: '0.005',  // ~26 mints of runway at current Sepolia gas
-    breedCost: '0.02',      // V6 — user pays breedCost + spawnFee together, see breedTotalDue()
+    spawnFee: '0.005',      // lowered 17 Oct — Sepolia faucet ETH is scarce
+    agentProvision: '0.0025',
+    breedCost: '0.01',      // V6 — user pays breedCost + spawnFee together, see breedTotalDue()
     color: '#8B5CF6',
     testnet: true,
   },
