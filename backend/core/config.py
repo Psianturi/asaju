@@ -56,6 +56,16 @@ def get_chain_config(chain_id: int) -> dict:
 
 
 class Settings(BaseSettings):
+    # Optional second LLM provider, used only by Agent Room dialogue. Gemini
+    # stays the default and the fallback because it guarantees JSON output,
+    # which proposals and wisdom reports depend on.
+    #
+    # The key is a MiniMax *subscription* key (sk-cp-), valid only against the
+    # M Plan quota — a pay-as-you-go key is not interchangeable with it.
+    minimax_api_key: str = ""
+    minimax_model: str = "MiniMax-M3.1-Flash-Preview"
+    minimax_effort: str = "high"
+
     # GCP Project
     gcp_project_id: str = "agentic-event-factory"
 
