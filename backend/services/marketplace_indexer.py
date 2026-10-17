@@ -135,7 +135,21 @@ async def _migrate_transfer(agent_wallet: str, new_owner: str, previous_owner_ev
         await prop_doc.reference.update({"owner_wallet_at_proposal": new_owner})
         proposals_updated += 1
 
-    await agent_snap.reference.update({"user_wallet": new_owner, "ownership_updated_at": time.time()})
+    # Bump the ownership epoch. Anything bound to the previous owner — standing
+    # mandates most of all — must stop the moment this line runs, and must not
+    # come back if the agent is later sold to the same person again.
+    prev_epoch = int(agent_snap.to_dict().get("ownership_epoch") or 0)
+    await agent_snap.reference.update(
+        {
+            "user_wallet": new_owner,
+            "ownership_updated_at": time.time(),
+            "ownership_epoch": prev_epoch + 1,
+        }
+    )
+    logger.info(
+        "ownership_epoch %s -> %s for agent %s (new owner %s)",
+        prev_epoch, prev_epoch + 1, agent_id, new_owner,
+    )
 
     # Close out any active marketplace listing for this agent now that it sold.
     listings_sold = 0

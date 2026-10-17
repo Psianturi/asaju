@@ -28,6 +28,14 @@ from web3 import Web3
 from core.config import settings
 from core.database import get_db
 from core.agent_auth import issue_agent_auth_challenge, require_agent_owner
+from core.agent_mandate import (
+    active_mandate,
+    consume_mandate_run,
+    grant_mandate,
+    issue_mandate_challenge,
+    list_mandates,
+    revoke_mandate,
+)
 from core.kms_service import decrypt_private_key
 from services.llm_service import classify_event_niche, summarize_event
 from services.web3_service import web3_service
@@ -246,6 +254,74 @@ async def create_agent_auth_challenge(
     return challenge
 
 
+@router.get("/agent-mandate")
+async def get_agent_mandate(
+    agent_id: str = Query(...),
+    chain_id: int = Query(5003),
+) -> dict:
+    """Current mandate status for an agent, so the UI can say what background
+    runs are allowed and how much of today's budget is left."""
+    db = get_db()
+    mandates = await list_mandates(db, agent_id)
+    current = await active_mandate(
+        db, agent_id=agent_id, chain_id=chain_id, action="attend_event"
+    )
+    return {
+        "active": current is not None,
+        "mandate": current,
+        "history_count": len(mandates),
+    }
+
+
+@router.post("/agent-mandate")
+async def create_agent_mandate(
+    agent_id: str = Query(...),
+    agent_wallet: str = Query(...),
+    chain_id: int = Query(5003),
+    scopes: str = Query("attend_event", description="Comma-separated action scopes"),
+    max_runs_per_day: int = Query(2, ge=1, le=100),
+) -> dict:
+    """Step 1 of granting a mandate: return the exact text the owner signs.
+
+    The owner is read from the chain at this point, so the mandate can only
+    ever be issued to the wallet that actually owns the agent right now.
+    """
+    if not Web3.is_address(agent_wallet):
+        raise HTTPException(status_code=400, detail="Invalid agent wallet address")
+    db = get_db()
+    return await issue_mandate_challenge(
+        db,
+        agent_id=agent_id,
+        agent_wallet=Web3.to_checksum_address(agent_wallet),
+        chain_id=chain_id,
+        scopes=[s.strip() for s in scopes.split(",") if s.strip()],
+        max_runs_per_day=max_runs_per_day,
+    )
+
+
+@router.delete("/agent-mandate")
+async def delete_agent_mandate(
+    agent_id: str = Query(...),
+    chain_id: int = Query(5003),
+) -> dict:
+    """Revoke a mandate immediately. Takes effect on the next scheduled run."""
+    db = get_db()
+    revoked = await revoke_mandate(
+        db, agent_id=agent_id, chain_id=chain_id, reason="revoked by owner"
+    )
+    return {"revoked": revoked}
+
+
+@router.post("/agent-mandate/confirm")
+async def confirm_agent_mandate(
+    nonce: str = Query(...),
+    signature: str = Query(...),
+) -> dict:
+    """Step 2 of granting a mandate: verify the owner's signature and store it."""
+    db = get_db()
+    return await grant_mandate(db, nonce=nonce, signature=signature)
+
+
 @router.post("/attend", response_model=AttendResponse)
 async def attend_event(req: AttendRequest) -> AttendResponse:
     """
@@ -295,31 +371,41 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     agent_private_key: str | None = None
     agent_is_funded = False
     if req.mode_b:
-        # Owner authorisation gate. The backend is about to decrypt this agent's
+        # Owner authorisation. The backend is about to decrypt this agent's
         # private key and sign on its behalf, so we must first prove the caller
         # is the wallet that owns the agent *on-chain right now*. After a
         # marketplace sale the previous owner's signature stops working here,
         # which is the whole point: ownership transfer has to be instant.
-        if not req.auth_nonce or not req.auth_signature:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "code": "AGENT_AUTH_REQUIRED",
-                    "message": (
-                        "Acting as this agent requires an owner signature. "
-                        "Request a challenge, sign it, and retry."
-                    ),
-                },
+        #
+        # Two ways to be authorised:
+        #   - a per-run signature (what a person in the UI provides), or
+        #   - a standing mandate the owner granted earlier, which is how the
+        #     Auto Scout scheduler runs without holding a wallet.
+        if req.auth_nonce and req.auth_signature:
+            await require_agent_owner(
+                db,
+                agent_id=req.agent_id,
+                agent_wallet=req.agent_wallet,
+                action="attend_event",
+                chain_id=req.chain_id,
+                nonce=req.auth_nonce,
+                signature=req.auth_signature,
             )
-        await require_agent_owner(
-            db,
-            agent_id=req.agent_id,
-            agent_wallet=req.agent_wallet,
-            action="attend_event",
-            chain_id=req.chain_id,
-            nonce=req.auth_nonce,
-            signature=req.auth_signature,
-        )
+        else:
+            mandate = await consume_mandate_run(
+                db,
+                agent_id=req.agent_id,
+                chain_id=req.chain_id,
+                action="attend_event",
+            )
+            logger.info(
+                "Mode B via mandate: agent %s acting under a mandate owned by %s "
+                "(%d/%d runs used today)",
+                req.agent_id,
+                mandate.get("owner_wallet"),
+                mandate.get("runs_used_today"),
+                mandate.get("max_runs_per_day"),
+            )
         try:
             agent_is_funded = bool(agent_data.get("funded", False))
             stored_key = agent_data.get("private_key_enc") or agent_data.get("private_key")
