@@ -29,7 +29,7 @@ export function DecisionFlowSection() {
     <section className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20">
       <div className="text-center mb-14">
         <p className="text-xs font-mono uppercase tracking-widest text-violet-400/60 mb-3">From signal to decision</p>
-        <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">It thinks. You make the call.</h2>
+        <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">Reads. Proposes. Waits for you.</h2>
         <p className="text-sm text-slate-400 max-w-xl mx-auto">
           Once it has learned enough, your agent starts suggesting what to do next — and shows you exactly why.
         </p>

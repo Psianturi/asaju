@@ -202,23 +202,27 @@ export function LandingPage() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.6 }}
               >
-                <div className="flex items-center gap-2 mb-6">
+                <div className="flex flex-wrap items-center gap-2 mb-6">
                   {supportedChains.map(chain => (
                     <ChainBadge key={chain.chainId} chainId={chain.chainId} />
                   ))}
                   <span className="text-[9px] uppercase tracking-widest text-amber-400/80 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono">Testnet</span>
                 </div>
 
+                {/* Benefit first: what the agent does for you and the one rule that
+                    makes it safe — it cannot act without your signature. */}
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight mb-5 leading-[1.1]">
-                  <span className="text-white">Autonomous agents</span>
+                  <span className="text-white">It thinks.</span>
                   <br />
                   <span className="bg-gradient-to-r from-cyan-400 via-cyan-300 to-violet-400 bg-clip-text text-transparent">
-                    that live on-chain
+                    You make the call.
                   </span>
                 </h1>
 
-                <p className="text-base sm:text-lg text-slate-400 max-w-xl leading-relaxed mb-8">
-                  Spawn an AI agent with its own wallet. It learns from YouTube — when you ask, or on its own — reads live CoinMarketCap market data, and recommends a move with the reasoning behind it. You approve. Every milestone is proven on-chain.
+                <p className="text-base sm:text-lg text-slate-300 max-w-xl leading-relaxed mb-8">
+                  A crypto research agent with its own wallet and memory. It studies YouTube and live
+                  CoinMarketCap data, proposes a move with the reasoning behind it — and can't act
+                  without your signature. Every milestone is proven on-chain.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-10">
@@ -228,12 +232,16 @@ export function LandingPage() {
                     className="bg-gradient-to-r from-cyan-500 to-violet-600 hover:opacity-90 font-bold px-8 shadow-xl shadow-cyan-500/30 text-base text-white border border-cyan-400/40 h-12"
                   >
                     <Robot className="mr-2" weight="duotone" size={22} />
-                    Spawn Your First Agent
+                    Spawn your agent
                     <ArrowRight className="ml-2" size={18} weight="bold" />
                   </Button>
-                  <a href="#learning" className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
-                    See how it works
-                    <ArrowRight size={13} />
+                  {/* No wallet needed: real lessons from live agents, further down. */}
+                  <a
+                    href="#live-agents"
+                    className="flex items-center gap-1.5 h-12 px-5 rounded-md border border-white/15 text-sm font-semibold text-slate-200 hover:border-cyan-400/50 hover:text-cyan-300 transition-colors"
+                  >
+                    See live agents
+                    <span className="text-[11px] font-normal text-slate-500">· no wallet needed</span>
                   </a>
                 </div>
 
@@ -241,9 +249,9 @@ export function LandingPage() {
                 {metrics && (
                   <div className="flex items-center gap-8">
                     {[
-                      { label: 'agents', value: metrics.total_agents, decimals: 0 },
-                      { label: 'NFTs', value: metrics.total_wisdom_nfts, decimals: 0 },
-                      { label: 'avg level', value: metrics.average_agent_level, decimals: 1 },
+                      { label: 'videos studied', value: metrics.total_events_attended, decimals: 0 },
+                      { label: 'on-chain proofs', value: metrics.total_wisdom_nfts, decimals: 0 },
+                      { label: 'live agents', value: metrics.total_agents, decimals: 0 },
                     ].map(({ label, value, decimals }) => (
                       <div key={label}>
                         <p className="text-2xl font-black font-mono text-cyan-300">
@@ -266,16 +274,6 @@ export function LandingPage() {
                 <Suspense fallback={<div className="w-full h-full rounded-full" style={{ background: 'radial-gradient(circle, rgba(0,243,255,0.1), transparent 60%)' }} />}>
                   <AgentSphere className="w-full h-full" />
                 </Suspense>
-                {/* Labels overlay */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center">
-                  <p className="text-[9px] font-mono uppercase tracking-widest text-cyan-400/40">core</p>
-                  <p className="text-[9px] font-mono text-slate-600">agent identity</p>
-                </div>
-                {/* Orbit legend */}
-                <div className="absolute bottom-4 right-4 space-y-1 text-[9px] font-mono text-slate-500">
-                  <p className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> sub-agents</p>
-                  <p className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-violet-400" /> event memory</p>
-                </div>
               </motion.div>
             </div>
           </div>
@@ -381,7 +379,7 @@ export function LandingPage() {
         <AgentShowcase />
 
         {/* ── Recent Activity + Dashboard Preview ───────────────────────────── */}
-        <section className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20">
+        <section id="live-agents" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20 scroll-mt-20">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
