@@ -226,6 +226,23 @@ export interface DexPool {
   }
 }
 
+/**
+ * Why a market feed is empty. The backend sets `available: false` when the data
+ * provider refused or failed the call, so the UI can say so instead of showing
+ * an empty "live" table. Absent on older backends — treat as available.
+ */
+export type FeedUnavailableReason =
+  | 'plan_unsupported'
+  | 'rate_limited'
+  | 'auth'
+  | 'not_configured'
+  | 'upstream_error'
+
+export interface FeedAvailability {
+  available?: boolean
+  reason?: FeedUnavailableReason | null
+}
+
 export interface TrendingCoin {
   id: number
   name: string
@@ -1390,35 +1407,40 @@ export const cloudRunService = {
   },
 
   async getMantleDexPools(): Promise<{ network: string; page: number; pools: DexPool[] }> {
+    return this.getDexPools('mantle')
+  },
+
+  /** Top DEX pools on one GeckoTerminal network (eth, bsc, arbitrum, mantle, …). */
+  async getDexPools(network: string): Promise<{ network: string; page: number; pools: DexPool[] }> {
     const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/mantle`,
+      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/${encodeURIComponent(network)}`,
       { method: 'GET' },
     )
     return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
   },
 
-  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5, sortDir: 'asc' | 'desc' = 'desc'): Promise<{ time_period: string; sort_dir?: string; results: TrendingCoin[] }> {
+  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5, sortDir: 'asc' | 'desc' = 'desc'): Promise<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}&sort_dir=${sortDir}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] }>(response)
+    return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability>(response)
   },
 
-  async getNewListings(limit = 5): Promise<{ results: NewListing[] }> {
+  async getNewListings(limit = 5): Promise<{ results: NewListing[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/listings/new?limit=${limit}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ results: NewListing[] }>(response)
+    return handleAPIResponse<{ results: NewListing[] } & FeedAvailability>(response)
   },
 
-  async getAirdrops(limit = 5): Promise<{ results: Airdrop[] }> {
+  async getAirdrops(limit = 5): Promise<{ results: Airdrop[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/airdrops?limit=${limit}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ results: Airdrop[] }>(response)
+    return handleAPIResponse<{ results: Airdrop[] } & FeedAvailability>(response)
   },
 
   async getGlobalMetrics(): Promise<{ metrics: GlobalMetrics | null }> {
@@ -1429,12 +1451,12 @@ export const cloudRunService = {
     return handleAPIResponse<{ metrics: GlobalMetrics | null }>(response)
   },
 
-  async getMostVisited(limit = 5): Promise<{ results: TrendingCoin[] }> {
+  async getMostVisited(limit = 5): Promise<{ results: TrendingCoin[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/most-visited?limit=${limit}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ results: TrendingCoin[] }>(response)
+    return handleAPIResponse<{ results: TrendingCoin[] } & FeedAvailability>(response)
   },
 
   /**

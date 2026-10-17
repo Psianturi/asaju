@@ -61,10 +61,13 @@ export function TerminalConsole({ logs, className }: TerminalConsoleProps) {
         variant="outline"
         size="sm"
         onClick={() => setIsOpen(true)}
-        className="fixed left-3 bottom-6 z-50 h-9 px-2.5 rounded-full border-primary/40 bg-background/80 backdrop-blur-md text-primary hover:bg-primary/10"
+        // Icon-only on phones, where the labelled pill covered page content.
+        className="fixed left-3 bottom-4 sm:bottom-6 z-50 h-9 w-9 sm:w-auto px-0 sm:px-2.5 rounded-full border-primary/40 bg-background/80 backdrop-blur-md text-primary hover:bg-primary/10"
+        aria-label="Open activity log"
+        title="Activity log"
       >
-        <Terminal size={14} className="mr-1" weight="fill" />
-        Log
+        <Terminal size={14} className="sm:mr-1" weight="fill" />
+        <span className="hidden sm:inline">Log</span>
       </Button>
     )
   }

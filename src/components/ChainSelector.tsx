@@ -1,4 +1,4 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { getSupportedChains, getChain } from '@/lib/blockchain/chains'
 
 interface ChainSelectorProps {
@@ -15,25 +15,25 @@ export function ChainSelector({ selectedChainId, onChainChange }: ChainSelectorP
       value={String(selectedChainId)}
       onValueChange={(v) => onChainChange(Number(v))}
     >
-      <SelectTrigger className="h-8 w-[148px] text-xs font-mono border-primary/20 bg-background/50">
-        <span className="flex items-center gap-1.5 flex-1 min-w-0">
+      {/* The trigger shows the short name so it never truncates into the wallet
+          button; the full network name lives in the list and the tooltip. */}
+      <SelectTrigger
+        className="h-8 w-auto gap-1.5 px-2.5 text-xs font-mono border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+        title={current?.name}
+        aria-label={current ? `Network: ${current.name}` : 'Select network'}
+      >
+        <span className="flex items-center gap-1.5 min-w-0">
           {current && (
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ background: current.color }}
-            />
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: current.color }} />
           )}
-          <SelectValue />
+          <span className="truncate">{current?.shortName ?? 'Network'}</span>
         </span>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent align="end">
         {chains.map((chain) => (
           <SelectItem key={chain.chainId} value={String(chain.chainId)}>
             <span className="flex items-center gap-2 text-xs font-mono">
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: chain.color }}
-              />
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: chain.color }} />
               {chain.name}
             </span>
           </SelectItem>

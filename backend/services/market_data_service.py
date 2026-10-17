@@ -154,6 +154,84 @@ async def _cmc_get(path: str, params: dict | None = None) -> dict:
         return resp.json()
 
 
+# ── Feed availability ─────────────────────────────────────────────────────────
+#
+# The trending / listings / airdrops endpoints are tier-gated by CMC. On a plan
+# that does not include them CMC answers with an error (e.g. 1006 "plan doesn't
+# support this endpoint"), which used to be swallowed into [] and cached as if
+# it were real data — the dashboard then showed "LIVE" over an empty table.
+# Now a failure is remembered per feed with a reason the UI can show, is not
+# cached as data, and is retried after _FEED_RETRY_SECONDS.
+
+_FEED_RETRY_SECONDS = 300
+_FEED_FAILURES: dict[str, dict] = {}
+
+# CMC status.error_code → short reason the frontend maps to plain language.
+_CMC_ERROR_REASONS = {
+    1001: "auth", 1002: "auth",                 # key invalid / missing
+    1005: "auth", 1007: "auth",                 # key required / disabled
+    1006: "plan_unsupported",                   # endpoint not in this plan
+    1008: "rate_limited", 1009: "rate_limited",
+    1010: "rate_limited", 1011: "rate_limited",  # minute/daily/monthly/IP caps
+}
+
+
+class _FeedCoolingDown(Exception):
+    """Raised inside a fetch to skip the upstream call while a recent failure
+    is still inside its retry window."""
+
+
+def _describe_cmc_failure(exc: Exception) -> dict:
+    """Turn an exception from _cmc_get into {"reason", "detail"}."""
+    if isinstance(exc, RuntimeError) and "not configured" in str(exc):
+        return {"reason": "not_configured", "detail": "CoinMarketCap API key is not configured"}
+    if isinstance(exc, httpx.HTTPStatusError):
+        code, message = None, ""
+        try:
+            status = (exc.response.json() or {}).get("status") or {}
+            code = status.get("error_code")
+            message = status.get("error_message") or ""
+        except Exception:
+            pass
+        reason = _CMC_ERROR_REASONS.get(code)
+        if reason is None:
+            reason = "rate_limited" if exc.response.status_code == 429 else "upstream_error"
+        return {"reason": reason, "detail": (message or f"HTTP {exc.response.status_code}")[:200]}
+    return {"reason": "upstream_error", "detail": exc.__class__.__name__}
+
+
+def cmc_feed_status(feed: str) -> dict:
+    """{"available": bool, "reason": str | None} for the last attempt at `feed`
+    on this instance. Routers merge it into their response."""
+    failure = _FEED_FAILURES.get(feed)
+    if not failure:
+        return {"available": True, "reason": None}
+    return {"available": False, "reason": failure["reason"]}
+
+
+async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: dict | None = None) -> list:
+    """Cached CMC list endpoint that records why it failed instead of caching []."""
+
+    async def fetch():
+        recent = _FEED_FAILURES.get(feed)
+        if recent and time.time() - recent["at"] < _FEED_RETRY_SECONDS:
+            raise _FeedCoolingDown()
+        data = await _cmc_get(path, params)
+        return data.get("data", [])
+
+    try:
+        result = await _cached(key, ttl_seconds, fetch, normalize=True)
+    except _FeedCoolingDown:
+        return []
+    except Exception as exc:
+        failure = _describe_cmc_failure(exc)
+        _FEED_FAILURES[feed] = {"at": time.time(), **failure}
+        logger.warning("CMC %s fetch failed (%s): %s", feed, failure["reason"], failure["detail"])
+        return []
+    _FEED_FAILURES.pop(feed, None)
+    return result
+
+
 async def get_prices(coin_ids: list[str]) -> dict:
     """Live prices + 24h change for the given CoinGecko coin IDs. Cached 5 min."""
     key = "price:" + ",".join(sorted(coin_ids))
@@ -258,83 +336,49 @@ async def get_trending_gainers_losers(
 ) -> list:
     """Biggest % movers (up or down) over time_period (1h/24h/7d/30d). Startup-tier endpoint. Cached 10 min.
     sort_dir=desc → gainers; sort_dir=asc → losers."""
-    key = f"trending_gl:{time_period}:{sort_dir}:{limit}"
-
-    async def fetch():
-        try:
-            data = await _cmc_get(
-                "/v1/cryptocurrency/trending/gainers-losers",
-                {"time_period": time_period, "limit": limit, "sort_dir": sort_dir},
-            )
-            return data.get("data", [])
-        except Exception as exc:
-            logger.warning("CMC trending gainers/losers fetch failed: %s", exc)
-            return []
-
-    return await _cached(key, _TTL_TRENDING, fetch, normalize=True)
+    feed = "gainers" if sort_dir == "desc" else "losers"
+    return await _cmc_feed(
+        feed,
+        f"trending_gl:{time_period}:{sort_dir}:{limit}",
+        _TTL_TRENDING,
+        "/v1/cryptocurrency/trending/gainers-losers",
+        {"time_period": time_period, "limit": limit, "sort_dir": sort_dir},
+    )
 
 
 async def get_trending_latest(time_period: str = "24h", limit: int = 10) -> list:
     """Coins trending by search/interest right now. Startup-tier endpoint. Cached 10 min."""
-    key = f"trending_latest:{time_period}:{limit}"
-
-    async def fetch():
-        try:
-            data = await _cmc_get(
-                "/v1/cryptocurrency/trending/latest",
-                {"time_period": time_period, "limit": limit},
-            )
-            return data.get("data", [])
-        except Exception as exc:
-            logger.warning("CMC trending latest fetch failed: %s", exc)
-            return []
-
-    return await _cached(key, _TTL_TRENDING, fetch, normalize=True)
+    return await _cmc_feed(
+        "trending_latest",
+        f"trending_latest:{time_period}:{limit}",
+        _TTL_TRENDING,
+        "/v1/cryptocurrency/trending/latest",
+        {"time_period": time_period, "limit": limit},
+    )
 
 
 async def get_new_listings(limit: int = 10) -> list:
-    """Most recently listed cryptocurrencies on CMC. Startup-tier endpoint. Cached 1 hour â€” low churn."""
-    key = f"new_listings:{limit}"
-
-    async def fetch():
-        try:
-            data = await _cmc_get("/v1/cryptocurrency/listings/new", {"limit": limit})
-            return data.get("data", [])
-        except Exception as exc:
-            logger.warning("CMC new listings fetch failed: %s", exc)
-            return []
-
-    return await _cached(key, _TTL_NEW_LISTINGS, fetch, normalize=True)
+    """Most recently listed cryptocurrencies on CMC. Startup-tier endpoint. Cached 1 hour — low churn."""
+    return await _cmc_feed(
+        "new_listings", f"new_listings:{limit}", _TTL_NEW_LISTINGS,
+        "/v1/cryptocurrency/listings/new", {"limit": limit},
+    )
 
 
 async def get_airdrops(limit: int = 10) -> list:
-    """Active and upcoming airdrops â€” unique to CMC, no CoinGecko equivalent. Cached 1 hour."""
-    key = f"airdrops:{limit}"
-
-    async def fetch():
-        try:
-            data = await _cmc_get("/v1/cryptocurrency/airdrops", {"limit": limit})
-            return data.get("data", [])
-        except Exception as exc:
-            logger.warning("CMC airdrops fetch failed: %s", exc)
-            return []
-
-    return await _cached(key, _TTL_AIRDROPS, fetch, normalize=True)
+    """Active and upcoming airdrops — unique to CMC, no CoinGecko equivalent. Cached 1 hour."""
+    return await _cmc_feed(
+        "airdrops", f"airdrops:{limit}", _TTL_AIRDROPS,
+        "/v1/cryptocurrency/airdrops", {"limit": limit},
+    )
 
 
 async def get_most_visited(limit: int = 10) -> list:
-    """Trending tokens by traffic â€” useful for the pre-connect 'Hot right now' panel."""
-    key = f"most_visited:{limit}"
-
-    async def fetch():
-        try:
-            data = await _cmc_get("/v1/cryptocurrency/trending/most-visited", {"limit": limit})
-            return data.get("data", [])
-        except Exception as exc:
-            logger.warning("CMC most visited fetch failed: %s", exc)
-            return []
-
-    return await _cached(key, _TTL_MOST_VISITED, fetch, normalize=True)
+    """Trending tokens by traffic — useful for the pre-connect 'Hot right now' panel."""
+    return await _cmc_feed(
+        "most_visited", f"most_visited:{limit}", _TTL_MOST_VISITED,
+        "/v1/cryptocurrency/trending/most-visited", {"limit": limit},
+    )
 
 
 async def get_categories() -> list:

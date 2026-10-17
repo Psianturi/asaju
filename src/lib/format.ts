@@ -70,3 +70,19 @@ export function fmtAgeSeconds(seconds: number | null | undefined): string {
   if (seconds < 86_400) return `${(seconds / 3_600).toFixed(1)}h ago`
   return `${(seconds / 86_400).toFixed(1)}d ago`
 }
+
+/**
+ * A token amount people will pay or receive: never rounds a real value to 0
+ * (0.01 must not read "0.0"), keeps up to 6 decimals below 1 and 4 above, and
+ * drops trailing zeros. Values too small to show read as "<0.000001".
+ */
+export function fmtTokenAmount(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  if (value === 0) return '0'
+  const abs = Math.abs(value)
+  if (abs < 0.000001) return value < 0 ? '>-0.000001' : '<0.000001'
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: abs >= 1 ? 4 : 6,
+  })
+}

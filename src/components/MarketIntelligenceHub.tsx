@@ -6,7 +6,6 @@ import {
   Rocket,
   Gift,
   GlobeHemisphereEast,
-  ArrowsClockwise,
   Fire,
   WarningCircle,
   CaretDown,
@@ -16,6 +15,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { cloudRunService, Airdrop, GlobalMetrics, NewListing, TrendingCoin } from '@/services/cloudRunService'
+import { FEED_PROBLEM_COPY as PROBLEM_COPY, readFeed, type FeedProblem as TabProblem } from '@/lib/feedStatus'
 import { fmtCompactUsd, fmtPct, fmtPrice, fmtPrize, fmtTimeAgo, isFiniteNum } from '@/lib/format'
 
 const REFRESH_MS = 5 * 60 * 1000
@@ -31,7 +31,8 @@ interface HubState {
   airdrops: Airdrop[]
   metrics: GlobalMetrics | null
   loading: boolean
-  failedSources: number
+  /** Tabs whose source failed, with the reason. A tab that is simply empty is not here. */
+  problems: Partial<Record<TabKey, TabProblem>>
   lastUpdated: number | null
 }
 
@@ -101,7 +102,9 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
       initial={{ opacity: 0, x: -6 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(index * 0.03, 0.2), duration: 0.25 }}
-      className="group grid grid-cols-[20px_1fr_56px_64px_60px_64px] items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 min-h-9"
+      // One column per visible cell at every width: hiding a cell without
+      // dropping its column shifted the row and collapsed the name on phones.
+      className="group grid grid-cols-[16px_1fr_auto_auto] sm:grid-cols-[20px_1fr_56px_auto_64px] md:grid-cols-[20px_1fr_56px_72px_auto_68px] items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors border-b border-white/[0.04] last:border-0 min-h-9"
     >
       <span className="text-[10px] font-mono tabular-nums text-muted-foreground/60 w-5">{index + 1}</span>
       <div className="min-w-0 flex items-baseline gap-1.5">
@@ -112,17 +115,19 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
         <span className="text-[11px] text-gray-300 truncate hidden lg:inline">{coin.name}</span>
       </div>
       {/* 7-day sparkline — visualizes trend direction with no axis labels */}
-      <Sparkline pct1h={pct1h} pct24h={change} pct7d={pct7d} />
+      <div className="hidden sm:block">
+        <Sparkline pct1h={pct1h} pct24h={change} pct7d={pct7d} />
+      </div>
       <div className="text-[12px] font-mono tabular-nums text-right text-muted-foreground/80 hidden md:block">
         {volume24h != null ? fmtCompactUsd(volume24h) : '—'}
       </div>
-      <div className="text-base font-mono font-semibold tabular-nums text-right text-white">{fmtPrice(quote?.price)}</div>
+      <div className="text-sm sm:text-base font-mono font-semibold tabular-nums text-right text-white whitespace-nowrap">{fmtPrice(quote?.price)}</div>
       {change != null ? (
-        <span className={`text-[13px] font-mono font-bold tabular-nums w-16 text-right ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
+        <span className={`text-[12px] sm:text-[13px] font-mono font-bold tabular-nums text-right whitespace-nowrap ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
           {up ? '▲ +' : '▼ '}{Math.abs(change).toFixed(1)}%
         </span>
       ) : (
-        <span className="text-[13px] text-muted-foreground/40 w-16 text-right">—</span>
+        <span className="text-[13px] text-muted-foreground/40 text-right">—</span>
       )}
     </motion.div>
   )
@@ -196,7 +201,7 @@ export function MarketIntelligenceHub() {
     airdrops: [],
     metrics: null,
     loading: true,
-    failedSources: 0,
+    problems: {},
     lastUpdated: null,
   })
   const [tab, setTab] = useState<TabKey>('hot')
@@ -215,19 +220,29 @@ export function MarketIntelligenceHub() {
       ])
       if (cancelled) return
       const [h, g, l, n, a, m] = settled
-      const failures = settled.filter(r => r.status === 'rejected').length
       settled.forEach((r, i) => {
         if (r.status === 'rejected') console.warn(`[MarketHub] source ${i} failed:`, r.reason)
       })
+      const hot = readFeed<TrendingCoin>(h)
+      const gainers = readFeed<TrendingCoin>(g)
+      const losers = readFeed<TrendingCoin>(l)
+      const listings = readFeed<NewListing>(n)
+      const airdrops = readFeed<Airdrop>(a)
+      const problems: HubState['problems'] = {}
+      if (hot.problem) problems.hot = hot.problem
+      if (gainers.problem) problems.gainers = gainers.problem
+      if (losers.problem) problems.losers = losers.problem
+      if (listings.problem) problems.listings = listings.problem
+      if (airdrops.problem) problems.airdrops = airdrops.problem
       setState(prev => ({
         ...prev,
         loading: false,
-        failedSources: failures,
-        hot: h.status === 'fulfilled' ? h.value.results ?? [] : [],
-        gainers: g.status === 'fulfilled' ? g.value.results ?? [] : [],
-        losers: l.status === 'fulfilled' ? l.value.results ?? [] : [],
-        listings: n.status === 'fulfilled' ? n.value.results ?? [] : [],
-        airdrops: a.status === 'fulfilled' ? a.value.results ?? [] : [],
+        problems,
+        hot: hot.rows,
+        gainers: gainers.rows,
+        losers: losers.rows,
+        listings: listings.rows,
+        airdrops: airdrops.rows,
         metrics: m.status === 'fulfilled' ? m.value.metrics ?? null : null,
         lastUpdated: Date.now(),
       }))
@@ -248,8 +263,22 @@ export function MarketIntelligenceHub() {
   }, [tab, state])
 
   const visible = expanded ? current : current.slice(0, MOVERS_VISIBLE)
-  const partial = state.failedSources > 0 && state.failedSources < 6
-  const down = state.failedSources >= 6
+  // The badge describes what is actually on screen: LIVE only when every tab's
+  // source answered, OFFLINE when no tab has a single row to show.
+  const failedTabs = Object.keys(state.problems).length
+  const tabsWithRows = TABS.filter(t => state[t.key].length > 0).length
+  const down = !state.loading && tabsWithRows === 0 && failedTabs > 0
+  const partial = !state.loading && !down && failedTabs > 0
+  const tabProblem = state.problems[tab]
+
+  // Land on a tab that has something to show instead of an empty first tab.
+  useEffect(() => {
+    if (state.loading || state[tab].length > 0) return
+    const firstWithRows = TABS.find(t => state[t.key].length > 0)
+    if (firstWithRows) setTab(firstWithRows.key)
+    // Only when a refresh lands; switching tabs by hand must not be overridden.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.lastUpdated])
 
   const mcapChange = isFiniteNum(state.metrics?.total_market_cap_yesterday_percentage_change)
     ? (state.metrics!.total_market_cap_yesterday_percentage_change as number)
@@ -296,16 +325,19 @@ export function MarketIntelligenceHub() {
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
             <Eye size={15} className="text-cyan-300" weight="duotone" />
-            <span className="text-sm font-bold">Agent's Real-Time Sensory Feed</span>
+            <span className="text-sm font-bold">Market feed</span>
+            <span className="hidden sm:inline text-[11px] text-muted-foreground">· what your agents read before proposing</span>
             <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-mono border ${
-              down
+              state.loading
+                ? 'bg-white/5 border-white/15 text-muted-foreground'
+                : down
                 ? 'bg-red-400/10 border-red-400/30 text-red-300'
                 : partial
                   ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
                   : 'bg-emerald-400/15 border-emerald-400/30 text-emerald-300'
             }`}>
-              <RadioButton size={8} weight="fill" className={down ? '' : partial ? '' : 'animate-pulse'} />
-              {down ? 'OFFLINE' : partial ? 'PARTIAL' : 'LIVE'}
+              <RadioButton size={8} weight="fill" className={state.loading || down || partial ? '' : 'animate-pulse'} />
+              {state.loading ? 'LOADING' : down ? 'OFFLINE' : partial ? 'PARTIAL' : 'LIVE'}
             </span>
           </div>
           <div className="flex flex-col items-end gap-0.5">
@@ -314,9 +346,6 @@ export function MarketIntelligenceHub() {
                 Updated {fmtTimeAgo(state.lastUpdated)}
               </p>
             )}
-            <p className="text-[9px] font-mono text-cyan-300/70 tabular-nums animate-pulse">
-              [Agent syncing CMC endpoints...]
-            </p>
           </div>
         </div>
 
@@ -336,9 +365,9 @@ export function MarketIntelligenceHub() {
                 className={`relative px-3 py-2 text-xs font-semibold transition-colors ${
                   active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80'
                 }`}
-                title={t.hint}
+                title={state.problems[t.key] ? PROBLEM_COPY[state.problems[t.key]!] : t.hint}
               >
-                {t.label}
+                <span className={state.problems[t.key] && !active ? 'opacity-50' : ''}>{t.label}</span>
                 {active && (
                   <motion.span
                     layoutId="tab-underline"
@@ -359,14 +388,19 @@ export function MarketIntelligenceHub() {
               <div key={i} className="h-8 rounded bg-white/[0.03] animate-pulse" />
             ))}
           </div>
-        ) : down ? (
-          <div className="px-4 py-6 text-center">
-            <p className="text-xs text-muted-foreground">Live data temporarily unavailable.</p>
-          </div>
         ) : current.length === 0 ? (
           <div className="px-4 py-6 text-center">
-            <ArrowsClockwise size={16} className="mx-auto mb-1 animate-spin text-muted-foreground/40" />
-            <p className="text-[11px] text-muted-foreground/70">Waiting for live data…</p>
+            {tabProblem ? (
+              <>
+                <WarningCircle size={18} weight="duotone" className="mx-auto mb-1.5 text-amber-300/80" />
+                <p className="text-xs text-foreground/80">{PROBLEM_COPY[tabProblem]}</p>
+                {tabsWithRows > 0 && (
+                  <p className="text-[11px] text-muted-foreground mt-1">Other tabs still have data.</p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Nothing to show here right now.</p>
+            )}
           </div>
         ) : (
           <AnimatePresence mode="wait">
