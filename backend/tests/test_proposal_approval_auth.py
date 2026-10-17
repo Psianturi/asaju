@@ -101,6 +101,15 @@ async def test_owner_signature_can_approve_once(client, fake_db, monkeypatch):
             "proposals_approved_total": 1,
         }
 
+    # Ownership is resolved from the chain, not the Firestore mirror. Tests
+    # must stand in for the contract, otherwise every approve would fail closed
+    # with 503 because there is no network here.
+    async def _chain_owner(_agent_wallet, _chain_id):
+        return owner_wallet
+
+    monkeypatch.setattr(
+        "core.agent_auth._read_agent_owner_on_chain", _chain_owner
+    )
     monkeypatch.setattr(
         "routers.proposals.web3_service.send_record_executed_proposal_tx",
         _successful_web3_call,

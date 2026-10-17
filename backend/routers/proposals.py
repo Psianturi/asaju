@@ -30,6 +30,7 @@ from web3 import Web3
 
 from core.config import settings
 from core.database import get_db
+from core.agent_auth import current_owner_of
 from core.kms_service import decrypt_private_key
 from google.cloud.firestore_v1.base_query import FieldFilter
 from services.llm_service import ProposalGenerationError, generate_agent_proposal
@@ -865,14 +866,19 @@ async def create_approval_challenge(
     agent_id = proposal_data.get("agent_id", "")
     agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
     agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
-    owner_wallet = agent_data.get("user_wallet", "")
+    agent_chain_id = agent_data.get("chain_id", proposal_data.get("chain_id", 5003))
     agent_wallet = proposal_data.get("agent_wallet", "")
     proposal_hash = proposal_data.get("proposal_hash", "")
-    if not Web3.is_address(owner_wallet) or not Web3.is_address(agent_wallet) or not proposal_hash:
+    if not Web3.is_address(agent_wallet) or not proposal_hash:
         raise HTTPException(status_code=400, detail="Proposal or agent ownership data is incomplete")
 
-    owner_wallet = Web3.to_checksum_address(owner_wallet)
     agent_wallet = Web3.to_checksum_address(agent_wallet)
+    # Resolve the owner from the chain, not the Firestore mirror. The indexer
+    # writes that mirror on a poll loop, so between a marketplace sale settling
+    # and the next poll the previous owner would still satisfy this check — and
+    # on the execute path that means they could still move the agent's funds.
+    owner_wallet = await current_owner_of(db, agent_id, agent_wallet, agent_chain_id)
+    owner_wallet = Web3.to_checksum_address(owner_wallet)
     nonce = secrets.token_urlsafe(32)
     expires_at = now + APPROVAL_CHALLENGE_TTL_SECONDS
     message = _approval_message(
@@ -931,6 +937,13 @@ async def approve_proposal(
     agent_id = data.get("agent_id", "")
     challenge_ref, _ = await _verify_proposal_action_signature(db, proposal_id, authorization)
 
+    agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    agent_chain_id = (
+        (agent_doc.to_dict() or {}).get("chain_id", data.get("chain_id", 5003))
+        if agent_doc.exists
+        else data.get("chain_id", 5003)
+    )
+
     proposal_ref = db.collection(PROPOSALS_COLLECTION).document(proposal_id)
     now = time.time()
     await _consume_approval_challenge(
@@ -940,9 +953,8 @@ async def approve_proposal(
 
     # Resolve the chain only after the signature is valid and the proposal has
     # been atomically reserved, so unauthorised requests never reach Web3/KMS.
-    agent_doc_for_chain = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
-    agent_data_for_chain = (agent_doc_for_chain.to_dict() or {}) if agent_doc_for_chain.exists else {}
-    agent_chain_id = agent_data_for_chain.get("chain_id", 5003)
+    # agent_chain_id was already resolved above (it is needed for the on-chain
+    # ownership check that gates this whole flow).
 
     # Call recordExecutedProposal(). Default signer: agent wallet (Mode B) —
     # the user pays for their own proposal execution. Fallback to MINTER_SERVICE
@@ -1188,15 +1200,22 @@ async def create_execution_challenge(
     agent_id = data.get("agent_id", "")
     agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
     agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
-    owner_wallet = agent_data.get("user_wallet", "")
     agent_wallet = data.get("agent_wallet", "")
     proposal_hash = data.get("proposal_hash", "")
     vault_address = settings.autonomous_vault_address
 
-    if not all(Web3.is_address(a) for a in [owner_wallet, agent_wallet, vault_address]):
+    if not all(Web3.is_address(a) for a in [agent_wallet, vault_address]):
         raise HTTPException(status_code=400, detail="Agent or vault wallet address is invalid")
 
-    owner_wallet = Web3.to_checksum_address(owner_wallet)
+    # Same on-chain ownership resolution as the approve path. This one moves
+    # funds, so a stale Firestore owner here would let a previous seller drain
+    # the agent's balance after selling it.
+    owner_wallet = await current_owner_of(
+        db,
+        agent_id,
+        Web3.to_checksum_address(agent_wallet),
+        agent_data.get("chain_id", data.get("chain_id", 5003)),
+    )
     agent_wallet = Web3.to_checksum_address(agent_wallet)
     nonce = secrets.token_urlsafe(32)
     expires_at = time.time() + APPROVAL_CHALLENGE_TTL_SECONDS

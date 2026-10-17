@@ -102,9 +102,15 @@ async def issue_agent_auth_challenge(
 async def current_owner_of(db, agent_id: str, agent_wallet: str, chain_id: int) -> str:
     """Resolve who owns the agent *now*.
 
-    Prefers the chain. Falls back to the Firestore mirror only when the chain
-    cannot be read, and says so in the log — a silent fallback would let a
-    just-sold agent keep answering to its old owner.
+    Prefers the chain. On chains where ownership can move (V5 and V6, i.e.
+    anything reachable by a marketplace sale) a failed chain read is
+    **fail-closed**: we raise rather than fall back, because the Firestore mirror
+    is written by a polling indexer and would silently re-authorise a seller who
+    has already lost the agent.
+
+    The Firestore fallback exists only for legacy chains that predate V5. Those
+    have no ownership-transfer primitive, so their owner can never change and a
+    stale mirror is harmless.
     """
     chain_owner = await _read_agent_owner_on_chain(agent_wallet, chain_id)
     if chain_owner:
@@ -120,13 +126,34 @@ async def current_owner_of(db, agent_id: str, agent_wallet: str, chain_id: int) 
             status_code=409,
             detail=f"Agent '{agent_id}' has no registered owner wallet",
         )
+
+    if _ownership_can_move(chain_id):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Could not verify current ownership on-chain. Refusing to "
+                "authorise on cached data because ownership is transferable "
+                "on this chain. Try again in a moment."
+            ),
+        )
+
     logger.warning(
-        "agent_auth: could not read agentOwner on chain %s for %s; using the "
-        "Firestore mirror, which can lag a marketplace sale",
+        "agent_auth: falling back to the Firestore owner for legacy chain %s "
+        "(agent %s) — ownership cannot move on pre-V5 contracts, so the "
+        "mirror cannot be stale in a way that matters",
         chain_id,
         agent_id,
     )
     return Web3Normalise.to_checksum(firestore_owner)
+
+
+# Chains whose live contract exposes transferAgentOwnership. Ownership on these
+# can change at any block, so authorisation must never be answered from cache.
+_TRANSFERABLE_OWNERSHIP_CHAINS = frozenset({97, 11155111, 46630})
+
+
+def _ownership_can_move(chain_id: int) -> bool:
+    return chain_id in _TRANSFERABLE_OWNERSHIP_CHAINS
 
 
 async def _read_agent_owner_on_chain(agent_wallet: str, chain_id: int) -> str | None:
@@ -162,6 +189,33 @@ async def require_agent_owner(
     match, and 403 when it matches but the signer is no longer the owner — the
     distinction matters for the seller who was locked out by a sale.
     """
+    # The agent_wallet the caller claims is never trusted for the ownership
+    # lookup. The caller supplies an agent_id *and* an agent_wallet; the key that
+    # ends up being decrypted comes from the agent_id's document. If those two
+    # disagree, a caller could point the check at an agent they own while the
+    # signature covers a different agent entirely. Bind both to the document.
+    agent_doc = await db.collection("agents").document(agent_id).get()
+    if not agent_doc.exists:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    recorded_wallet = ((agent_doc.to_dict() or {}).get("agent_wallet") or "").strip()
+    if not recorded_wallet:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent '{agent_id}' has no agent wallet recorded",
+        )
+    if recorded_wallet.lower() != (agent_wallet or "").strip().lower():
+        # Deliberately a 400 rather than a 403: this is a malformed request, not
+        # a permissions problem, and conflating the two leaks whether the
+        # submitted agent_id exists.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "agent_wallet does not match the wallet recorded for this agent. "
+                "Re-fetch the agent and retry."
+            ),
+        )
+    agent_wallet = Web3Normalise.to_checksum(recorded_wallet)
+
     challenge_ref = db.collection(AGENT_AUTH_CHALLENGES_COLLECTION).document(nonce)
     challenge_doc = await challenge_ref.get()
 
