@@ -93,3 +93,9 @@ memory/
 docs/
 
 .kilo/
+
+# Private keys and secrets — never commit, even from a throwaway wallet
+contracts/scripts/.demo-buyer-key
+*.pem
+*.key
+!contracts/artifacts/**
