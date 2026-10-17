@@ -165,7 +165,7 @@ function PreviewPill({ icon: Icon, label, hint, color }: PreviewPillProps) {
                 <span className="text-amber-300 font-semibold uppercase tracking-wider text-[10px] mr-1.5">Suggested:</span>{insight.suggested_action}
               </p>
               <p className="text-[10px] text-muted-foreground/70 font-mono mt-2">
-                Sources: {insight.sources.join(' · ')}
+                Sources: {(insight.sources ?? []).join(' · ') || '—'}
               </p>
             </motion.div>
           ) : (
