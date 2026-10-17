@@ -133,11 +133,13 @@ def get_minimax_effort() -> str:
     """Thinking depth for M3.1: low | medium | high | xhigh | max.
 
     Thinking cannot be turned off on M3.1 — the only way to spend less is to
-    ask for less depth.
+    ask for less depth. Default is high: Agent Room answers are multi-turn and
+    quality matters more than latency there, and the Gemini fallback plus the
+    10-minute cooldown on failure keep a bad configuration from costing much.
     """
     allowed = {"low", "medium", "high", "xhigh", "max"}
-    value = _get_env_or_secret("MINIMAX_EFFORT", default="medium").strip().lower()
-    return value if value in allowed else "medium"
+    value = _get_env_or_secret("MINIMAX_EFFORT", default="high").strip().lower()
+    return value if value in allowed else "high"
 
 
 def get_youtube_api_key() -> str | None:
