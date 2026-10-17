@@ -935,7 +935,11 @@ async def approve_proposal(
         raise HTTPException(status_code=400, detail="Proposal missing wallet or hash")
 
     agent_id = data.get("agent_id", "")
-    challenge_ref, _ = await _verify_proposal_action_signature(db, proposal_id, authorization)
+    challenge_ref, challenge_data = await _verify_proposal_action_signature(
+        db, proposal_id, authorization
+    )
+    # The signer is the owner recorded when the challenge was issued.
+    signer_at_issue = Web3.to_checksum_address(challenge_data.get("owner_wallet", ""))
 
     agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
     agent_chain_id = (
@@ -955,6 +959,40 @@ async def approve_proposal(
     # been atomically reserved, so unauthorised requests never reach Web3/KMS.
     # agent_chain_id was already resolved above (it is needed for the on-chain
     # ownership check that gates this whole flow).
+
+    # ── Re-check ownership immediately before touching the key ──────────
+    # The challenge was signed up to 10 minutes ago. Ownership can change in
+    # that window: a seller could request a challenge, list the agent, sell it,
+    # then approve within the TTL. The signature still verifies — it just no
+    # longer proves anything, because the signer is no longer the owner. Close
+    # that window by resolving the owner again here, after the signature passed
+    # but before any key is decrypted.
+    owner_now = await current_owner_of(
+        db, agent_id, agent_wallet, agent_chain_id
+    )
+    if Web3.to_checksum_address(owner_now) != signer_at_issue:
+        await proposal_ref.update(
+            {
+                "status": "pending",
+                "approval_failed_at": time.time(),
+                "approval_failed_reason": "ownership changed between challenge and approval",
+            }
+        )
+        logger.warning(
+            "approve_proposal %s refused: owner changed from %s to %s after the "
+            "signature was issued (agent %s)",
+            proposal_id,
+            signer_at_issue,
+            owner_now,
+            agent_id,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This agent changed hands while the approval was being "
+                f"confirmed. Only the current owner {owner_now} may approve."
+            ),
+        )
 
     # Call recordExecutedProposal(). Default signer: agent wallet (Mode B) —
     # the user pays for their own proposal execution. Fallback to MINTER_SERVICE

@@ -9,6 +9,29 @@ from httpx import ASGITransport, AsyncClient
 from tests.fake_firestore import FakeFirestoreClient
 
 
+@pytest_asyncio.fixture(autouse=True)
+def chain_owner_matches_firestore(monkeypatch):
+    """Stand in for the deployed contract in every test.
+
+    Authorisation now resolves ownership from the chain and fails closed when
+    the chain cannot be read, so without this every endpoint that checks
+    ownership would 503 under test — there is no network here.
+
+    Returning the Firestore owner models the healthy case: the chain and the
+    mirror agree. Tests that care about disagreement (a sale settling, a chain
+    outage) override this themselves.
+    """
+    from core import agent_auth
+
+    async def _read(agent_wallet, chain_id):
+        return _OWNER_OVERRIDE.get(agent_wallet.lower())
+
+    # Mutable map so an individual test can pin a different owner.
+    _OWNER_OVERRIDE = {}
+    monkeypatch.setattr(agent_auth, "_read_agent_owner_on_chain", _read)
+    return _OWNER_OVERRIDE
+
+
 def make_wallet() -> str:
     """Fresh, valid checksummed Ethereum address — avoids hand-typed checksums."""
     return Account.create().address

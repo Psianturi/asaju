@@ -127,33 +127,42 @@ async def current_owner_of(db, agent_id: str, agent_wallet: str, chain_id: int) 
             detail=f"Agent '{agent_id}' has no registered owner wallet",
         )
 
-    if _ownership_can_move(chain_id):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Could not verify current ownership on-chain. Refusing to "
-                "authorise on cached data because ownership is transferable "
-                "on this chain. Try again in a moment."
-            ),
+    if _ownership_is_immutable(chain_id):
+        logger.warning(
+            "agent_auth: falling back to the Firestore owner for legacy chain %s "
+            "(agent %s) — pre-V5 contracts have no transferAgentOwnership, so "
+            "this mirror can never be stale in a way that matters",
+            chain_id,
+            agent_id,
         )
+        return Web3Normalise.to_checksum(firestore_owner)
 
-    logger.warning(
-        "agent_auth: falling back to the Firestore owner for legacy chain %s "
-        "(agent %s) — ownership cannot move on pre-V5 contracts, so the "
-        "mirror cannot be stale in a way that matters",
-        chain_id,
-        agent_id,
+    # Default is fail-closed. Any chain not explicitly listed as legacy gets
+    # a 503 rather than an answer from cache, because we cannot prove the cached
+    # one is still true. A chain added to config in future defaults to the safe
+    # behaviour instead of quietly re-opening the hole.
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Could not verify current ownership on-chain. Refusing to "
+            "authorise on cached data because this chain's ownership is "
+            "transferable. Try again in a moment."
+        ),
     )
-    return Web3Normalise.to_checksum(firestore_owner)
 
 
-# Chains whose live contract exposes transferAgentOwnership. Ownership on these
-# can change at any block, so authorisation must never be answered from cache.
-_TRANSFERABLE_OWNERSHIP_CHAINS = frozenset({97, 11155111, 46630})
+# Chains running a pre-V5 contract: no transferAgentOwnership, therefore the
+# owner recorded on-chain can never change and a cached copy cannot be stale in
+# a way that would authorise the wrong party. Only these may fall back to
+# Firestore when the chain is unreadable.
+#
+# Fail-closed is the default for everything else — including any chain added
+# later — so forgetting to update this list cannot silently re-open the hole.
+_IMMUTABLE_OWNERSHIP_CHAINS = frozenset({5003})
 
 
-def _ownership_can_move(chain_id: int) -> bool:
-    return chain_id in _TRANSFERABLE_OWNERSHIP_CHAINS
+def _ownership_is_immutable(chain_id: int) -> bool:
+    return chain_id in _IMMUTABLE_OWNERSHIP_CHAINS
 
 
 async def _read_agent_owner_on_chain(agent_wallet: str, chain_id: int) -> str | None:
