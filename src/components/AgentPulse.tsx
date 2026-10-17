@@ -4,7 +4,7 @@ import { Brain, YoutubeLogo, ChartLine, Lightning } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { cloudRunService, type MarketSnapshot } from '@/services/cloudRunService'
 import type { Agent } from '@/lib/types'
-import { fmtTimeAgo } from '@/lib/format'
+import { fmtTimeAgo, toMs } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { AUTO_SCOUT_AVAILABLE } from '@/lib/features'
 
@@ -23,12 +23,9 @@ const SIX_HOURS = 6 * 60 * 60 * 1000
 const FIFTEEN_MIN = 15 * 60 * 1000
 
 // Timestamps arrive as ms from the backend, but older rows were written in
-// seconds — normalize so recency math never silently breaks.
-function toMs(ts: number | undefined | null): number {
-  if (!ts || ts <= 0) return 0
-  return ts < 1e12 ? ts * 1000 : ts
-}
-
+// seconds — normalize so recency math never silently breaks. The rule lives in
+// one place; this is a re-export so a call site that already has a timestamp in
+// hand cannot disagree with fmtTimeAgo about what it is.
 type PulseState = 'learning' | 'watching' | 'dormant'
 
 /**
