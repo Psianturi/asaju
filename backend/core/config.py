@@ -32,7 +32,7 @@ CHAIN_CONFIGS: dict[int, dict] = {
         "name": "Robinhood Chain Testnet",
         "native_symbol": "ETH",
         "rpc_url": "https://rpc.testnet.chain.robinhood.com/rpc",
-        "contract_address": "",  # filled in after AsajuAgentV6 deploy on this chain
+        "contract_address": "0x480E7BA834348ef45a140Aa8F5b09c4997c5F0a3",  # ASAJU V6, 17 Oct 2026 — no MINTER_ROLE
         "explorer_url": "https://explorer.testnet.chain.robinhood.com",
         # ASA (name "Asaju", symbol ASA, 18 decimals) — the marketplace unit of account here.
         "payment_token": "0x1c919078B57326EeE9990E9C30D92a182eDe8f5C",

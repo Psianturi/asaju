@@ -76,8 +76,15 @@ async function main() {
     );
   }
 
-  // Sanity-check the payment token before deploying against it.
-  const token = await ethers.getContractAt("IERC20", tokenAddr);
+  // Sanity-check the payment token before deploying against it. Use a minimal
+  // ABI rather than getContractAt("IERC20") — the OZ interface isn't emitted as
+  // a standalone artifact, so the named lookup fails.
+  const erc20Abi = [
+    "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)",
+    "function name() view returns (string)",
+  ];
+  const token = new ethers.Contract(tokenAddr, erc20Abi, deployer);
   const [decimals, symbol, name] = await Promise.all([
     token.decimals(),
     token.symbol(),

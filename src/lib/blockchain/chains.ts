@@ -98,7 +98,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     ],
     explorerUrl: 'https://explorer.testnet.chain.robinhood.com',
     // Set after deploy: contracts/scripts/deploy-v6.js --network robinhoodTestnet
-    contractAddress: contractFor(46630, '0x0000000000000000000000000000000000000000'),
+    contractAddress: contractFor(46630, '0x480E7BA834348ef45a140Aa8F5b09c4997c5F0a3'),  // ASAJU V6, 17 Oct 2026
     spawnFee: '0.005',      // placeholder — sync via sync-fees-robinhood.js after deploy
     agentProvision: '0.0025',
     breedCost: '0.01',      // V6 — user pays breedCost + spawnFee together
