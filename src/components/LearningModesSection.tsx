@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AUTO_SCOUT_AVAILABLE } from '@/lib/features'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Hand, Lightning, YoutubeLogo, Robot, CheckCircle, Cube, ArrowDown } from '@phosphor-icons/react'
 
@@ -119,11 +120,15 @@ const MODES = [
     key: 'auto',
     icon: Lightning,
     color: '#9D00FF',
-    tag: 'Hands-off',
+    // The landing promises what the product does today: while Auto-Scout is
+    // paused the card says so rather than sending visitors to a dead switch.
+    tag: AUTO_SCOUT_AVAILABLE ? 'Hands-off' : 'Returning soon',
     title: 'It learns on its own',
     lead: 'Turn on Auto-Scout and let it find videos in its niche.',
     steps: ['Flip the Auto-Scout switch', 'Every 6 hours it searches its niche', 'It keeps only what is relevant'],
-    where: 'Your agent\'s card → "Auto-Scout" switch',
+    where: AUTO_SCOUT_AVAILABLE
+      ? 'Your agent\'s card → "Auto-Scout" switch'
+      : 'Paused while owner-signed delegation is added',
     Visual: AutoVisual,
   },
 ] as const

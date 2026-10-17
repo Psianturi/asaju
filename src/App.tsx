@@ -40,7 +40,7 @@ import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
 import { WisdomTimeline } from '@/components/WisdomTimeline'
 import { ActivityLog } from '@/components/ActivityLog'
-import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House, Lightning } from '@phosphor-icons/react'
+import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House, Lightning, SquaresFour } from '@phosphor-icons/react'
 import maefLogo from '@/assets/maef-logo.png'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
@@ -1256,33 +1256,40 @@ function App() {
           onSwitch={handleSwitchNetwork}
         />
         <header className="sticky top-0 z-50 border-b border-primary/20 backdrop-blur-xl bg-background/80 shadow-lg shadow-primary/5">
-          <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-3">
-            <div className="flex items-center gap-3">
+          <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-2.5">
+            {/* Wraps below lg: logo + network/wallet stay on the first row and the
+                tabs get their own scrollable row, so nothing is squeezed to zero. */}
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-x-3 gap-y-2">
               {/* Left: Home icon + Logo */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => navigate('/')}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                  className="hidden sm:flex w-8 h-8 rounded-lg items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
                   title="Back to home"
                 >
                   <House size={16} weight="duotone" />
                 </button>
-                <img
-                  src={maefLogo}
-                  alt="ASAJU AI"
-                  className="h-12 w-auto object-contain"
-                  style={{ mixBlendMode: 'lighten' }}
-                />
-                <div>
-                  <h1 className="text-sm font-black tracking-widest text-white leading-none">ASAJU AI</h1>
-                  <p className="text-[9px] text-muted-foreground font-mono hidden sm:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
-                </div>
+                {/* The logo doubles as the home link, which is all a phone has room for. */}
+                <button onClick={() => navigate('/')} className="flex items-center gap-2" title="Back to home">
+                  <img
+                    src={maefLogo}
+                    alt="ASAJU AI"
+                    className="h-9 w-auto object-contain"
+                    style={{ mixBlendMode: 'lighten' }}
+                  />
+                  <div className="text-left">
+                    <h1 className="text-sm font-black tracking-widest text-white leading-none">ASAJU AI</h1>
+                    <p className="text-[9px] text-muted-foreground font-mono hidden xl:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
+                  </div>
+                </button>
               </div>
 
               {/* Nav â€” center */}
-              <nav className="flex items-center gap-0.5 flex-1 justify-center">
+              {/* min-w-0 + horizontal scroll: on narrow screens the tabs scroll
+                  instead of pushing the network and wallet buttons off-screen. */}
+              <nav className="order-last lg:order-none w-full lg:w-auto flex items-center gap-0.5 lg:flex-1 justify-start lg:justify-center min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-1 px-1">
                 {([
-                  { view: 'dashboard', label: 'Dashboard', icon: Robot, color: 'primary' },
+                  { view: 'dashboard', label: 'Dashboard', icon: SquaresFour, color: 'primary' },
                   { view: 'my-agents', label: 'My Agents', icon: Robot, color: 'secondary' },
                   { view: 'analytics', label: 'Analytics', icon: ChartLine, color: 'primary' },
                   { view: 'vault', label: 'NFT Vault', icon: WalletIcon, color: 'primary' },
@@ -1294,7 +1301,7 @@ function App() {
                     variant={mainView === view ? 'default' : 'ghost'}
                     size="sm"
                     className={cn(
-                      'px-3 h-8 text-sm font-medium transition-all duration-200',
+                      'px-3 h-8 text-sm font-medium transition-all duration-200 shrink-0',
                       mainView === view
                         ? 'bg-primary/10 text-primary border border-primary/40'
                         : `text-muted-foreground hover:text-foreground hover:bg-white/5`
@@ -1307,25 +1314,24 @@ function App() {
               </nav>
 
               {/* Right â€” status + wallet */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Backend status pill â€” status only, no public toggle */}
-                <div
-                  className={cn(
-                    'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono',
-                    backendStatus === 'live' && 'bg-emerald-500/10 text-emerald-400',
-                    backendStatus === 'checking' && 'bg-yellow-500/10 text-yellow-400',
-                    backendStatus === 'error' && 'bg-red-500/10 text-red-400',
-                  )}
-                  title={backendStatus === 'live' ? 'Cloud Run backend connected' : backendStatus === 'checking' ? 'Connecting...' : 'Backend offline'}
-                >
-                  <span className={cn(
-                    'w-1.5 h-1.5 rounded-full',
-                    backendStatus === 'live' && 'bg-emerald-400 animate-pulse',
-                    backendStatus === 'checking' && 'bg-yellow-400 animate-pulse',
-                    backendStatus === 'error' && 'bg-red-400',
-                  )} />
-                  {backendStatus === 'live' ? 'Live' : backendStatus === 'checking' ? '...' : 'Offline'}
-                </div>
+              <div className="flex items-center gap-2 flex-shrink-0 ml-auto lg:ml-0">
+                {/* Backend status — only worth header space when something is
+                    wrong; a healthy connection is the default and needs no pill. */}
+                {backendStatus !== 'live' && (
+                  <div
+                    className={cn(
+                      'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono',
+                      backendStatus === 'checking' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-400',
+                    )}
+                    title={backendStatus === 'checking' ? 'Connecting to the ASAJU backend…' : 'The ASAJU backend is not responding'}
+                  >
+                    <span className={cn(
+                      'w-1.5 h-1.5 rounded-full',
+                      backendStatus === 'checking' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400',
+                    )} />
+                    {backendStatus === 'checking' ? 'Connecting…' : 'Backend offline'}
+                  </div>
+                )}
 
                 <ChainSelector
                   selectedChainId={selectedChainId}

@@ -111,7 +111,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
   46630: {
     chainId: 46630,
     name: 'Robinhood Chain Testnet',
-    shortName: 'VibeVibe',
+    shortName: 'Robinhood',
     nativeSymbol: 'ETH',
     rpcUrl: 'https://rpc.testnet.chain.robinhood.com/rpc',
     rpcUrls: [

@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
 import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Button } from '@/components/ui/button'
-import { Wallet, CurrencyCircleDollar, WarningCircle } from '@phosphor-icons/react'
+import { Wallet, WarningCircle, CaretDown, Copy, ArrowSquareOut, SignOut } from '@phosphor-icons/react'
+import { toast } from 'sonner'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { motion } from 'framer-motion'
 import { detectWallets, DetectedWallet, mantleService } from '@/lib/blockchain/mantleService'
@@ -41,29 +50,60 @@ export function WalletConnect({ onConnect, isConnected, address, balance, chainI
   }
 
   if (isConnected && address) {
+    const chain = getChain(chainId ?? DEFAULT_CHAIN_ID)
+    const symbol = chain?.nativeSymbol ?? ''
+    const short = `${address.slice(0, 6)}…${address.slice(-4)}`
+    const copyAddress = () => {
+      navigator.clipboard?.writeText(address).then(
+        () => toast.success('Address copied'),
+        () => toast.error('Could not copy the address'),
+      )
+    }
+    // One compact button: address + balance at a glance, everything else
+    // (copy, explorer, disconnect) one click away instead of crowding the header.
     return (
-      <div className="flex items-center gap-3">
-        <div className="hidden md:flex flex-col items-end px-3 py-2 rounded-lg glass-card border-primary/20">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">User Wallet</p>
-          <p className="text-xs font-mono text-foreground/90 mb-1">
-            {address.slice(0, 6)}...{address.slice(-4)}
-          </p>
-          <div className="flex items-center gap-1.5">
-            <CurrencyCircleDollar size={14} className="text-primary" weight="fill" />
-            <p className="text-xs font-mono font-bold text-primary">
-              {(balance ?? 0).toFixed(4)} {getChain(chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-2 px-2.5 border-white/10 bg-white/[0.03] hover:bg-white/[0.06] font-mono text-xs"
+            aria-label={`Wallet ${short}`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+            <span className="text-foreground/90">{short}</span>
+            <span className="hidden md:inline text-primary font-semibold">
+              {(balance ?? 0).toFixed(4)} {symbol}
+            </span>
+            <CaretDown size={12} className="text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel className="space-y-1">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Connected wallet</p>
+            <p className="font-mono text-xs break-all text-foreground/90">{address}</p>
+            <p className="font-mono text-xs text-primary font-semibold">
+              {(balance ?? 0).toFixed(4)} {symbol}
+              {chain && <span className="text-muted-foreground font-normal"> · {chain.name}</span>}
             </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onDisconnect}
-          className="glass-card border-primary/20 hover:border-destructive/40"
-        >
-          Disconnect
-        </Button>
-      </div>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={copyAddress}>
+            <Copy size={14} /> Copy address
+          </DropdownMenuItem>
+          {chain?.explorerUrl && (
+            <DropdownMenuItem asChild>
+              <a href={`${chain.explorerUrl}/address/${address}`} target="_blank" rel="noreferrer">
+                <ArrowSquareOut size={14} /> View on explorer
+              </a>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onDisconnect} className="text-destructive focus:text-destructive">
+            <SignOut size={14} /> Disconnect
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     )
   }
 
@@ -72,20 +112,22 @@ export function WalletConnect({ onConnect, isConnected, address, balance, chainI
       <Button
         onClick={() => setShowDialog(true)}
         data-wallet-trigger
-        className="bg-gradient-to-r from-primary to-accent hover:opacity-90 font-semibold shadow-lg shadow-primary/30"
+        size="sm"
+        className="h-8 bg-gradient-to-r from-primary to-accent hover:opacity-90 font-semibold shadow-lg shadow-primary/30"
       >
-        <Wallet className="mr-2" weight="duotone" />
-        Connect Wallet
+        <Wallet className="mr-1.5" weight="duotone" />
+        <span className="hidden sm:inline">Connect Wallet</span>
+        <span className="sm:hidden">Connect</span>
       </Button>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="glass-card border-2 border-primary/30 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
-              Connect to Mantle
+              Connect your wallet
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Select a wallet to connect to Mantle Network
+              Pick a wallet. You can switch networks from the header after connecting.
             </DialogDescription>
           </DialogHeader>
 

@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { ScoutDecisionTable } from '@/components/ScoutDecisionTable'
 import { cloudRunService } from '@/services/cloudRunService'
+import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
 
 interface ProactiveScoutingPanelProps {
   agent: Agent
@@ -36,6 +37,10 @@ export function ProactiveScoutingPanel({ agent, onToggleScout, onApproveEvent }:
   }, [agent.id])
 
   const handleToggle = (enabled: boolean) => {
+    if (enabled && !AUTO_SCOUT_AVAILABLE) {
+      toast.info('Auto-Scout is paused', { description: AUTO_SCOUT_PAUSED_COPY })
+      return
+    }
     if (!canScout) {
       toast.error('Proactive Scouting requires Level 2+')
       return

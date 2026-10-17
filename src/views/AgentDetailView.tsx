@@ -13,6 +13,7 @@ import { getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/c
 import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
+import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
 
 interface AgentDetailViewProps {
   agent: Agent
@@ -351,13 +352,17 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
             <div className="flex-1">
               <p className="text-sm font-semibold">Auto-Scout</p>
               <p className="text-[10px] text-muted-foreground">
-                {agent.autoScoutEnabled
-                  ? 'The agent searches YouTube on its own and mints when it hits a milestone.'
-                  : 'Off — the agent only learns when you submit a video manually.'}
+                {!AUTO_SCOUT_AVAILABLE
+                  ? AUTO_SCOUT_PAUSED_COPY
+                  : agent.autoScoutEnabled
+                    ? 'The agent searches YouTube on its own and mints when it hits a milestone.'
+                    : 'Off — the agent only learns when you submit a video manually.'}
               </p>
             </div>
             <Switch
               checked={agent.autoScoutEnabled || false}
+              // While paused an owner may still switch it off, but not on.
+              disabled={!AUTO_SCOUT_AVAILABLE && !agent.autoScoutEnabled}
               onCheckedChange={(checked) => onToggleScout(agent.id, checked)}
               aria-label={agent.autoScoutEnabled ? 'Disable auto-scout' : 'Enable auto-scout'}
               className="data-[state=checked]:bg-emerald-500"

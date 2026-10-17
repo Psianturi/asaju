@@ -1,4 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
+import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
@@ -158,7 +160,7 @@ export function DashboardView({
     pendingProposals: inbox.counts.pending_proposals,
   }), [agents, events, isPlatformView, inbox.counts.pending_proposals])
 
-  const autoAgents = agents.filter((a) => a.autoScoutEnabled)
+  const autoAgents = agents.filter(isAgentAutoScouting)
 
   // Surface the agent with the freshest real activity for the "living" pulse —
   // recency comes from actual scout timestamps, never a fixed pick.
@@ -223,7 +225,8 @@ export function DashboardView({
             page) and assume Auto-Scout is "broken" or "doesn't exist".
             Milestone-based minting makes this safe to enable 24/7 — gas is
             only spent at level-ups, not per video. */}
-        {isConnected &&
+        {AUTO_SCOUT_AVAILABLE &&
+          isConnected &&
           agents.length > 0 &&
           autoAgents.length === 0 &&
           !isPlatformView && (
@@ -271,7 +274,7 @@ export function DashboardView({
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={14} />} tone="primary" />
-              <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
+              <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={!AUTO_SCOUT_AVAILABLE ? 'paused' : stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
               <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={14} />} tone="accent" />
               <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={14} />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
             </div>
@@ -396,7 +399,9 @@ export function DashboardView({
           eyebrow="Learn · automatic"
           title="Auto-Scout"
           subtitle={
-            !isConnected
+            !AUTO_SCOUT_AVAILABLE
+              ? 'Paused · submit a video to keep learning'
+              : !isConnected
               ? 'Connect wallet first'
               : agents.length === 0
                 ? 'Spawn an agent first'
@@ -411,6 +416,10 @@ export function DashboardView({
             }
             if (agents.length === 0) {
               onSpawnAgent()
+              return
+            }
+            if (!AUTO_SCOUT_AVAILABLE) {
+              toast.info('Auto-Scout is paused', { description: AUTO_SCOUT_PAUSED_COPY })
               return
             }
             // The switch lives on the agent detail page — open the first agent
@@ -468,7 +477,7 @@ export function DashboardView({
 }
 
 function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgents: number; autoScouting: number; videosAnalyzed: number; pendingProposals: number } }) {
-  const autoAgents = agents.filter((a) => a.autoScoutEnabled)
+  const autoAgents = agents.filter(isAgentAutoScouting)
   return (
     <Card className="p-5 border border-primary/30 bg-gradient-to-br from-primary/[0.08] to-transparent shadow-lg shadow-primary/5">
       <div className="flex items-start justify-between gap-3 mb-2">
