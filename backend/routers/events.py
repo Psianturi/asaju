@@ -19,7 +19,7 @@ import logging
 import time
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from google.cloud.firestore_v1 import Increment
 from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import BaseModel, field_validator
@@ -30,18 +30,25 @@ from core.database import get_db
 from core.agent_auth import issue_agent_auth_challenge, require_agent_owner
 from core.agent_mandate import (
     active_mandate,
+    confirm_mandate_revocation,
     consume_mandate_run,
     grant_mandate,
     issue_mandate_challenge,
+    issue_mandate_revocation_challenge,
     list_mandates,
-    revoke_mandate,
 )
 from core.kms_service import decrypt_private_key
+from core.rate_limit import enforce as enforce_rate_limit
 from services.llm_service import classify_event_niche, summarize_event
 from services.web3_service import web3_service
 
 AGENTS_COLLECTION = "agents"
 EVENTS_COLLECTION = "agent_events"
+
+# Issuing a signature challenge writes a document. A person does this a few
+# times an hour; anything faster is a retry loop.
+CHALLENGE_LIMIT = 20
+CHALLENGE_WINDOW_SECONDS = 60
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/event", tags=["events"])
@@ -233,6 +240,7 @@ async def create_agent_auth_challenge(
     agent_wallet: str = Query(...),
     action: str = Query("attend_event"),
     chain_id: int = Query(5003),
+    request: Request = None,
 ) -> dict:
     """Hand the owner a short-lived message to sign before the platform will act
     as their agent.
@@ -241,6 +249,12 @@ async def create_agent_auth_challenge(
     exactly what is being authorised, rather than popping a wallet prompt in the
     middle of a transcript fetch.
     """
+    # Every challenge is a Firestore write. Without a budget this is the
+    # cheapest way to inflate the write bill, and a client stuck in a retry
+    # loop does it silently.
+    enforce_rate_limit(
+        request, "agent-auth-challenge", limit=CHALLENGE_LIMIT, window_seconds=CHALLENGE_WINDOW_SECONDS
+    )
     if not Web3.is_address(agent_wallet):
         raise HTTPException(status_code=400, detail="Invalid agent wallet address")
     db = get_db()
@@ -299,17 +313,32 @@ async def create_agent_mandate(
     )
 
 
-@router.delete("/agent-mandate")
-async def delete_agent_mandate(
+@router.post("/agent-mandate/revoke")
+async def create_agent_mandate_revocation(
     agent_id: str = Query(...),
     chain_id: int = Query(5003),
 ) -> dict:
-    """Revoke a mandate immediately. Takes effect on the next scheduled run."""
+    """Step 1 of cancelling a mandate: return the text the owner signs.
+
+    Revocation is signed for the same reason granting is. Anyone who knows an
+    agent_id should not be able to switch off another owner's background runs.
+    """
     db = get_db()
-    revoked = await revoke_mandate(
-        db, agent_id=agent_id, chain_id=chain_id, reason="revoked by owner"
+    return await issue_mandate_revocation_challenge(
+        db, agent_id=agent_id, chain_id=chain_id
     )
-    return {"revoked": revoked}
+
+
+@router.post("/agent-mandate/revoke/confirm")
+async def confirm_agent_mandate_revocation(
+    nonce: str = Query(...),
+    signature: str = Query(...),
+) -> dict:
+    """Step 2 of cancelling a mandate: verify the owner's signature."""
+    db = get_db()
+    return await confirm_mandate_revocation(
+        db, nonce=nonce, signature=signature
+    )
 
 
 @router.post("/agent-mandate/confirm")

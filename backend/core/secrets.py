@@ -65,6 +65,19 @@ def _get_secret(secret_id: str) -> str:
     return _fetch_from_secret_manager(secret_id, settings.gcp_project_id)
 
 
+def _get_env_or_secret(name: str, *, default: str) -> str:
+    """Non-secret setting that may still be overridden in Secret Manager.
+
+    Model names and tuning knobs are not credentials, but keeping them behind
+    the same lookup means a deploy can change one without a code change.
+    """
+    try:
+        value = _get_secret(name).strip()
+    except RuntimeError:
+        value = ""
+    return value or os.environ.get(name, "").strip() or default
+
+
 @lru_cache(maxsize=None)
 def get_agent_private_key() -> str:
     """Return AGENT_PRIVATE_KEY (the backend minting wallet's private key)."""
@@ -96,6 +109,35 @@ def get_minter_service_private_key() -> str:
 def get_llm_api_key() -> str:
     """Return LLM_API_KEY (Google Gemini API key)."""
     return _get_secret("LLM_API_KEY")
+
+
+def get_minimax_api_key() -> str | None:
+    """Return MINIMAX_API_KEY if configured, else None.
+
+    Optional. The app runs entirely on Gemini without this; MiniMax is only
+    used where a dialogue-tuned model reads better (Agent Room).
+    """
+    try:
+        key = _get_secret("MINIMAX_API_KEY").strip()
+    except RuntimeError:
+        return None
+    return key or None
+
+
+def get_minimax_model() -> str:
+    """Model name for MiniMax calls."""
+    return _get_env_or_secret("MINIMAX_MODEL", default="MiniMax-M3.1-Flash-Preview")
+
+
+def get_minimax_effort() -> str:
+    """Thinking depth for M3.1: low | medium | high | xhigh | max.
+
+    Thinking cannot be turned off on M3.1 — the only way to spend less is to
+    ask for less depth.
+    """
+    allowed = {"low", "medium", "high", "xhigh", "max"}
+    value = _get_env_or_secret("MINIMAX_EFFORT", default="medium").strip().lower()
+    return value if value in allowed else "medium"
 
 
 def get_youtube_api_key() -> str | None:

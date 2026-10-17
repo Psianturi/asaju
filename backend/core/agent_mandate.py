@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 MANDATES_COLLECTION = "agent_mandates"
 MANDATE_CHALLENGES_COLLECTION = "agent_mandate_challenges"
+REVOCATION_CHALLENGES_COLLECTION = "agent_mandate_revocation_challenges"
 
 MANDATE_CHALLENGE_TTL_SECONDS = 10 * 60
 DEFAULT_MANDATE_TTL_SECONDS = 7 * 24 * 3600
@@ -373,7 +374,11 @@ async def revoke_mandate(
     chain_id: int,
     reason: str = "revoked by owner",
 ) -> bool:
-    """Revoke whatever mandate exists. Returns True if there was one."""
+    """Revoke whatever mandate exists. Returns True if there was one.
+
+    Callers must have already established that the caller is the current owner
+    (see issue_mandate_revocation_challenge / confirm_mandate_revocation).
+    """
     ref = db.collection(MANDATES_COLLECTION).document(f"{agent_id}:{chain_id}")
     doc = await ref.get()
     if not doc.exists:
@@ -381,6 +386,96 @@ async def revoke_mandate(
     await ref.update({"revoked_at": time.time(), "revoked_reason": reason})
     logger.info("mandate for agent %s revoked: %s", agent_id, reason)
     return True
+
+
+async def issue_mandate_revocation_challenge(
+    db,
+    *,
+    agent_id: str,
+    chain_id: int,
+) -> dict[str, Any]:
+    """Message the owner signs to cancel a mandate.
+
+    Revocation needed a signature for the same reason granting did: without one,
+    anyone who knows an agent_id could switch off another owner's background
+    runs — a cheap way to stop someone else's agent from learning.
+    """
+    ref = db.collection(MANDATES_COLLECTION).document(f"{agent_id}:{chain_id}")
+    doc = await ref.get()
+    if not doc.exists:
+        raise HTTPException(
+            status_code=404, detail=f"No mandate exists for agent {agent_id}"
+        )
+
+    agent_wallet = (doc.to_dict() or {}).get("agent_wallet") or ""
+    owner_wallet = await current_owner_of(db, agent_id, agent_wallet, chain_id)
+
+    nonce = secrets.token_urlsafe(24)
+    expires_at = time.time() + MANDATE_CHALLENGE_TTL_SECONDS
+    message = (
+        "ASAJU AI Agent Mandate Revocation\n"
+        f"Agent ID: {agent_id}\n"
+        f"Chain ID: {chain_id}\n"
+        f"Owner wallet: {owner_wallet}\n"
+        f"Nonce: {nonce}\n"
+        f"Expires at: {int(expires_at)}\n"
+        "This cancels the standing authorisation. Background runs will stop "
+        "after the current one finishes."
+    )
+    await db.collection(REVOCATION_CHALLENGES_COLLECTION).document(nonce).set(
+        {
+            "nonce": nonce,
+            "message": message,
+            "agent_id": agent_id,
+            "chain_id": chain_id,
+            "owner_wallet": owner_wallet,
+            "expires_at": expires_at,
+            "created_at": time.time(),
+        }
+    )
+    return {"nonce": nonce, "message": message, "expires_at": expires_at}
+
+
+async def confirm_mandate_revocation(
+    db,
+    *,
+    nonce: str,
+    signature: str,
+) -> dict[str, Any]:
+    """Verify the owner's signature and cancel the mandate."""
+    ref = db.collection(REVOCATION_CHALLENGES_COLLECTION).document(nonce)
+    doc = await ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=401, detail="Unknown or expired revocation request")
+    challenge = doc.to_dict() or {}
+    if float(challenge.get("expires_at") or 0) < time.time():
+        raise HTTPException(status_code=401, detail="Revocation request expired — start again")
+
+    try:
+        recovered = Account.recover_message(
+            encode_defunct(text=challenge["message"]), signature=signature
+        )
+    except Exception as exc:
+        logger.warning(
+            "mandate revocation: signature recovery failed for nonce %s: %s",
+            nonce[:8], exc.__class__.__name__,
+        )
+        raise HTTPException(status_code=401, detail="Signature could not be recovered")
+
+    if recovered.lower() != (challenge.get("owner_wallet") or "").lower():
+        raise HTTPException(
+            status_code=403,
+            detail="Only the current owner can cancel this mandate",
+        )
+
+    revoked = await revoke_mandate(
+        db,
+        agent_id=challenge["agent_id"],
+        chain_id=int(challenge.get("chain_id") or 5003),
+        reason="revoked by owner",
+    )
+    await ref.delete()
+    return {"revoked": revoked, "agent_id": challenge["agent_id"]}
 
 
 async def list_mandates(db, agent_id: str) -> list[dict[str, Any]]:
