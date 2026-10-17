@@ -13,6 +13,16 @@ function contractFor(chainId: number, fallback: string): string {
   return fromEnv?.trim() || fallback
 }
 
+function marketplaceFor(chainId: number, fallback: string): string {
+  const fromEnv = import.meta.env[`VITE_MARKETPLACE_ADDRESS_${chainId}`] as string | undefined
+  return fromEnv?.trim() || fallback
+}
+
+function paymentTokenFor(chainId: number, fallback: string): string {
+  const fromEnv = import.meta.env[`VITE_PAYMENT_TOKEN_${chainId}`] as string | undefined
+  return fromEnv?.trim() || fallback
+}
+
 export interface ChainConfig {
   chainId: number
   name: string
@@ -36,6 +46,14 @@ export interface ChainConfig {
   breedCost: string
   color: string           // brand color for UI badges
   testnet: boolean
+  /** AsajuMarketplace escrow contract on this chain. Empty when the chain has
+   *  no marketplace yet. */
+  marketplaceAddress?: string
+  /** When set, the marketplace settles in this ERC-20 instead of the native
+   *  coin, and buyers must grant an allowance before buy(). */
+  paymentToken?: string
+  paymentTokenSymbol?: string
+  paymentTokenDecimals?: number
 }
 
 export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
@@ -62,6 +80,9 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     contractAddress: contractFor(11155111, '0xD8F5691436B6647bE7a05BeF7dD637FbbCf819ab'),  // V6, 30 Sep 2026 — no MINTER_ROLE
+    // Address is byte-identical to the BNB agent contract by coincidence:
+    // CREATE derives an address from (deployer, nonce) only, never the chain id.
+    marketplaceAddress: marketplaceFor(11155111, '0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C'),
     spawnFee: '0.005',      // lowered 17 Oct — Sepolia faucet ETH is scarce
     agentProvision: '0.0025',
     breedCost: '0.01',      // V6 — user pays breedCost + spawnFee together, see breedTotalDue()
@@ -80,6 +101,7 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     ],
     explorerUrl: 'https://testnet.bscscan.com',
     contractAddress: contractFor(97, '0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C'),  // V6, 30 Sep 2026 — no MINTER_ROLE
+    marketplaceAddress: marketplaceFor(97, '0xa32977dFE542C244F5375c618Da091191C841001'),
     spawnFee: '0.01',
     agentProvision: '0.005',  // far past the runway floor, but a balance the owner can actually see
     breedCost: '0.02',      // V6 — user pays breedCost + spawnFee together, see breedTotalDue()
@@ -97,9 +119,14 @@ export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
       'https://rpc.testnet.chain.robinhood.com',
     ],
     explorerUrl: 'https://explorer.testnet.chain.robinhood.com',
-    // Set after deploy: contracts/scripts/deploy-v6.js --network robinhoodTestnet
     contractAddress: contractFor(46630, '0x480E7BA834348ef45a140Aa8F5b09c4997c5F0a3'),  // ASAJU V6, 17 Oct 2026
-    spawnFee: '0.005',      // placeholder — sync via sync-fees-robinhood.js after deploy
+    // Escrow settles in ASA, not native ETH: buyers grant an allowance first
+    // and the marketplace pulls the token with transferFrom.
+    marketplaceAddress: marketplaceFor(46630, '0x110edEa5DB874589ec4492d15660082634E173f0'),
+    paymentToken: paymentTokenFor(46630, '0x1c919078B57326EeE9990E9C30D92a182eDe8f5C'),
+    paymentTokenSymbol: 'ASA',
+    paymentTokenDecimals: 18,
+    spawnFee: '0.005',
     agentProvision: '0.0025',
     breedCost: '0.01',      // V6 — user pays breedCost + spawnFee together
     color: '#00D26A',       // Robinhood green
@@ -158,13 +185,31 @@ export function breedTotalDue(chainId: number): string {
 export const DEFAULT_CHAIN_ID = 97
 
 // Chains whose live contract is V6 — the only ones with the on-chain
-// transferAgentOwnership() primitive the marketplace settles with. Mantle (5003)
-// is still V4 and has no ownership transfer, so it can't list or sell agents.
-const MARKETPLACE_CHAIN_IDS = new Set([97, 11155111])
+// transferAgentOwnership() primitive the marketplace settles with, AND that
+// have an AsajuMarketplace escrow deployed. Mantle (5003) is still V4 and has no
+// ownership transfer, so it can't list or sell agents.
+const MARKETPLACE_CHAIN_IDS = new Set([97, 11155111, 46630])
 
 /** Whether an agent on this chain can be listed/sold (V6 ownership transfer). */
 export function supportsMarketplace(chainId: number): boolean {
   return MARKETPLACE_CHAIN_IDS.has(chainId)
+}
+
+/**
+ * Whether this chain's marketplace settles in an ERC-20 rather than the
+ * native coin. When true, a buyer must grant an allowance to the marketplace
+ * before buy() — the marketplace pulls the token with transferFrom.
+ */
+export function isErc20Market(chainId: number): boolean {
+  const chain = getChain(chainId)
+  return !!(chain?.paymentToken && chain.marketplaceAddress)
+}
+
+/** Symbol the buyer pays in on this chain's marketplace. */
+export function marketplaceCurrency(chainId: number): string {
+  const chain = getChain(chainId)
+  if (!chain) return ''
+  return chain.paymentTokenSymbol || chain.nativeSymbol
 }
 
 
