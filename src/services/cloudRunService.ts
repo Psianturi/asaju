@@ -1519,3 +1519,133 @@ export const cloudRunService = {
   },
 
 }
+
+// ── Agent Room ───────────────────────────────────────────────────────────────
+
+export type RoomMode = 'exchange' | 'debate' | 'mentor'
+
+export interface RoomParticipant {
+  agent_id: string
+  name: string
+  niche: string
+  personality: string
+  level: number
+  events: number
+  chain_id: number
+  is_mentor?: boolean
+}
+
+export interface RoomCitation {
+  event_id: string
+  title: string
+  source: 'own' | 'peer'
+  from_agent_name?: string | null
+}
+
+export interface RoomMessage {
+  id: string
+  speaker: { type: 'agent' | 'owner'; agent_id?: string; name: string }
+  text: string
+  citations: RoomCitation[]
+  flagged: boolean
+  at: number
+}
+
+export interface RoomTransfer {
+  from_agent_id: string
+  from_name: string
+  to_agent_id: string
+  to_name: string
+  event_id: string
+  title: string
+  why: string
+}
+
+export interface RoomSynthesis {
+  summary: string
+  key_insights: string[]
+  disagreements: string[]
+  next_steps: string[]
+  transfers: RoomTransfer[]
+}
+
+export interface AgentRoom {
+  room_id: string
+  owner: string
+  topic: string
+  mode: RoomMode
+  max_turns: number
+  turns_taken: number
+  owner_messages: number
+  status: 'open' | 'concluded'
+  participants: RoomParticipant[]
+  messages: RoomMessage[]
+  synthesis: RoomSynthesis | null
+  transfers_done: string[]
+  created_at: number
+}
+
+export interface RoomChallenge {
+  nonce: string
+  message: string
+  expires_at: number
+  max_llm_calls: number
+  rooms_left_today: number
+}
+
+/** Room calls surface the backend's own reason (e.g. which cap was hit)
+ *  instead of a generic status message, because the owner can act on it. */
+async function roomRequest<T>(path: string, init: RequestInit = {}, roomKey?: string): Promise<T> {
+  const response = await fetchWithTimeout(
+    `${GCP_BACKEND_URL}/api/v1/rooms${path}`,
+    { ...init, headers: roomKey ? { Authorization: `Bearer ${roomKey}` } : undefined },
+    40000,
+  )
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // keep the status message
+    }
+    throw new CloudRunAPIError(detail, response.status)
+  }
+  return response.json()
+}
+
+export const agentRoomService = {
+  requestChallenge(params: { owner: string; agentIds: string[]; topic: string; mode: RoomMode; maxTurns: number }) {
+    return roomRequest<RoomChallenge>('/challenge', {
+      method: 'POST',
+      body: JSON.stringify({
+        owner: params.owner, agent_ids: params.agentIds, topic: params.topic,
+        mode: params.mode, max_turns: params.maxTurns,
+      }),
+    })
+  },
+  open(nonce: string, signature: string) {
+    return roomRequest<AgentRoom & { room_key: string; rooms_left_today: number }>('', {
+      method: 'POST', body: JSON.stringify({ nonce, signature }),
+    })
+  },
+  get(roomId: string, roomKey: string) {
+    return roomRequest<AgentRoom>(`/${encodeURIComponent(roomId)}`, { method: 'GET' }, roomKey)
+  },
+  turn(roomId: string, roomKey: string) {
+    return roomRequest<{ message: RoomMessage; turns_left: number }>(`/${encodeURIComponent(roomId)}/turn`, { method: 'POST' }, roomKey)
+  },
+  say(roomId: string, roomKey: string, text: string) {
+    return roomRequest<{ message: RoomMessage }>(`/${encodeURIComponent(roomId)}/say`, {
+      method: 'POST', body: JSON.stringify({ text }),
+    }, roomKey)
+  },
+  conclude(roomId: string, roomKey: string) {
+    return roomRequest<{ synthesis: RoomSynthesis }>(`/${encodeURIComponent(roomId)}/conclude`, { method: 'POST' }, roomKey)
+  },
+  transfer(roomId: string, roomKey: string, eventId: string, toAgentId: string) {
+    return roomRequest<{ status: string; lesson_id?: string }>(`/${encodeURIComponent(roomId)}/transfer`, {
+      method: 'POST', body: JSON.stringify({ event_id: eventId, to_agent_id: toAgentId }),
+    }, roomKey)
+  },
+}

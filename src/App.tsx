@@ -14,6 +14,7 @@ import { MarketplaceView } from '@/views/MarketplaceView'
 import { AgentDetailView } from '@/views/AgentDetailView'
 import { MyAgentsView } from '@/views/MyAgentsView'
 import { DashboardView } from '@/views/DashboardView'
+import { AgentRoomView } from '@/views/AgentRoomView'
 import { AgentCard } from '@/components/AgentCard'
 import { AttendEventCard } from '@/components/AttendEventCard'
 import { NFTCard } from '@/components/NFTCard'
@@ -40,7 +41,7 @@ import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
 import { WisdomTimeline } from '@/components/WisdomTimeline'
 import { ActivityLog } from '@/components/ActivityLog'
-import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House, Lightning, SquaresFour } from '@phosphor-icons/react'
+import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House, Lightning, SquaresFour, UsersThree } from '@phosphor-icons/react'
 import maefLogo from '@/assets/maef-logo.png'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
@@ -74,9 +75,9 @@ function App() {
   const [walletAddress, setWalletAddress] = useState<string>()
   const [selectedChainId, setSelectedChainId] = useState(DEFAULT_CHAIN_ID)
   const [walletChainId, setWalletChainId] = useState<number | undefined>()
-  type MainView = 'dashboard' | 'my-agents' | 'analytics' | 'vault' | 'marketplace'
-  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', analytics: 'analytics', 'nft-vault': 'vault', marketplace: 'marketplace' }
-  const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', 'my-agents': 'my-agents', analytics: 'analytics', vault: 'nft-vault', marketplace: 'marketplace' }
+  type MainView = 'dashboard' | 'my-agents' | 'room' | 'analytics' | 'vault' | 'marketplace'
+  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', 'agent-room': 'room', analytics: 'analytics', 'nft-vault': 'vault', marketplace: 'marketplace' }
+  const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', 'my-agents': 'my-agents', room: 'agent-room', analytics: 'analytics', vault: 'nft-vault', marketplace: 'marketplace' }
   const [mainView, setMainView] = useState<MainView>(() => {
     const hashView = HASH_TO_VIEW[window.location.hash.slice(1)]
     if (hashView) return hashView
@@ -1294,7 +1295,7 @@ function App() {
                   />
                   <div className="text-left">
                     <h1 className="text-sm font-black tracking-widest text-white leading-none">ASAJU AI</h1>
-                    <p className="text-[9px] text-muted-foreground font-mono hidden xl:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
+                    <p className="text-[9px] text-muted-foreground font-mono hidden 2xl:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
                   </div>
                 </button>
               </div>
@@ -1306,6 +1307,7 @@ function App() {
                 {([
                   { view: 'dashboard', label: 'Dashboard', icon: SquaresFour, color: 'primary' },
                   { view: 'my-agents', label: 'My Agents', icon: Robot, color: 'secondary' },
+                  { view: 'room', label: 'Agent Room', icon: UsersThree, color: 'primary' },
                   { view: 'analytics', label: 'Analytics', icon: ChartLine, color: 'primary' },
                   { view: 'vault', label: 'NFT Vault', icon: WalletIcon, color: 'primary' },
                   { view: 'marketplace', label: 'Marketplace', icon: Storefront, color: 'secondary' },
@@ -1318,13 +1320,13 @@ function App() {
                     variant={mainView === view ? 'default' : 'ghost'}
                     size="sm"
                     className={cn(
-                      'px-3 h-8 text-sm font-medium transition-all duration-200 shrink-0',
+                      'px-2.5 h-8 text-sm font-medium transition-all duration-200 shrink-0',
                       mainView === view
                         ? 'bg-primary/10 text-primary border border-primary/40'
                         : `text-muted-foreground hover:text-foreground hover:bg-white/5`
                     )}
                   >
-                    <Icon className="mr-1.5 hidden sm:inline" size={14} weight="duotone" />
+                    <Icon className="mr-1.5 hidden 2xl:inline" size={14} weight="duotone" />
                     {label}
                   </Button>
                 ))}
@@ -1416,6 +1418,15 @@ function App() {
               userBalance={userBalance ?? 0}
               onInitiateFusion={() => setBreedingDialogOpen(true)}
               onCooldownBoost={handleCooldownBoost}
+            />
+          )}
+
+          {!agentDetailId && mainView === 'room' && (
+            <AgentRoomView
+              agents={displayedAgents}
+              walletAddress={walletAddress}
+              walletConnected={walletConnected}
+              onConnectWallet={() => handleWalletConnect('')}
             />
           )}
 
