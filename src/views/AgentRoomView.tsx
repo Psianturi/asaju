@@ -28,6 +28,16 @@ interface AgentRoomViewProps {
   onConnectWallet: () => void
 }
 
+// Each seat has its own colour: niches only have a few avatar designs, so two
+// agents can share a face, and the colour is what tells them apart at the table.
+const SEAT_STYLES = [
+  { ring: 'ring-cyan-400/80', glow: 'shadow-[0_0_24px_rgba(34,211,238,0.55)]', text: 'text-cyan-300', chip: 'border-cyan-400/50 text-cyan-300', dot: 'bg-cyan-400' },
+  { ring: 'ring-fuchsia-400/80', glow: 'shadow-[0_0_24px_rgba(232,121,249,0.55)]', text: 'text-fuchsia-300', chip: 'border-fuchsia-400/50 text-fuchsia-300', dot: 'bg-fuchsia-400' },
+  { ring: 'ring-amber-300/80', glow: 'shadow-[0_0_24px_rgba(252,211,77,0.5)]', text: 'text-amber-200', chip: 'border-amber-300/50 text-amber-200', dot: 'bg-amber-300' },
+  { ring: 'ring-emerald-400/80', glow: 'shadow-[0_0_24px_rgba(52,211,153,0.55)]', text: 'text-emerald-300', chip: 'border-emerald-400/50 text-emerald-300', dot: 'bg-emerald-400' },
+]
+const seatStyle = (i: number) => SEAT_STYLES[((i % SEAT_STYLES.length) + SEAT_STYLES.length) % SEAT_STYLES.length]
+
 const asAvatar = (p: RoomParticipant) => ({ id: p.agent_id, name: p.name, niche: p.niche as Agent['niche'] })
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong')
@@ -180,11 +190,16 @@ function RoomSetup({ agents, owner, onOpened }: { agents: Agent[]; owner: string
                   <NicheAvatar agent={a} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold truncate">{a.name}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {a.niche} · Lv {a.level} · {a.eventsAttended} lesson{a.eventsAttended === 1 ? '' : 's'}
+                    <p className="text-[11px] text-muted-foreground truncate">{a.niche}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Lv {a.level} · {a.eventsAttended} lesson{a.eventsAttended === 1 ? '' : 's'}
                     </p>
                   </div>
-                  {on && <span className="text-[10px] font-mono text-primary border border-primary/40 rounded px-1.5 py-0.5">seat {seat}</span>}
+                  {on && (
+                    <span className={cn('text-[10px] font-mono border rounded px-1.5 py-0.5 shrink-0', seatStyle(seat - 1).chip)}>
+                      seat {seat}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -442,13 +457,14 @@ function RoomStage({ room, roomKey, onRoomChange, onLeave }: StageProps) {
                 >
                   <motion.div
                     animate={speaking ? { scale: 1.08 } : { scale: 1 }}
-                    className={cn('rounded-full p-0.5 transition-shadow', speaking
-                      ? 'shadow-[0_0_24px_rgba(0,243,255,0.55)] ring-2 ring-primary/70'
-                      : 'ring-1 ring-border/40')}
+                    className={cn('relative rounded-full p-0.5 transition-shadow ring-2', seatStyle(i).ring, speaking ? seatStyle(i).glow : 'opacity-90')}
                   >
                     <NicheAvatar agent={asAvatar(p)} size="md" showRing={false} />
+                    <span className={cn('absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full text-[9px] font-bold text-background flex items-center justify-center', seatStyle(i).dot)}>
+                      {p.name.charAt(0).toUpperCase()}
+                    </span>
                   </motion.div>
-                  <p className="text-[11px] font-semibold truncate max-w-full">{p.name}</p>
+                  <p className={cn('text-[11px] font-semibold truncate max-w-full', seatStyle(i).text)}>{p.name}</p>
                   <p className="text-[9px] text-muted-foreground -mt-1">
                     {p.is_mentor ? 'mentor · ' : ''}Lv {p.level}
                   </p>
@@ -506,7 +522,12 @@ function RoomStage({ room, roomKey, onRoomChange, onLeave }: StageProps) {
             )}
             <AnimatePresence initial={false}>
               {room.messages.map(m => (
-                <MessageRow key={m.id} message={m} participant={room.participants.find(p => p.agent_id === m.speaker.agent_id)} />
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  participant={room.participants.find(p => p.agent_id === m.speaker.agent_id)}
+                  seat={room.participants.findIndex(p => p.agent_id === m.speaker.agent_id)}
+                />
               ))}
             </AnimatePresence>
             <div ref={feedEnd} />
@@ -543,7 +564,7 @@ function RoomStage({ room, roomKey, onRoomChange, onLeave }: StageProps) {
   )
 }
 
-function MessageRow({ message, participant }: { message: RoomMessage; participant?: RoomParticipant }) {
+function MessageRow({ message, participant, seat }: { message: RoomMessage; participant?: RoomParticipant; seat: number }) {
   const isOwner = message.speaker.type === 'owner'
   return (
     <motion.div
@@ -552,13 +573,15 @@ function MessageRow({ message, participant }: { message: RoomMessage; participan
       className={cn('flex gap-2.5', isOwner && 'flex-row-reverse')}
     >
       {participant ? (
-        <NicheAvatar agent={asAvatar(participant)} size="sm" showRing={false} />
+        <div className={cn('rounded-full p-px ring-1 h-fit shrink-0', seatStyle(seat).ring)}>
+          <NicheAvatar agent={asAvatar(participant)} size="sm" showRing={false} />
+        </div>
       ) : (
         <div className="w-8 h-8 shrink-0 rounded-full border border-amber-400/50 text-amber-300 text-[10px] font-semibold flex items-center justify-center">You</div>
       )}
       <div className={cn('min-w-0 max-w-[85%] rounded-lg border px-3 py-2',
         isOwner ? 'border-amber-400/30 bg-amber-400/[0.06]' : 'border-border/50 bg-white/[0.02]')}>
-        <p className="text-[11px] font-semibold mb-0.5">{message.speaker.name}</p>
+        <p className={cn('text-[11px] font-semibold mb-0.5', participant ? seatStyle(seat).text : 'text-amber-300')}>{message.speaker.name}</p>
         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.text}</p>
         {message.flagged && (
           <p className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-300">
@@ -589,13 +612,13 @@ function CitationChip({ citation }: { citation: RoomCitation }) {
 }
 
 function KnowledgeBoard({ room }: { room: AgentRoom }) {
-  const byAgent = room.participants.map(p => {
+  const byAgent = room.participants.map((p, seat) => {
     const seen = new Map<string, RoomCitation>()
     for (const m of room.messages) {
       if (m.speaker.agent_id !== p.agent_id) continue
       for (const c of m.citations) if (!seen.has(c.event_id)) seen.set(c.event_id, c)
     }
-    return { p, lessons: [...seen.values()] }
+    return { p, seat, lessons: [...seen.values()] }
   })
   const total = byAgent.reduce((n, a) => n + a.lessons.length, 0)
 
@@ -608,11 +631,11 @@ function KnowledgeBoard({ room }: { room: AgentRoom }) {
       {total === 0 && (
         <p className="text-xs text-muted-foreground">Lessons an agent cites from its memory appear here, grouped by who brought them.</p>
       )}
-      {byAgent.filter(a => a.lessons.length > 0).map(({ p, lessons }) => (
+      {byAgent.filter(a => a.lessons.length > 0).map(({ p, seat, lessons }) => (
         <div key={p.agent_id} className="space-y-1.5">
           <div className="flex items-center gap-2">
             <NicheAvatar agent={asAvatar(p)} size="sm" showRing={false} className="!w-6 !h-6" />
-            <p className="text-xs font-semibold">{p.name}</p>
+            <p className={cn('text-xs font-semibold', seatStyle(seat).text)}>{p.name}</p>
           </div>
           <div className="grid gap-1.5 pl-8">
             {lessons.map(l => (

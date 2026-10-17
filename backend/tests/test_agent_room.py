@@ -290,3 +290,102 @@ async def test_http_bad_request_is_400(http, owner):
         "owner": owner.address, "agent_ids": ["Atlas"], "topic": "solo topic here",
     })
     assert r.status_code == 400
+
+
+# ── LLM routing: MiniMax first, Gemini on any failure ────────────────────────
+
+class _Resp:
+    def __init__(self, status, body):
+        self.status_code = status
+        self._body = body
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx
+            raise httpx.HTTPStatusError("err", request=None, response=self)
+
+
+class _FakeHttp:
+    """Stands in for httpx.AsyncClient; replies are queued per test."""
+    replies: list = []
+    sent: list = []
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, json=None, headers=None, **kw):
+        _FakeHttp.sent.append(json)
+        return _FakeHttp.replies.pop(0)
+
+
+def _ok(text):
+    return _Resp(200, {"choices": [{"message": {"content": text}}], "base_resp": {"status_code": 0}})
+
+
+@pytest.fixture
+def llm_routes(monkeypatch):
+    import httpx
+    from core import secrets
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeHttp)
+    monkeypatch.setattr(secrets, "get_minimax_api_key", lambda: "sk-cp-test")
+    monkeypatch.setattr(secrets, "get_minimax_model", lambda: "MiniMax-M3.1-Flash-Preview")
+    monkeypatch.setattr(secrets, "get_minimax_effort", lambda: "medium")
+    monkeypatch.setattr(agent_room, "_minimax_state", {"paused_until": 0.0, "send_effort": True})
+    gemini_calls = []
+
+    async def fake_gemini(prompt, *, max_tokens, context):
+        gemini_calls.append(prompt)
+        return '{"message": "from gemini"}'
+
+    monkeypatch.setattr(agent_room, "_call_gemini", fake_gemini)
+    _FakeHttp.replies, _FakeHttp.sent = [], []
+    return gemini_calls
+
+
+async def test_minimax_answers_and_thinking_is_stripped(llm_routes):
+    _FakeHttp.replies = [_ok('<think>plan the reply</think>{"message": "from minimax"}')]
+    out = await agent_room.call_room_llm("hi", context="t", max_tokens=400)
+    assert out == '{"message": "from minimax"}'
+    assert llm_routes == []
+    sent = _FakeHttp.sent[0]
+    # Thinking cannot be disabled, so the budget includes room for it.
+    assert sent["max_tokens"] > 400 and sent["reasoning_effort"] == "medium"
+
+
+async def test_quota_error_falls_back_and_pauses_minimax(llm_routes):
+    _FakeHttp.replies = [_Resp(429, {})]
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    # Paused: the next turn goes straight to Gemini without another round-trip.
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    assert len(_FakeHttp.sent) == 1 and len(llm_routes) == 2
+
+
+async def test_rejected_effort_param_is_dropped_once(llm_routes):
+    _FakeHttp.replies = [_Resp(400, {}), _ok('{"message": "ok"}'), _ok('{"message": "ok2"}')]
+    assert await agent_room.call_room_llm("hi", context="t") == '{"message": "ok"}'
+    assert await agent_room.call_room_llm("hi", context="t") == '{"message": "ok2"}'
+    assert "reasoning_effort" not in _FakeHttp.sent[1] and "reasoning_effort" not in _FakeHttp.sent[2]
+    assert llm_routes == []
+
+
+async def test_error_in_body_falls_back(llm_routes):
+    _FakeHttp.replies = [_Resp(200, {"base_resp": {"status_code": 1008, "status_msg": "insufficient balance"}})]
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+
+
+async def test_without_minimax_key_only_gemini_runs(llm_routes, monkeypatch):
+    from core import secrets
+
+    monkeypatch.setattr(secrets, "get_minimax_api_key", lambda: None)
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    assert _FakeHttp.sent == []

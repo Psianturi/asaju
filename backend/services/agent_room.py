@@ -307,8 +307,51 @@ def _parse_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400) -> str:
-    """One bounded LLM call. Separate function so tests can replace it."""
+# MiniMax M3.1 always thinks, and thinking tokens count against max_tokens, so
+# the reply budget gets an allowance on top or the answer itself is cut off.
+_MINIMAX_URL = "https://api.minimax.io/v1/chat/completions"
+_MINIMAX_THINKING_ALLOWANCE = 1536
+# After a quota or rate-limit answer, skip MiniMax for a while instead of
+# paying a failed round-trip on every turn.
+_MINIMAX_COOLDOWN_SECONDS = 10 * 60
+_minimax_state = {"paused_until": 0.0, "send_effort": True}
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+async def _call_minimax(prompt: str, *, api_key: str, max_tokens: int, context: str) -> str:
+    import httpx
+
+    from core.secrets import get_minimax_effort, get_minimax_model
+
+    payload: dict[str, Any] = {
+        "model": get_minimax_model(),
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens + _MINIMAX_THINKING_ALLOWANCE,
+        "temperature": 0.9,
+    }
+    if _minimax_state["send_effort"]:
+        payload["reasoning_effort"] = get_minimax_effort()
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with httpx.AsyncClient(timeout=40.0) as client:
+        resp = await client.post(_MINIMAX_URL, json=payload, headers=headers)
+        if resp.status_code == 400 and "reasoning_effort" in payload:
+            # Parameter name is not settled across MiniMax routes; drop it once
+            # and remember, rather than losing MiniMax over an optional knob.
+            logger.warning("room llm: MiniMax rejected reasoning_effort for %s, retrying without it", context)
+            _minimax_state["send_effort"] = False
+            payload.pop("reasoning_effort")
+            resp = await client.post(_MINIMAX_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    # MiniMax can answer HTTP 200 with an error in base_resp.
+    base = data.get("base_resp") or {}
+    if base.get("status_code"):
+        raise RuntimeError(f"MiniMax error {base.get('status_code')}: {base.get('status_msg')}")
+    text = (data["choices"][0]["message"].get("content") or "").strip()
+    return _THINK_BLOCK.sub("", text).strip()
+
+
+async def _call_gemini(prompt: str, *, max_tokens: int, context: str) -> str:
     from services.llm_service import _call_gemini_with_retry, get_llm_api_key
 
     payload = {
@@ -323,6 +366,32 @@ async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400) -> 
     data = await _call_gemini_with_retry(get_llm_api_key(), payload, timeout=25.0, context=context)
     parts = data["candidates"][0]["content"]["parts"]
     return next((p["text"] for p in reversed(parts) if p.get("text", "").strip()), "")
+
+
+async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400) -> str:
+    """One bounded LLM call. Separate function so tests can replace it.
+
+    Rooms prefer MiniMax when MINIMAX_API_KEY is set (it reads more naturally
+    in dialogue) and fall back to Gemini on any failure, so a spent quota
+    slows nothing down beyond one failed call per cooldown window.
+    """
+    from core.secrets import get_minimax_api_key
+
+    key = get_minimax_api_key()
+    if key and time.time() >= _minimax_state["paused_until"]:
+        try:
+            text = await _call_minimax(prompt, api_key=key, max_tokens=max_tokens, context=context)
+            if text:
+                return text
+            logger.warning("room llm: MiniMax returned no text for %s, using Gemini", context)
+        except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            spent = any(w in str(exc).lower() for w in ("quota", "balance", "limit"))
+            if status in (401, 403, 429) or (status is None and spent):
+                _minimax_state["paused_until"] = time.time() + _MINIMAX_COOLDOWN_SECONDS
+            logger.warning("room llm: MiniMax failed for %s (%s %s), using Gemini",
+                           context, exc.__class__.__name__, status or "")
+    return await _call_gemini(prompt, max_tokens=max_tokens, context=context)
 
 
 # ── Rooms ────────────────────────────────────────────────────────────────────
