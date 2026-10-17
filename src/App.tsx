@@ -1414,7 +1414,7 @@ function App() {
 
 
           {!agentDetailId && mainView === 'marketplace' && (
-            <MarketplaceView marketplaceAgents={marketplaceAgents ?? []} />
+            <MarketplaceView marketplaceAgents={marketplaceAgents ?? []} onListingsChanged={refreshMarketplaceListings} />
           )}
 
           {agentDetailId && (() => {

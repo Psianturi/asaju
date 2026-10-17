@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getChain, marketplaceCurrency as currencyForChain, isErc20Market } from '@/lib/blockchain/chains'
 import { mantleService } from '@/lib/blockchain/mantleService'
+import { cloudRunService } from '@/services/cloudRunService'
 import {
   Brain, Fire, ShoppingCart, CheckCircle,
   Lightning, TrendUp, Star, Cpu, SpinnerGap, SealCheck,
@@ -16,6 +17,8 @@ import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/
 
 interface MarketplaceAgentCardProps {
   agent: MarketplaceAgent
+  /** Called after a confirmed purchase so the board can drop the sold card. */
+  onPurchased?: () => void
 }
 
 const NICHE_ICON: Record<string, string> = {
@@ -66,7 +69,7 @@ function ValueRow({
   )
 }
 
-export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
+export function MarketplaceAgentCard({ agent, onPurchased }: MarketplaceAgentCardProps) {
   const rarityTier = calculateRarityTier(agent as any)
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)
@@ -80,6 +83,9 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
   // legacy listings that predate the field.
   const chainId = agent.chainId ?? 5003
   const marketplaceCurrency = currencyForChain(chainId)
+  // The agent's wallet holds gas in the chain's native coin, which is not the
+  // settlement token on ERC-20 markets (ETH vs ASA on Robinhood).
+  const gasSymbol = getChain(chainId)?.nativeSymbol ?? ''
   const paysInErc20 = isErc20Market(chainId)
   const [buying, setBuying] = useState(false)
 
@@ -94,6 +100,8 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
       toast.success('Agent acquired', {
         description: `Paid ${res.pricePaid} ${res.currency}${res.transactionHash ? ` · tx ${res.transactionHash.slice(0, 10)}…` : ''}`,
       })
+      await cloudRunService.syncListing(agent.id)
+      onPurchased?.()
     } finally {
       setBuying(false)
     }
@@ -234,7 +242,7 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
               <ValueRow
                 icon={<Cpu size={11} className="text-sky-400" weight="duotone" />}
                 label="Gas Activity"
-value={`${(agent.gasSpent ?? 0).toFixed(3)} ${marketplaceCurrency} spent`}
+value={`${(agent.gasSpent ?? 0).toFixed(3)} ${gasSymbol} spent`}
               />
             </div>
           </div>
@@ -358,7 +366,7 @@ value={`${(agent.gasSpent ?? 0).toFixed(3)} ${marketplaceCurrency} spent`}
               </div>
               <div className="text-right">
                 <p className="text-[10px] text-muted-foreground">Wallet incl.</p>
-                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} {marketplaceCurrency}</p>
+                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} {gasSymbol}</p>
               </div>
             </div>
 

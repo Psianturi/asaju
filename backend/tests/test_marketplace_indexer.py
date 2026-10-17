@@ -296,3 +296,108 @@ async def test_poll_chain_skips_zero_address_new_owner():
     assert summary["skipped"] == 0
     # High-water mark still advances (event was processed, just zero-skip)
     assert firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"] == 101
+
+
+# ── Escrow listing scan ──────────────────────────────────────────────────────
+
+from services import marketplace_indexer as mi  # noqa: E402
+
+
+class FakeListingChain:
+    """Escrow log reader that records every range it is asked for."""
+
+    def __init__(self, latest, logs_by_block=None, fail_from=None):
+        self.latest = latest
+        self.logs_by_block = logs_by_block or {}
+        self.fail_from = fail_from
+        self.ranges: list[tuple[int, int]] = []
+
+    async def get_block_number(self, chain_id):
+        return self.latest
+
+    async def get_marketplace_event_logs(self, event_name, *, chain_id, from_block, to_block):
+        assert event_name == "AgentListed"
+        if self.fail_from is not None and from_block >= self.fail_from:
+            raise ConnectionError("range too large")
+        self.ranges.append((from_block, to_block))
+        return [
+            {"blockNumber": b, "args": {"agentWallet": w}}
+            for b, w in self.logs_by_block.items()
+            if from_block <= b <= to_block
+        ]
+
+
+def _patch_listing_scan(firestore, chain, recorded, reconciled):
+    async def fake_record(agent_wallet):
+        recorded.append(agent_wallet)
+        return {"status": "active"}
+
+    async def fake_reconcile(chain_id=None):
+        reconciled.append(chain_id)
+        return {"checked": 0, "still_active": 0, "closed": 0, "errors": 0}
+
+    return (
+        patch("services.marketplace_indexer.get_db", return_value=firestore),
+        patch("services.marketplace_indexer.web3_service", chain),
+        patch("services.marketplace_indexer.record_listed_event", fake_record),
+        patch("services.marketplace_indexer.reconcile_active_listings", fake_reconcile),
+    )
+
+
+async def test_listing_scan_walks_bounded_windows_from_watermark():
+    firestore = FakeFirestore()
+    firestore.collection("marketplace_indexer_state").add_doc(
+        FakeDoc({"last_processed_block": 1_000}, doc_id="listings_97")
+    )
+    chain = FakeListingChain(latest=1_000 + 2 * mi.LISTING_SCAN_CHUNK + 10, logs_by_block={1_500: "0x" + "a" * 40})
+    recorded, reconciled = [], []
+    p1, p2, p3, p4 = _patch_listing_scan(firestore, chain, recorded, reconciled)
+    with p1, p2, p3, p4:
+        summary = await mi.poll_marketplace_listings(97)
+
+    assert chain.ranges[0] == (1_001, 1_000 + mi.LISTING_SCAN_CHUNK)
+    assert all(end - start + 1 <= mi.LISTING_SCAN_CHUNK for start, end in chain.ranges)
+    assert chain.ranges[-1][1] == chain.latest
+    assert recorded == ["0x" + "a" * 40]
+    assert reconciled == [97]
+    assert summary["listed_logs"] == 1
+    state = firestore.collection_docs["marketplace_indexer_state"]._docs["listings_97"].to_dict()
+    assert state["last_processed_block"] == chain.latest
+
+
+async def test_listing_scan_first_run_starts_at_lookback_not_genesis():
+    firestore = FakeFirestore()
+    chain = FakeListingChain(latest=mi.LISTING_SCAN_LOOKBACK + 50)
+    recorded, reconciled = [], []
+    p1, p2, p3, p4 = _patch_listing_scan(firestore, chain, recorded, reconciled)
+    with p1, p2, p3, p4:
+        await mi.poll_marketplace_listings(97)
+    assert chain.ranges[0][0] == 50
+
+
+async def test_listing_scan_keeps_progress_when_a_window_fails():
+    firestore = FakeFirestore()
+    firestore.collection("marketplace_indexer_state").add_doc(
+        FakeDoc({"last_processed_block": 0 + 10}, doc_id="listings_97")
+    )
+    fail_from = 11 + mi.LISTING_SCAN_CHUNK
+    chain = FakeListingChain(latest=10 + 3 * mi.LISTING_SCAN_CHUNK, fail_from=fail_from)
+    recorded, reconciled = [], []
+    p1, p2, p3, p4 = _patch_listing_scan(firestore, chain, recorded, reconciled)
+    with p1, p2, p3, p4:
+        summary = await mi.poll_marketplace_listings(97)
+    assert summary["errors"] == 1
+    state = firestore.collection_docs["marketplace_indexer_state"]._docs["listings_97"].to_dict()
+    assert state["last_processed_block"] == 10 + mi.LISTING_SCAN_CHUNK  # first window kept
+    assert reconciled == [97]  # active rows are still re-checked
+
+
+async def test_listing_scan_skips_chain_without_escrow():
+    firestore = FakeFirestore()
+    chain = FakeListingChain(latest=100)
+    recorded, reconciled = [], []
+    p1, p2, p3, p4 = _patch_listing_scan(firestore, chain, recorded, reconciled)
+    with p1, p2, p3, p4:
+        summary = await mi.poll_marketplace_listings(5003)
+    assert summary == {"skipped": 1}
+    assert chain.ranges == []

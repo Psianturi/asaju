@@ -1363,31 +1363,21 @@ export const cloudRunService = {
     }
   },
 
-  async listAgentForSale(agentId: string, sellerWallet: string, price: number): Promise<{ ok: boolean; error?: string }> {
+  /**
+   * Ask the backend to re-read one agent's listing from the on-chain escrow.
+   * Listing and cancelling are signed on-chain by the owner; this only makes
+   * the shared board reflect it before the next indexer poll.
+   */
+  async syncListing(agentId: string): Promise<{ ok: boolean; status?: string; error?: string }> {
     try {
-      const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/marketplace/list`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agentId, seller_wallet: sellerWallet, price }),
-      })
-      await handleAPIResponse(response)
-      return { ok: true }
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/marketplace/sync?agent_id=${encodeURIComponent(agentId)}`,
+        { method: 'POST' },
+      )
+      const body = await handleAPIResponse<{ status: string }>(response)
+      return { ok: true, status: body.status }
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : 'Failed to list agent' }
-    }
-  },
-
-  async cancelListing(agentId: string, sellerWallet: string): Promise<{ ok: boolean; error?: string }> {
-    try {
-      const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/marketplace/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agentId, seller_wallet: sellerWallet }),
-      })
-      await handleAPIResponse(response)
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : 'Failed to cancel listing' }
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to sync listing' }
     }
   },
 

@@ -197,6 +197,33 @@ MAEF_ABI: list[dict] = [
     },
 ]
 
+# AsajuMarketplace / AsajuMarketplaceERC20 — the read surface the backend
+# mirrors: listings() for live state, AgentListed to discover new listings.
+# Both the native and the ERC-20 variant expose the same signatures.
+MARKETPLACE_ABI: list[dict] = [
+    {
+        "inputs": [{"name": "agentWallet", "type": "address"}],
+        "name": "listings",
+        "outputs": [
+            {"name": "seller", "type": "address"},
+            {"name": "price", "type": "uint256"},
+            {"name": "active", "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "name": "agentWallet", "type": "address"},
+            {"indexed": True, "name": "seller", "type": "address"},
+            {"indexed": False, "name": "price", "type": "uint256"},
+        ],
+        "name": "AgentListed",
+        "type": "event",
+    },
+]
+
 
 class Web3Service:
     # Chains still running the legacy V4 contract, where the six live Mantle
@@ -362,6 +389,67 @@ class Web3Service:
                     )
                 filter_kwargs[f"argument_{arg_name}"] = value
         logs = event.get_logs(**filter_kwargs)
+        return [
+            {
+                "blockNumber": log.blockNumber,
+                "transactionHash": log.transactionHash.hex(),
+                "logIndex": log.logIndex,
+                "args": dict(log.args),
+                "event": event_name,
+            }
+            for log in logs
+        ]
+
+    # ── Marketplace escrow (read-only) ────────────────────────────────────────
+
+    def _init_marketplace(self, chain_id: int) -> Any | None:
+        """The chain's AsajuMarketplace escrow, or None when none is deployed.
+        Native and ERC-20 variants share listings() and the listing events, so
+        one ABI reads both."""
+        from core.config import get_chain_config
+
+        addr = get_chain_config(chain_id).get("marketplace_address", "")
+        if not addr or not Web3.is_address(addr):
+            return None
+        w3 = self._init_w3(chain_id)
+        return w3.eth.contract(address=Web3.to_checksum_address(addr), abi=MARKETPLACE_ABI)
+
+    async def get_marketplace_listing(self, agent_wallet: str, chain_id: int) -> dict | None:
+        """Live-read listings(agentWallet) from the escrow.
+
+        Returns {"seller", "price_wei", "active"}, or None when the chain has no
+        marketplace. Raises when the chain cannot be read — the caller must not
+        mistake an RPC outage for "not listed"."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_marketplace_listing, agent_wallet, chain_id)
+
+    def _sync_marketplace_listing(self, agent_wallet: str, chain_id: int) -> dict | None:
+        market = self._init_marketplace(chain_id)
+        if market is None:
+            return None
+        seller, price, active = market.functions.listings(Web3.to_checksum_address(agent_wallet)).call()
+        return {"seller": seller, "price_wei": int(price), "active": bool(active)}
+
+    async def get_block_number(self, chain_id: int) -> int:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self._init_w3(chain_id).eth.block_number)
+
+    async def get_marketplace_event_logs(
+        self, event_name: str, *, chain_id: int, from_block: int, to_block: int
+    ) -> list[dict]:
+        """Read one escrow event over a bounded block range. Returns [] when the
+        chain has no marketplace. Same shape as get_event_logs()."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_marketplace_event_logs, event_name, chain_id, from_block, to_block
+        )
+
+    def _sync_marketplace_event_logs(self, event_name, chain_id, from_block, to_block):
+        market = self._init_marketplace(chain_id)
+        if market is None:
+            return []
+        event = getattr(market.events, event_name)
+        logs = event.get_logs(fromBlock=from_block, toBlock=to_block)
         return [
             {
                 "blockNumber": log.blockNumber,
