@@ -352,6 +352,21 @@ function App() {
       .finally(() => setFeaturedWisdomLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Move the wallet (and the header's network) to a specific chain, e.g. the
+  // one an agent lives on. Same wallet prompt every on-chain action triggers.
+  const handleSwitchToChain = async (chainId: number) => {
+    try {
+      await mantleService.switchToNetwork(chainId)
+      setSelectedChainId(chainId)
+      setWalletChainId(chainId)
+      void blockchain.refreshBalance(chainId)
+      toast.success(`Switched to ${getChain(chainId)?.name ?? `chain ${chainId}`}`)
+    } catch (error) {
+      console.warn('Network switch failed:', error)
+      toast.error('Network switch was cancelled or failed')
+    }
+  }
+
   const handleSwitchNetwork = async () => {
     const eth = (window as any).okxwallet ?? (window as any).ethereum
     if (!eth?.request) {
@@ -1297,7 +1312,9 @@ function App() {
                 ] as const).map(({ view, label, icon: Icon, color }) => (
                   <Button
                     key={view}
-                    onClick={() => startTransition(() => setMainView(view))}
+                    // Leaving an agent's detail page is part of switching tabs: the
+                    // detail view renders on top of every tab while it is open.
+                    onClick={() => startTransition(() => { setAgentDetailId(null); setMainView(view) })}
                     variant={mainView === view ? 'default' : 'ghost'}
                     size="sm"
                     className={cn(
@@ -1379,6 +1396,7 @@ function App() {
           {!agentDetailId && mainView === 'my-agents' && (
             <MyAgentsView
               agents={displayedAgents}
+              currentChainId={walletChainId ?? selectedChainId}
               events={displayedEvents}
               walletConnected={walletConnected}
               onConnectWallet={() => handleWalletConnect('')}
@@ -1445,6 +1463,8 @@ function App() {
                 events={displayedEvents}
                 nfts={displayedNFTs}
                 allAgents={displayedAgents}
+                currentChainId={walletConnected ? (walletChainId ?? selectedChainId) : undefined}
+                onSwitchNetwork={handleSwitchToChain}
                 onBack={() => setAgentDetailId(null)}
                 onConfigure={handleConfigureAgent}
                 onChat={handleChatWithAgent}

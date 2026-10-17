@@ -15,6 +15,7 @@ import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
 import { TermHint } from '@/components/TermHint'
+import { NetworkMismatchBanner } from '@/components/NetworkMismatchBanner'
 import { GLOSSARY } from '@/lib/glossary'
 
 interface AgentDetailViewProps {
@@ -23,6 +24,9 @@ interface AgentDetailViewProps {
   nfts: NFT[]
   /** All agents — needed for lineage tree to resolve parent agents by id. */
   allAgents?: Agent[]
+  /** Network the wallet is on, to flag an agent that lives on another chain. */
+  currentChainId?: number
+  onSwitchNetwork?: (chainId: number) => void
   onBack: () => void
   onConfigure?: (agent: Agent) => void
   onChat?: (agent: Agent) => void
@@ -50,6 +54,8 @@ export function AgentDetailView({
   events,
   nfts,
   allAgents = [],
+  currentChainId,
+  onSwitchNetwork,
   onBack,
   onConfigure,
   onChat,
@@ -140,6 +146,13 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
         <ArrowLeft size={14} weight="bold" />
         Back to dashboard
       </button>
+
+      <NetworkMismatchBanner
+        agentName={agent.name}
+        agentChainId={agent.chainId ?? 5003}
+        currentChainId={currentChainId}
+        onSwitchNetwork={onSwitchNetwork}
+      />
 
       {/* Header card */}
       <Card className={cn(
