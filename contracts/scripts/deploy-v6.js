@@ -12,18 +12,20 @@
 import hre from "hardhat";
 
 const EXPLORERS = {
-  bscTestnet:      "https://testnet.bscscan.com",
-  ethereumSepolia: "https://sepolia.etherscan.io",
-  mantleSepolia:   "https://explorer.sepolia.mantle.xyz",
+  bscTestnet:        "https://testnet.bscscan.com",
+  ethereumSepolia:   "https://sepolia.etherscan.io",
+  mantleSepolia:     "https://explorer.sepolia.mantle.xyz",
+  robinhoodTestnet:  "https://explorer.testnet.chain.robinhood.com",
 };
 
 // Same calibrated values V5 currently runs with on each chain (26 Sep 2026).
 // Re-run contracts/scripts/calibrate-fees.js against the new address any time
 // gas prices drift enough to matter.
 const FEES_PER_CHAIN = {
-  bscTestnet:      { spawn: "0.01", provision: "0.005" },
-  ethereumSepolia: { spawn: "0.01", provision: "0.005" },
-  mantleSepolia:   { spawn: "1",    provision: "0.5"   },
+  bscTestnet:        { spawn: "0.01",  provision: "0.005"  },
+  ethereumSepolia:   { spawn: "0.01",  provision: "0.005"  },
+  mantleSepolia:     { spawn: "1",     provision: "0.5"    },
+  robinhoodTestnet:  { spawn: "0.005", provision: "0.0025" }, // cheap L2, ETH gas
 };
 
 async function main() {

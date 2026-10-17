@@ -17,5 +17,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Kilo keeps git worktrees under .kilo/; without this, vitest picks up the
+    // duplicate test files in each worktree and double-counts the suite.
+    exclude: ["**/node_modules/**", "**/dist/**", ".kilo/**"],
   },
 });
