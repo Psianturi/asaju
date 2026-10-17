@@ -27,6 +27,7 @@ from web3 import Web3
 
 from core.config import settings
 from core.database import get_db
+from core.agent_auth import issue_agent_auth_challenge, require_agent_owner
 from core.kms_service import decrypt_private_key
 from services.llm_service import classify_event_niche, summarize_event
 from services.web3_service import web3_service
@@ -81,6 +82,11 @@ class AttendRequest(BaseModel):
     niche: str = "General"
     mode_b: bool = False    # If True, agent signs with its own private key (autonomous); else backend signs (Mode A)
     chain_id: int = 5003
+    # Owner authorisation. Required whenever the platform would act as this
+    # agent (mode_b=True), because the backend decrypts the agent key and signs.
+    # Without it, knowing an agent_id is enough to make the platform act.
+    auth_nonce: str = ""
+    auth_signature: str = ""
 
     @field_validator("agent_wallet")
     @classmethod
@@ -213,6 +219,33 @@ async def list_events_by_wallet(
     return result
 
 
+@router.post("/agent-auth-challenge")
+async def create_agent_auth_challenge(
+    agent_id: str = Query(...),
+    agent_wallet: str = Query(...),
+    action: str = Query("attend_event"),
+    chain_id: int = Query(5003),
+) -> dict:
+    """Hand the owner a short-lived message to sign before the platform will act
+    as their agent.
+
+    Separate from /attend so the UI can ask for the signature up front and show
+    exactly what is being authorised, rather than popping a wallet prompt in the
+    middle of a transcript fetch.
+    """
+    if not Web3.is_address(agent_wallet):
+        raise HTTPException(status_code=400, detail="Invalid agent wallet address")
+    db = get_db()
+    challenge = await issue_agent_auth_challenge(
+        db,
+        agent_id=agent_id,
+        agent_wallet=Web3.to_checksum_address(agent_wallet),
+        action=action,
+        chain_id=chain_id,
+    )
+    return challenge
+
+
 @router.post("/attend", response_model=AttendResponse)
 async def attend_event(req: AttendRequest) -> AttendResponse:
     """
@@ -262,6 +295,31 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     agent_private_key: str | None = None
     agent_is_funded = False
     if req.mode_b:
+        # Owner authorisation gate. The backend is about to decrypt this agent's
+        # private key and sign on its behalf, so we must first prove the caller
+        # is the wallet that owns the agent *on-chain right now*. After a
+        # marketplace sale the previous owner's signature stops working here,
+        # which is the whole point: ownership transfer has to be instant.
+        if not req.auth_nonce or not req.auth_signature:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "AGENT_AUTH_REQUIRED",
+                    "message": (
+                        "Acting as this agent requires an owner signature. "
+                        "Request a challenge, sign it, and retry."
+                    ),
+                },
+            )
+        await require_agent_owner(
+            db,
+            agent_id=req.agent_id,
+            agent_wallet=req.agent_wallet,
+            action="attend_event",
+            chain_id=req.chain_id,
+            nonce=req.auth_nonce,
+            signature=req.auth_signature,
+        )
         try:
             agent_is_funded = bool(agent_data.get("funded", False))
             stored_key = agent_data.get("private_key_enc") or agent_data.get("private_key")

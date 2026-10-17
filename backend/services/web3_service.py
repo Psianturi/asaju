@@ -393,6 +393,40 @@ class Web3Service:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._sync_agent_provision, chain_id)
 
+    async def get_agent_owner(self, agent_wallet: str, chain_id: int = 5003) -> str | None:
+        """Live-read agentOwner(agentWallet) — who owns this agent right now.
+
+        This is the authoritative ownership answer for marketplace purposes. The
+        Firestore mirror is written by the indexer on a poll loop and therefore
+        lags a sale; the chain settles the sale synchronously inside buy().
+
+        Returns None when the chain cannot be reached or the deployed contract
+        predates V5 (no agentOwner getter), so callers can decide whether a
+        fallback is safe rather than silently trusting stale data.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_agent_owner, agent_wallet, chain_id
+        )
+
+    def _sync_agent_owner(self, agent_wallet: str, chain_id: int) -> str | None:
+        try:
+            contract = self._init_contract(chain_id)
+            owner = contract.functions.agentOwner(
+                Web3.to_checksum_address(agent_wallet)
+            ).call()
+        except Exception as exc:
+            logger.debug(
+                "agentOwner read failed for %s on chain %s: %s",
+                agent_wallet,
+                chain_id,
+                exc.__class__.__name__,
+            )
+            return None
+        if not owner or owner == Web3.to_checksum_address("0x" + "0" * 40):
+            return None
+        return owner
+
     def _sync_agent_provision(self, chain_id: int = 5003) -> float:
         contract = self._init_contract(chain_id)
         provision_wei = self._read_agent_provision_wei(contract)
