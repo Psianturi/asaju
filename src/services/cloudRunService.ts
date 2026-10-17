@@ -127,6 +127,20 @@ export interface AttendEventRequest {
   niche: string
   chainId: number
   modeB?: boolean  // If true, agent signs autonomously with its own private key (Mode B); else backend signs (Mode A)
+  /** Owner authorisation for Mode B. The backend decrypts the agent key and
+   * signs with it, so it first verifies this signature belongs to the wallet
+   * that owns the agent on-chain right now. Obtained from
+   * requestAgentAuthChallenge() then signed with the connected wallet. */
+  authNonce?: string
+  authSignature?: string
+}
+
+export interface AgentAuthChallenge {
+  nonce: string
+  /** Exact text the owner must sign. Persisted server-side so the signature
+   *  is verified against the same bytes that were issued. */
+  message: string
+  expires_at: number
 }
 
 export interface AttendEventResponse {
@@ -737,6 +751,30 @@ export const cloudRunService = {
   },
 
   // ── Real backend: AI summary + Mantle NFT mint (Mode A or B) ───────────────
+  /**
+   * Ask the backend for a message the owner must sign before the platform will
+   * act as their agent. Mode B decrypts the agent key and signs with it, so the
+   * backend needs proof the request comes from the current owner.
+   */
+  async requestAgentAuthChallenge(params: {
+    agentId: string
+    agentWallet: string
+    action?: string
+    chainId: number
+  }): Promise<AgentAuthChallenge> {
+    const query = new URLSearchParams({
+      agent_id: params.agentId,
+      agent_wallet: params.agentWallet,
+      action: params.action ?? 'attend_event',
+      chain_id: String(params.chainId),
+    })
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/event/agent-auth-challenge?${query.toString()}`,
+      { method: 'GET' },
+    )
+    return handleAPIResponse<AgentAuthChallenge>(response)
+  },
+
   async attendEvent(request: AttendEventRequest): Promise<AttendEventResponse> {
     const urlCheck = validateEventUrl(request.eventUrl)
     if (!urlCheck.valid) {
@@ -754,6 +792,8 @@ export const cloudRunService = {
         niche: request.niche,
         chain_id: request.chainId,
         mode_b: request.modeB ?? false,  // Mode B: agent signs autonomously; Mode A: backend signs (default)
+        auth_nonce: request.authNonce ?? '',
+        auth_signature: request.authSignature ?? '',
       }
 
       const response = await fetchWithTimeout(

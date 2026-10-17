@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { Agent } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
+import { mantleService } from '@/lib/blockchain/mantleService'
 import { toast } from 'sonner'
 import { fmtAgeSeconds, isFiniteNum } from '@/lib/format'
 
@@ -180,6 +181,19 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
     await new Promise((r) => setTimeout(r, 350))
 
     try {
+      // Owner authorisation. On V6 chains the agent has no platform minter, so
+      // the platform may only act as this agent when the current owner signs for
+      // it. After a marketplace sale the previous owner's signature stops
+      // verifying, which is the point.
+      setStage('scoring')
+      const challenge = await cloudRunService.requestAgentAuthChallenge({
+        agentId: selectedAgent.id,
+        agentWallet: selectedAgent.walletAddress,
+        action: 'attend_event',
+        chainId: agentChainId,
+      })
+      const signed = await mantleService.signMessage(challenge.message)
+
       setStage('minting')
       const resp = await cloudRunService.attendEvent({
         agentId: selectedAgent.id,
@@ -190,6 +204,9 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
         platform: 'YouTube',
         niche: selectedAgent.niche,
         chainId: agentChainId,
+        modeB: true,
+        authNonce: challenge.nonce,
+        authSignature: signed.signature,
       })
 
       setResult({
