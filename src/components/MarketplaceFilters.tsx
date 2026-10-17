@@ -23,14 +23,16 @@ interface MarketplaceFiltersProps {
     sortBy: 'price-asc' | 'price-desc' | 'level-desc' | 'generation-desc' | 'wisdom-desc' | 'rarity-desc'
   }) => void
   totalAgents: number
+  defaultOpen?: boolean
 }
 
 const niches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
 const generations = [1, 2, 3, 4, 5]
 const rarityTiers: RarityTier[] = ['common', 'rare', 'epic', 'legendary', 'mythic']
 
-export function MarketplaceFilters({ filters, onFiltersChange, totalAgents }: MarketplaceFiltersProps) {
-  const [isOpen, setIsOpen] = useState(true)
+export function MarketplaceFilters({ filters, onFiltersChange, totalAgents, defaultOpen = false }: MarketplaceFiltersProps) {
+  // Collapsed by default: the board, not the filter form, is what people came for.
+  const [isOpen, setIsOpen] = useState(defaultOpen)
 
   const handleGenerationToggle = (gen: number) => {
     const newGenerations = filters.generation.includes(gen)
@@ -70,17 +72,17 @@ export function MarketplaceFilters({ filters, onFiltersChange, totalAgents }: Ma
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className="glass-card-hover p-5 border-2 border-secondary/30 relative overflow-hidden">
+      <Card className="glass-card-hover p-4 border border-secondary/30 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-secondary/5 via-transparent to-accent/5" />
         
         <div className="relative z-10">
-          <div className="flex items-center justify-between mb-4">
+          <div className={`flex items-center justify-between ${isOpen ? 'mb-4' : ''}`}>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-secondary/20 border border-secondary/40 flex items-center justify-center">
-                <Funnel size={20} className="text-secondary" weight="duotone" />
+              <div className="w-8 h-8 rounded-lg bg-secondary/20 border border-secondary/40 flex items-center justify-center">
+                <Funnel size={16} className="text-secondary" weight="duotone" />
               </div>
               <div>
-                <h3 className="font-bold text-lg">Marketplace Filters</h3>
+                <h3 className="font-semibold text-sm">Filters &amp; sorting</h3>
                 {activeFilterCount > 0 && (
                   <p className="text-xs text-muted-foreground">{activeFilterCount} active filter(s)</p>
                 )}
@@ -171,11 +173,6 @@ export function MarketplaceFilters({ filters, onFiltersChange, totalAgents }: Ma
                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
                           >
                             Gen-{gen}
-                            {gen >= 3 && (
-                              <span className="text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-white px-2 py-0.5 rounded-full font-bold">
-                                RARE
-                              </span>
-                            )}
                           </label>
                         </div>
                       ))}

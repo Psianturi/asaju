@@ -25,7 +25,10 @@ export function countActualVideosAnalyzed(agents: Agent[], events: Event[]): num
   return events.filter(e => agentIds.has(e.agentId)).length
 }
 
-export function calculateRarityTier(agent: Agent): RarityTier {
+// Only reads these fields, so marketplace listings (not full Agents) qualify too.
+export function calculateRarityTier(
+  agent: Pick<Agent, 'generation' | 'level' | 'eventsAttended' | 'wisdomUnlocked'>,
+): RarityTier {
   const generation = agent.generation ?? 1
   const level = agent.level
   const eventsAttended = agent.eventsAttended

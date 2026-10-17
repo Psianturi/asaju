@@ -1421,7 +1421,11 @@ function App() {
 
 
           {!agentDetailId && mainView === 'marketplace' && (
-            <MarketplaceView marketplaceAgents={marketplaceAgents ?? []} onListingsChanged={refreshMarketplaceListings} />
+            <MarketplaceView
+              marketplaceAgents={marketplaceAgents ?? []}
+              onListingsChanged={refreshMarketplaceListings}
+              onSellAgent={() => (walletConnected ? setMainView('my-agents') : handleWalletConnect(''))}
+            />
           )}
 
           {agentDetailId && (() => {

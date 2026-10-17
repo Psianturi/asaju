@@ -1,10 +1,15 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Storefront, LockKey } from '@phosphor-icons/react'
+import { Storefront, LockKey, Tag } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { MarketplaceAgentCard } from '@/components/MarketplaceAgentCard'
 import { MarketplaceFilters } from '@/components/MarketplaceFilters'
 import { MarketplaceAgent, Niche, RarityTier } from '@/lib/types'
+import { calculateRarityTier } from '@/lib/utils'
+
+// Higher index = rarer; used to sort by rarity.
+const RARITY_ORDER: RarityTier[] = ['common', 'rare', 'epic', 'legendary', 'mythic']
 
 interface MarketplaceFiltersState {
   generation: number[]
@@ -13,19 +18,23 @@ interface MarketplaceFiltersState {
   sortBy: 'price-asc' | 'price-desc' | 'level-desc' | 'generation-desc' | 'wisdom-desc' | 'rarity-desc'
 }
 
+const DEFAULT_FILTERS: MarketplaceFiltersState = {
+  generation: [],
+  niche: [],
+  rarityTier: [],
+  sortBy: 'level-desc',
+}
+
 interface MarketplaceViewProps {
   marketplaceAgents: MarketplaceAgent[]
   /** Refresh the board, e.g. after a purchase settles. */
   onListingsChanged?: () => void
+  /** Take the owner to where their agents can be listed. */
+  onSellAgent?: () => void
 }
 
-export function MarketplaceView({ marketplaceAgents, onListingsChanged }: MarketplaceViewProps) {
-  const [marketplaceFilters, setMarketplaceFilters] = useState<MarketplaceFiltersState>({
-    generation: [],
-    niche: [],
-    rarityTier: [],
-    sortBy: 'level-desc',
-  })
+export function MarketplaceView({ marketplaceAgents, onListingsChanged, onSellAgent }: MarketplaceViewProps) {
+  const [marketplaceFilters, setMarketplaceFilters] = useState<MarketplaceFiltersState>(DEFAULT_FILTERS)
 
   const filteredAndSortedMarketplace = () => {
     let filtered = [...(marketplaceAgents ?? [])]
@@ -36,6 +45,11 @@ export function MarketplaceView({ marketplaceAgents, onListingsChanged }: Market
 
     if (marketplaceFilters.niche.length > 0) {
       filtered = filtered.filter(a => marketplaceFilters.niche.includes(a.niche))
+    }
+
+    // The rarity checkboxes and sort existed in the UI but were never applied.
+    if (marketplaceFilters.rarityTier.length > 0) {
+      filtered = filtered.filter(a => marketplaceFilters.rarityTier.includes(calculateRarityTier(a)))
     }
 
     filtered.sort((a, b) => {
@@ -50,6 +64,8 @@ export function MarketplaceView({ marketplaceAgents, onListingsChanged }: Market
           return b.eventsAttended - a.eventsAttended
         case 'generation-desc':
           return (b.generation ?? 1) - (a.generation ?? 1)
+        case 'rarity-desc':
+          return RARITY_ORDER.indexOf(calculateRarityTier(b)) - RARITY_ORDER.indexOf(calculateRarityTier(a))
         default:
           return 0
       }
@@ -58,6 +74,9 @@ export function MarketplaceView({ marketplaceAgents, onListingsChanged }: Market
     return filtered
   }
 
+  const listedCount = marketplaceAgents?.length ?? 0
+  const visibleAgents = filteredAndSortedMarketplace()
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -65,26 +84,37 @@ export function MarketplaceView({ marketplaceAgents, onListingsChanged }: Market
       transition={{ duration: 0.5 }}
       className="space-y-6 animate-slide-up"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-secondary/20 border border-secondary/40 flex items-center justify-center">
             <Storefront className="text-secondary" weight="duotone" size={22} />
           </div>
           <div>
             <h2 className="text-xl font-bold">Agent Marketplace</h2>
-            <p className="text-sm text-muted-foreground">Acquire autonomous agents — transfer ownership, wisdom carries forward</p>
+            <p className="text-sm text-muted-foreground">Buy an agent and everything it has learned moves with it</p>
           </div>
         </div>
-        <div className="text-sm text-muted-foreground font-mono">
-          {marketplaceAgents?.length ?? 0} listed · BNB, ETH Sepolia &amp; Robinhood
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground font-mono">
+            {listedCount} listed · BNB, ETH Sepolia &amp; Robinhood
+          </span>
+          {onSellAgent && (
+            <Button size="sm" variant="outline" onClick={onSellAgent} className="border-secondary/40 hover:bg-secondary/10">
+              <Tag size={14} className="mr-1.5" weight="duotone" />
+              Sell an agent
+            </Button>
+          )}
         </div>
       </div>
 
-      <MarketplaceFilters
-        filters={marketplaceFilters}
-        onFiltersChange={setMarketplaceFilters}
-        totalAgents={marketplaceAgents?.length ?? 0}
-      />
+      {/* Filters only earn their space once there is something to filter. */}
+      {listedCount > 0 && (
+        <MarketplaceFilters
+          filters={marketplaceFilters}
+          onFiltersChange={setMarketplaceFilters}
+          totalAgents={listedCount}
+        />
+      )}
 
       {/* Escrow is live: the banner says what a buyer can rely on, testnet included. */}
       <motion.div
@@ -106,18 +136,32 @@ export function MarketplaceView({ marketplaceAgents, onListingsChanged }: Market
         </div>
       </motion.div>
 
-      {!marketplaceAgents || marketplaceAgents.length === 0 ? (
+      {listedCount === 0 ? (
         <Card className="glass-card-hover p-12 text-center border-2 border-dashed border-secondary/30">
-          <Storefront size={64} className="mx-auto mb-4 text-muted-foreground animate-float" weight="duotone" />
-          <h3 className="text-base font-bold mb-2">No Agents Available</h3>
+          <Storefront size={56} className="mx-auto mb-4 text-muted-foreground" weight="duotone" />
+          <h3 className="text-base font-bold mb-2">No agents listed yet</h3>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Check back later for agents listed by other users — or sell one of yours from
-            My Agents → Sell (BNB Testnet, ETH Sepolia or Robinhood Chain).
+            Be the first: list one of your agents on BNB Testnet, Ethereum Sepolia or Robinhood Chain.
+            Agents on Mantle Sepolia can't be sold yet.
           </p>
+          {onSellAgent && (
+            <Button onClick={onSellAgent} className="mt-5 self-center w-fit mx-auto bg-gradient-to-r from-primary to-accent hover:opacity-90">
+              <Tag size={16} className="mr-2" weight="duotone" />
+              Sell one of your agents
+            </Button>
+          )}
+        </Card>
+      ) : visibleAgents.length === 0 ? (
+        <Card className="p-10 text-center border border-dashed border-border/40">
+          <h3 className="text-sm font-bold mb-1">No agents match these filters</h3>
+          <p className="text-xs text-muted-foreground mb-4">{listedCount} listed in total.</p>
+          <Button size="sm" variant="outline" className="self-center w-fit mx-auto" onClick={() => setMarketplaceFilters(DEFAULT_FILTERS)}>
+            Clear filters
+          </Button>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAndSortedMarketplace().map((agent) => (
+          {visibleAgents.map((agent) => (
             <MarketplaceAgentCard key={agent.id} agent={agent} onPurchased={onListingsChanged} />
           ))}
         </div>

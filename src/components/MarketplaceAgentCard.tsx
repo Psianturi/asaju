@@ -14,6 +14,7 @@ import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
+import { fmtTokenAmount } from '@/lib/format'
 
 interface MarketplaceAgentCardProps {
   agent: MarketplaceAgent
@@ -70,7 +71,7 @@ function ValueRow({
 }
 
 export function MarketplaceAgentCard({ agent, onPurchased }: MarketplaceAgentCardProps) {
-  const rarityTier = calculateRarityTier(agent as any)
+  const rarityTier = calculateRarityTier(agent)
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)
   const isSpecialRarity = rarityTier !== 'common'
@@ -235,7 +236,7 @@ export function MarketplaceAgentCard({ agent, onPurchased }: MarketplaceAgentCar
               <ValueRow
                 icon={<Fire size={11} className="text-orange-400" weight="fill" />}
                 label="Wallet Balance"
-                value={`${walletBalance.toFixed(3)} ${marketplaceCurrency}`}
+                value={`${walletBalance.toFixed(3)} ${gasSymbol}`}
                 verified
                 highlight
               />
@@ -359,7 +360,7 @@ value={`${(agent.gasSpent ?? 0).toFixed(3)} ${gasSymbol} spent`}
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Listed Price</p>
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-                    {agent.price.toFixed(1)}
+                    {fmtTokenAmount(agent.price)}
                   </span>
                   <span className="text-sm font-semibold text-emerald-400">{marketplaceCurrency}</span>
                 </div>
