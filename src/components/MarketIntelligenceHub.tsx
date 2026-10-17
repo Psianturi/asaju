@@ -289,7 +289,9 @@ export function MarketIntelligenceHub() {
 
   return (
     <Card className="overflow-hidden border-cyan-400/25 bg-gradient-to-b from-slate-950/80 via-slate-950/70 to-slate-950/60 backdrop-blur-md shadow-2xl shadow-black/40">
-      {/* Hero strip — macro pulse */}
+      {/* Hero strip — macro pulse. Hidden when the metrics call returned
+          nothing: a row of three dashes reads as broken, not as "no data". */}
+      {(state.loading || state.metrics) && (
       <div className="border-b border-white/10 bg-white/[0.02]">
         <div className="grid grid-cols-3 divide-x divide-white/5">
           <div className="px-4 py-2">
@@ -321,6 +323,7 @@ export function MarketIntelligenceHub() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Header — copy reframes this panel as the *agent's sensory feed*, not a
           user-facing ticker. The scanning line + microcopy reinforce that. */}
@@ -348,7 +351,7 @@ export function MarketIntelligenceHub() {
           <div className="flex flex-col items-end gap-0.5">
             {state.lastUpdated && (
               <p className="text-[9px] font-mono text-muted-foreground/60 tabular-nums">
-                Updated {fmtTimeAgo(state.lastUpdated)}
+                {empty || down ? 'Checked' : 'Updated'} {fmtTimeAgo(state.lastUpdated)}
               </p>
             )}
           </div>
@@ -404,7 +407,11 @@ export function MarketIntelligenceHub() {
                 )}
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Nothing to show here right now.</p>
+              <p className="text-xs text-muted-foreground">
+                {tabsWithRows === 0
+                  ? 'The market data source returned nothing this time. It refreshes on its own every few minutes.'
+                  : 'Nothing to show here right now.'}
+              </p>
             )}
           </div>
         ) : (
