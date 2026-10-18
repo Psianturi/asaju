@@ -10,6 +10,7 @@ export const FEED_PROBLEM_COPY: Record<FeedProblem, string> = {
   auth: 'The CoinMarketCap API key was rejected.',
   not_configured: 'No CoinMarketCap API key is configured.',
   upstream_error: "CoinMarketCap didn't respond — retrying automatically.",
+  plan_expired: 'The CoinMarketCap API plan has expired — renew it or set a new API key.',
   unreachable: "Couldn't reach the ASAJU backend — retrying automatically.",
 }
 

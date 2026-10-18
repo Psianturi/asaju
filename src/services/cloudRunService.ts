@@ -240,6 +240,7 @@ export type FeedUnavailableReason =
   | 'auth'
   | 'not_configured'
   | 'upstream_error'
+  | 'plan_expired'
 
 export interface FeedAvailability {
   available?: boolean
@@ -1631,7 +1632,7 @@ async function roomRequest<T>(path: string, init: RequestInit = {}, roomKey?: st
     }
     // A bare 404 means the route itself is missing: the backend predates Agent Room.
     if (response.status === 404 && detail === 'Not Found') {
-      detail = 'Agent Room is not live on the server yet. Redeploy the backend to enable it.'
+      detail = 'The server is running an older version without this feature. Redeploy the backend to enable it.'
     }
     throw new CloudRunAPIError(detail, response.status)
   }

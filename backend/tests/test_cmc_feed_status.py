@@ -163,3 +163,12 @@ async def test_transient_cmc_error_is_retried_once(monkeypatch):
     monkeypatch.setattr(mds.asyncio, "sleep", no_sleep)
     assert await mds._cmc_get("/v1/x") == {"data": []}
     assert len(calls) == 2
+
+
+async def test_expired_plan_is_named(db, monkeypatch):
+    async def expired(path, params=None):
+        raise _cmc_http_error(402, 0, "Your API Key's subscription plan has expired.")
+
+    monkeypatch.setattr("services.market_data_service._cmc_get", expired)
+    await get_airdrops(4)
+    assert cmc_feed_status("airdrops")["reason"] == "plan_expired"

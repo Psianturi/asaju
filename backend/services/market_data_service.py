@@ -213,6 +213,9 @@ def _describe_cmc_failure(exc: Exception) -> dict:
         except Exception:
             pass
         reason = _CMC_ERROR_REASONS.get(code)
+        if reason is None and (exc.response.status_code == 402 or "expired" in message.lower()):
+            # The account's paid plan lapsed: nothing to retry, it needs renewing.
+            reason = "plan_expired"
         if reason is None:
             reason = "rate_limited" if exc.response.status_code == 429 else "upstream_error"
         return {"reason": reason, "detail": (message or f"HTTP {exc.response.status_code}")[:200]}
