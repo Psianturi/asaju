@@ -228,6 +228,12 @@ async def load_agent_memories(db, agent_id: str) -> list[dict]:
     return out
 
 
+_LANGUAGE_RULE = (
+    "Write in the language the owner used for the topic and their messages (for example, Indonesian "
+    "if they wrote Indonesian). Use only that language and its usual script — no words or characters "
+    "from any other language."
+)
+
 _REF_IDS = re.compile(r"\s*[\(\[]\s*m\d+(?:\s*[,/;&]\s*(?:and\s+)?m\d+)*\s*[\)\]]")
 
 
@@ -297,6 +303,7 @@ def build_turn_prompt(room: dict, speaker: dict, memories_block: str, turn_index
         "do not repeat it. If the owner asked something, answer it. Only claim knowledge your "
         "memories support — if you have nothing relevant, say so honestly. List the memory ids you "
         "used in \"cited\" only; never write ids like m1 in the message itself.\n"
+        f"{_LANGUAGE_RULE}\n"
         'Reply with JSON only: {"message": "...", "cited": ["m1"], "flagged": false}'
     )
 
@@ -314,6 +321,7 @@ def build_synthesis_prompt(room: dict, cited_by_agent: dict[str, list[dict]]) ->
         f"{_GUARD}\n\n"
         f"<transcript>\n{_transcript_block(room, limit=30)}\n</transcript>\n\n"
         f"Lessons cited during the room:\n{chr(10).join(lessons) or '(none)'}\n\n"
+        f"{_LANGUAGE_RULE}\n"
         "Summarise for the owner. Then suggest up to 3 lesson transfers: a lesson one agent cited "
         "that another participant clearly lacks and would benefit from. Use only refs listed above.\n"
         'Reply with JSON only: {"summary": "...", "key_insights": ["..."], "disagreements": ["..."], '
@@ -322,15 +330,85 @@ def build_synthesis_prompt(room: dict, cited_by_agent: dict[str, list[dict]]) ->
     )
 
 
-def _parse_json(text: str) -> dict:
-    text = (text or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text[text.find("{"):] if "{" in text else text
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
+def strip_thinking(text: str) -> str:
+    """Drop a model's reasoning trace. Tags vary by model (<think>, <mm:think>),
+    and a trace can arrive with only its closing tag, so everything before the
+    last closing tag goes too."""
+    text = _THINK_BLOCK.sub("", text or "")
+    last_close = None
+    for m in _THINK_CLOSE.finditer(text):
+        last_close = m
+    if last_close:
+        text = text[last_close.end():]
+    return text.strip()
+
+
+def _parse_json(text: str, want: str | None = None) -> dict:
+    """The model's JSON answer. Models sometimes emit a draft object, a
+    reasoning trace, then the real object — so decode every object in the
+    text and keep the LAST one (that has `want`, when given)."""
+    text = strip_thinking(text)
+    decoder = json.JSONDecoder()
+    found: list[dict] = []
+    i = text.find("{")
+    while i != -1:
+        try:
+            obj, end = decoder.raw_decode(text, i)
+        except ValueError:
+            i = text.find("{", i + 1)
+            continue
+        if isinstance(obj, dict):
+            found.append(obj)
+        i = text.find("{", end)
+    if want:
+        found = [o for o in found if want in o]
+    if not found:
         raise ValueError("no JSON object in model output")
-    return json.loads(text[start:end + 1])
+    return found[-1]
+
+
+# Scripts a reply should not switch into unless the room itself uses them.
+_SCRIPTS = {
+    "cjk": re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]"),
+    "hangul": re.compile(r"[\u1100-\u11ff\uac00-\ud7af]"),
+    "cyrillic": re.compile(r"[\u0400-\u04ff]"),
+    "arabic": re.compile(r"[\u0600-\u06ff]"),
+    "thai": re.compile(r"[\u0e00-\u0e7f]"),
+}
+
+
+def foreign_scripts(text: str, room: dict) -> list[str]:
+    """Writing systems in `text` that nothing the owner wrote uses — the sign
+    of a model drifting mid-sentence into another language."""
+    owner_text = " ".join([room.get("topic", "")] + [m.get("text", "") for m in room.get("messages", [])
+                                                      if m.get("speaker", {}).get("type") == "owner"])
+    return [name for name, rx in _SCRIPTS.items()
+            if len(rx.findall(text)) >= 2 and not rx.search(owner_text)]
+
+
+def _drop_scripts(text: str, names: list[str]) -> str:
+    for n in names:
+        text = _SCRIPTS[n].sub("", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+def _read_turn(raw: str) -> tuple[str, list[str], bool, bool]:
+    """(message, cited ids, flagged, parsed_ok) from a turn reply."""
+    try:
+        parsed = _parse_json(raw, want="message")
+        return (str(parsed.get("message") or "").strip(),
+                [c for c in parsed.get("cited") or [] if isinstance(c, str)],
+                bool(parsed.get("flagged")), True)
+    except Exception:
+        # Never show raw JSON or a reasoning trace as speech.
+        body = strip_thinking(raw)
+        m = re.search(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"', body)
+        if m:
+            try:
+                return json.loads(f'"{m.group(1)}"').strip(), [], False, False
+            except ValueError:
+                pass
+        return ("" if body.lstrip().startswith("{") else body), [], False, False
 
 
 # MiniMax M3.1 always thinks, and thinking tokens count against max_tokens, so
@@ -341,11 +419,12 @@ _MINIMAX_THINKING_ALLOWANCE = 1536
 # paying a failed round-trip on every turn.
 _MINIMAX_COOLDOWN_SECONDS = 10 * 60
 _minimax_state = {"paused_until": 0.0, "send_effort": True}
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_BLOCK = re.compile(r"<(?:[\w-]+:)?think>.*?</(?:[\w-]+:)?think>", re.DOTALL)
+_THINK_CLOSE = re.compile(r"</(?:[\w-]+:)?think>")
 
 
 async def _call_minimax(prompt: str, *, api_key: str, max_tokens: int, context: str,
-                        temperature: float = 0.9, image: dict | None = None) -> str:
+                        temperature: float = 0.7, image: dict | None = None) -> str:
     import httpx
 
     from core.secrets import get_minimax_effort, get_minimax_model
@@ -378,7 +457,7 @@ async def _call_minimax(prompt: str, *, api_key: str, max_tokens: int, context: 
     if base.get("status_code"):
         raise RuntimeError(f"MiniMax error {base.get('status_code')}: {base.get('status_msg')}")
     text = (data["choices"][0]["message"].get("content") or "").strip()
-    return _THINK_BLOCK.sub("", text).strip()
+    return strip_thinking(text)
 
 
 async def _call_gemini(prompt: str, *, max_tokens: int, context: str, temperature: float = 0.8,
@@ -403,7 +482,8 @@ async def _call_gemini(prompt: str, *, max_tokens: int, context: str, temperatur
 
 
 async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400,
-                        temperature: float | None = None, image: dict | None = None) -> str:
+                        temperature: float | None = None, image: dict | None = None,
+                        default_model_only: bool = False) -> str:
     """One bounded LLM call. Separate function so tests can replace it.
 
     Rooms prefer MiniMax when MINIMAX_API_KEY is set (it reads more naturally
@@ -413,7 +493,7 @@ async def call_room_llm(prompt: str, *, context: str, max_tokens: int = 400,
     from core.secrets import get_minimax_api_key
 
     key = get_minimax_api_key()
-    if key and time.time() >= _minimax_state["paused_until"]:
+    if key and not default_model_only and time.time() >= _minimax_state["paused_until"]:
         try:
             text = await _call_minimax(prompt, api_key=key, max_tokens=max_tokens, context=context, image=image,
                                        **({"temperature": temperature} if temperature is not None else {}))
@@ -493,7 +573,7 @@ async def check_claims(db, room: dict, claims: list[str], llm) -> list[dict]:
     try:
         raw = await llm(build_check_prompt(claims, lessons), context="room claim check",
                         max_tokens=500, temperature=0.1)
-        parsed = _parse_json(raw)
+        parsed = _parse_json(raw, want="checks")
     except Exception as exc:
         logger.warning("room %s: claim check failed: %s", room.get("room_id"), exc.__class__.__name__)
         return verdicts
@@ -669,13 +749,21 @@ async def take_turn(db, room_id: str, llm=None) -> dict:
                    "and the security rules above still apply.")
         extra["image"] = {"mime": sketch["mime"], "data": sketch["data"]}
     raw = await llm(prompt, context=f"room turn ({speaker['name']})", **extra)
-    try:
-        parsed = _parse_json(raw)
-        text = str(parsed.get("message") or "").strip()
-        cited_ids = [c for c in parsed.get("cited") or [] if isinstance(c, str)]
-        flagged = bool(parsed.get("flagged"))
-    except Exception:
-        text, cited_ids, flagged = (raw or "").strip(), [], False
+    text, cited_ids, flagged, ok = _read_turn(raw)
+    drift = foreign_scripts(text, room)
+    if not ok or drift or not text:
+        # One retry on the default model when the reply is unreadable or
+        # switches language mid-sentence; a garbled turn costs the owner more
+        # than one extra call.
+        logger.warning("room %s: turn reply unusable (parsed=%s, drift=%s), retrying", room_id, ok, drift)
+        raw = await llm(prompt + "\n\nReply with exactly one JSON object, in the owner's language only.",
+                        context=f"room turn retry ({speaker['name']})", default_model_only=True, **extra)
+        t2 = _read_turn(raw)
+        if t2[0] and (t2[3] or not ok):
+            text, cited_ids, flagged, ok = t2
+        drift = foreign_scripts(text, room)
+        if drift:
+            text = _drop_scripts(text, drift)
     # The ids are for the citation list, not for reading: drop "(m2, m3)".
     text = _REF_IDS.sub("", text).strip()
     if not text:
@@ -786,9 +874,10 @@ async def conclude_room(db, room_id: str, llm=None) -> dict:
     cited = _cited_by_agent(room)
     raw = await llm(build_synthesis_prompt(room, cited), context="room synthesis", max_tokens=900)
     try:
-        parsed = _parse_json(raw)
+        parsed = _parse_json(raw, want="summary")
     except Exception:
-        parsed = {"summary": (raw or "").strip()[:1500]}
+        body = strip_thinking(raw)
+        parsed = {"summary": "" if body.lstrip().startswith("{") else body[:1500]}
 
     by_name = {p["name"].lower(): p for p in room["participants"]}
     transfers = []

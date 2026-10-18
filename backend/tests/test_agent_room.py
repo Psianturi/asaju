@@ -33,8 +33,9 @@ class ScriptedLLM:
         self.replies = list(replies)
         self.prompts: list[str] = []
 
-    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None):
+    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None, **kw):
         self.prompts.append(prompt)
+        self.kwargs = getattr(self, "kwargs", []) + [kw]
         reply = self.replies.pop(0) if self.replies else {"message": "ok", "cited": []}
         return reply if isinstance(reply, str) else json.dumps(reply)
 
@@ -149,8 +150,9 @@ async def test_memory_text_cannot_close_its_wrapper(db, owner):
 
 async def test_plain_text_reply_still_becomes_a_message(db, owner):
     room, _ = await _open(db, owner)
-    out = await agent_room.take_turn(db, room["room_id"], llm=ScriptedLLM("not json at all"))
-    assert out["message"]["text"] == "not json at all"
+    # Plain prose is retried once for a proper answer; if it stays prose, the prose is shown.
+    out = await agent_room.take_turn(db, room["room_id"], llm=ScriptedLLM("not json at all", "still plain"))
+    assert out["message"]["text"] == "still plain"
     assert out["message"]["citations"] == []
 
 
@@ -486,7 +488,7 @@ class ImageLLM(ScriptedLLM):
         super().__init__(*replies)
         self.images = []
 
-    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None, image=None):
+    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None, image=None, **kw):
         self.images.append(image)
         return await super().__call__(prompt, context=context, max_tokens=max_tokens, temperature=temperature)
 
@@ -545,3 +547,47 @@ async def test_sketch_http_needs_room_key(http, owner):
     got = (await http.get(f"/api/v1/rooms/{rid}/sketch", headers=auth)).json()
     assert got["image"].startswith("data:image/png;base64,") and got["note"] == "n"
     assert (await http.get(f"/api/v1/rooms/{rid}/sketch")).status_code == 403
+
+
+
+# ── Output quality: traces, stray JSON, language drift ───────────────────────
+
+async def test_thinking_trace_and_draft_json_never_reach_the_owner(db, owner):
+    room, _ = await _open(db, owner)
+    raw = ('{"message":"draft"}\u5b66\u5802 notes</mm:think>'
+           '{"message":"Funding is stretched; watch flows.","cited":["m1"]}')
+    msg = (await agent_room.take_turn(db, room["room_id"], llm=ScriptedLLM(raw)))["message"]
+    assert msg["text"] == "Funding is stretched; watch flows."
+    assert [c["event_id"] for c in msg["citations"]] == ["ev-atlas-1"]
+
+
+async def test_language_drift_is_retried_on_the_default_model(db, owner):
+    room, _ = await _open(db, owner)
+    llm = ScriptedLLM({"message": "Posisi\u9700\u8981\u5bf9\u4e24 NEAR terlalu cepat", "cited": []},
+                      {"message": "Posisi NEAR terlalu cepat dianggap narasi utama.", "cited": ["m1"]})
+    msg = (await agent_room.take_turn(db, room["room_id"], llm=llm))["message"]
+    assert msg["text"] == "Posisi NEAR terlalu cepat dianggap narasi utama."
+    assert llm.kwargs[1].get("default_model_only") is True
+    assert "language" in llm.prompts[0].lower()
+
+
+async def test_drift_that_survives_the_retry_is_cut_out(db, owner):
+    room, _ = await _open(db, owner)
+    bad = {"message": "Token\u4f60\u8fd8 AI berisiko", "cited": []}
+    msg = (await agent_room.take_turn(db, room["room_id"], llm=ScriptedLLM(bad, bad)))["message"]
+    assert msg["text"] == "Token AI berisiko"
+
+
+async def test_owner_writing_in_that_script_is_not_drift(db, owner):
+    room, _ = await _open(db, owner)
+    await agent_room.owner_says(db, room["room_id"], "\u8bf7\u7528\u4e2d\u6587\u56de\u7b54")
+    llm = ScriptedLLM({"message": "\u597d\u7684\uff0c\u8d44\u91d1\u8d39\u7387\u504f\u9ad8", "cited": []})
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    assert len(llm.prompts) == 1
+
+
+async def test_unparseable_json_is_not_shown_raw(db, owner):
+    room, _ = await _open(db, owner)
+    llm = ScriptedLLM('{"message": "half an answer', '{"message": "half again')
+    msg = (await agent_room.take_turn(db, room["room_id"], llm=llm))["message"]
+    assert not msg["text"].startswith("{")
