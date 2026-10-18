@@ -298,6 +298,7 @@ class _Resp:
     def __init__(self, status, body):
         self.status_code = status
         self._body = body
+        self.text = json.dumps(body)
 
     def json(self):
         return self._body
@@ -343,7 +344,7 @@ def llm_routes(monkeypatch):
     monkeypatch.setattr(agent_room, "_minimax_state", {"paused_until": 0.0, "send_effort": True})
     gemini_calls = []
 
-    async def fake_gemini(prompt, *, max_tokens, context, temperature=0.8):
+    async def fake_gemini(prompt, *, max_tokens, context, temperature=0.8, image=None):
         gemini_calls.append(prompt)
         return '{"message": "from gemini"}'
 
@@ -371,7 +372,8 @@ async def test_quota_error_falls_back_and_pauses_minimax(llm_routes):
 
 
 async def test_rejected_effort_param_is_dropped_once(llm_routes):
-    _FakeHttp.replies = [_Resp(400, {}), _ok('{"message": "ok"}'), _ok('{"message": "ok2"}')]
+    _FakeHttp.replies = [_Resp(400, {"error": "unknown parameter: reasoning_effort"}),
+                         _ok('{"message": "ok"}'), _ok('{"message": "ok2"}')]
     assert await agent_room.call_room_llm("hi", context="t") == '{"message": "ok"}'
     assert await agent_room.call_room_llm("hi", context="t") == '{"message": "ok2"}'
     assert "reasoning_effort" not in _FakeHttp.sent[1] and "reasoning_effort" not in _FakeHttp.sent[2]
@@ -435,3 +437,111 @@ async def test_room_cost_includes_the_check(db, owner):
     ch = await agent_room.issue_room_challenge(db, owner=owner.address, agent_ids=["Atlas", "Brisa"],
                                                topic="a real topic", mode="exchange", max_turns=4)
     assert ch["max_llm_calls"] == 6
+
+
+# ── Readability and configurable caps ────────────────────────────────────────
+
+async def test_ref_ids_are_kept_out_of_the_message(db, owner):
+    room, _ = await _open(db, owner)
+    llm = ScriptedLLM({"message": "Liquidity can punish narratives faster (m1, m2). See [m1] too.", "cited": ["m1"]})
+    msg = (await agent_room.take_turn(db, room["room_id"], llm=llm))["message"]
+    assert msg["text"] == "Liquidity can punish narratives faster. See too."
+    assert [c["event_id"] for c in msg["citations"]] == ["ev-atlas-1"]
+
+
+async def test_escaped_video_titles_are_unescaped(db, owner):
+    db.collection("agent_events")._docs["ev-atlas-1"]["event_title"] = "Analysis &amp; TA Scanner"
+    memories = await agent_room.load_agent_memories(db, "Atlas")
+    assert any(m["title"] == "Analysis & TA Scanner" for m in memories)
+    # Still escaped (once) when quoted to the model.
+    block, _ = agent_room.format_memories(memories)
+    assert "Analysis &amp; TA Scanner" in block and "&amp;amp;" not in block
+
+
+async def test_caps_are_tunable_but_clamped(monkeypatch):
+    monkeypatch.setenv("ROOM_ROOMS_PER_DAY", "12")
+    assert agent_room._env_int("ROOM_ROOMS_PER_DAY", 8, 1, 50) == 12
+    monkeypatch.setenv("ROOM_ROOMS_PER_DAY", "100000")
+    assert agent_room._env_int("ROOM_ROOMS_PER_DAY", 8, 1, 50) == 50
+    monkeypatch.setenv("ROOM_ROOMS_PER_DAY", "lots")
+    assert agent_room._env_int("ROOM_ROOMS_PER_DAY", 8, 1, 50) == 8
+
+
+
+async def test_other_400_does_not_drop_effort_and_falls_back(llm_routes):
+    _FakeHttp.replies = [_Resp(400, {"error": "image too large"})]
+    assert "from gemini" in await agent_room.call_room_llm("hi", context="t")
+    assert agent_room._minimax_state["send_effort"] is True
+
+
+# ── Whiteboard sketches ──────────────────────────────────────────────────────
+
+import base64 as _b64
+
+_PNG = "data:image/png;base64," + _b64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 64).decode()
+
+
+class ImageLLM(ScriptedLLM):
+    def __init__(self, *replies):
+        super().__init__(*replies)
+        self.images = []
+
+    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None, image=None):
+        self.images.append(image)
+        return await super().__call__(prompt, context=context, max_tokens=max_tokens, temperature=temperature)
+
+
+async def test_shared_sketch_reaches_the_next_turns(db, owner):
+    room, _ = await _open(db, owner)
+    out = await agent_room.share_sketch(db, room["room_id"], _PNG, "My support zones")
+    assert out["message"]["kind"] == "sketch" and out["message"]["text"] == "My support zones"
+    llm = ImageLLM()
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    assert all(img and img["mime"] == "image/png" for img in llm.images)
+    assert "My support zones" in llm.prompts[0] and "whiteboard" in llm.prompts[0]
+    stored = await agent_room.get_room(db, room["room_id"])
+    assert stored["owner_messages"] == 1
+
+
+async def test_turns_without_a_sketch_send_no_image(db, owner):
+    room, _ = await _open(db, owner)
+    llm = ImageLLM()
+    await agent_room.take_turn(db, room["room_id"], llm=llm)
+    assert llm.images == [None]
+
+
+@pytest.mark.parametrize("bad", [
+    "data:image/svg+xml;base64,PHN2Zz4=",                                   # not png/jpeg
+    "data:image/png;base64," + _b64.b64encode(b"GIF89a....").decode(),      # label lies about bytes
+    "data:image/png;base64,@@@",                                            # not base64
+    "data:image/png;base64," + _b64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 460_000).decode(),  # too big
+])
+async def test_bad_sketches_are_refused(db, owner, bad):
+    room, _ = await _open(db, owner)
+    with pytest.raises(agent_room.RoomError):
+        await agent_room.share_sketch(db, room["room_id"], bad)
+
+
+async def test_sketch_counts_toward_owner_cap(db, owner):
+    room, _ = await _open(db, owner)
+    for i in range(agent_room.MAX_OWNER_MESSAGES):
+        await agent_room.owner_says(db, room["room_id"], f"q{i}")
+    with pytest.raises(agent_room.RoomLimitReached):
+        await agent_room.share_sketch(db, room["room_id"], _PNG)
+
+
+async def test_sketch_http_needs_room_key(http, owner):
+    r = await http.post("/api/v1/rooms/challenge", json={
+        "owner": owner.address, "agent_ids": ["Atlas", "Brisa"], "topic": "Sketch test topic", "max_turns": 3,
+    })
+    ch = r.json()
+    sig = Account.sign_message(encode_defunct(text=ch["message"]), owner.key).signature.hex()
+    room = (await http.post("/api/v1/rooms", json={"nonce": ch["nonce"], "signature": sig})).json()
+    rid, key = room["room_id"], room["room_key"]
+    assert (await http.post(f"/api/v1/rooms/{rid}/sketch", json={"image": _PNG})).status_code == 403
+    auth = {"Authorization": f"Bearer {key}"}
+    assert (await http.post(f"/api/v1/rooms/{rid}/sketch", headers=auth, json={"image": _PNG, "note": "n"})).status_code == 200
+    got = (await http.get(f"/api/v1/rooms/{rid}/sketch", headers=auth)).json()
+    assert got["image"].startswith("data:image/png;base64,") and got["note"] == "n"
+    assert (await http.get(f"/api/v1/rooms/{rid}/sketch")).status_code == 403

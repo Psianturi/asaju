@@ -15,7 +15,35 @@ export const ROOM_MODES: Record<RoomMode, { label: string; blurb: string }> = {
   },
 }
 
-export const ROOM_LIMITS = { minAgents: 2, maxAgents: 4, minTurns: 2, maxTurns: 8, defaultTurns: 6, maxOwnerMessages: 5 }
+/** Defaults until the server's /rooms/config answers; the server is the authority. */
+export const ROOM_LIMITS = { minAgents: 2, maxAgents: 4, minTurns: 2, maxTurns: 10, defaultTurns: 6, maxOwnerMessages: 8, roomsPerDay: 8 }
+
+export type RoomLimits = typeof ROOM_LIMITS
+
+export function limitsFromConfig(cfg: Partial<{
+  min_participants: number; max_participants: number; default_turns: number
+  max_turns: number; max_owner_messages: number; rooms_per_day: number
+}>): RoomLimits {
+  const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : d)
+  return {
+    minAgents: n(cfg.min_participants, ROOM_LIMITS.minAgents),
+    maxAgents: n(cfg.max_participants, ROOM_LIMITS.maxAgents),
+    minTurns: ROOM_LIMITS.minTurns,
+    maxTurns: n(cfg.max_turns, ROOM_LIMITS.maxTurns),
+    defaultTurns: n(cfg.default_turns, ROOM_LIMITS.defaultTurns),
+    maxOwnerMessages: n(cfg.max_owner_messages, ROOM_LIMITS.maxOwnerMessages),
+    roomsPerDay: n(cfg.rooms_per_day, ROOM_LIMITS.roomsPerDay),
+  }
+}
+
+/** Video titles can arrive HTML-escaped from YouTube ("&amp;"); rooms saved
+ *  before the server unescaped them still carry the entities. */
+export function decodeEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+}
 
 /**
  * Seats around the round table, as percentages of the stage box. Agents sit

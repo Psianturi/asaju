@@ -39,6 +39,12 @@ class SayRequest(BaseModel):
     text: str = Field(..., max_length=4000)
 
 
+class SketchRequest(BaseModel):
+    # A data URL; the service checks type, bytes and size.
+    image: str = Field(..., max_length=700_000)
+    note: str = Field("", max_length=2000)
+
+
 class TransferRequest(BaseModel):
     event_id: str = Field(..., max_length=200)
     to_agent_id: str = Field(..., max_length=200)
@@ -160,3 +166,26 @@ async def post_transfer(room_id: str, body: TransferRequest, authorization: str 
         return await agent_room.transfer_lesson(db, room_id, body.event_id, body.to_agent_id, owner_of=_owner_of)
     except (RoomError, RoomForbidden, RoomLimitReached) as exc:
         raise _http(exc)
+
+
+@router.post("/{room_id}/sketch")
+async def post_sketch(room_id: str, body: SketchRequest, authorization: str | None = Header(None)) -> dict:
+    db = get_db()
+    try:
+        await agent_room.require_room(db, room_id, _room_key(authorization))
+        return await agent_room.share_sketch(db, room_id, body.image, body.note)
+    except (RoomError, RoomForbidden, RoomLimitReached) as exc:
+        raise _http(exc)
+
+
+@router.get("/{room_id}/sketch")
+async def get_sketch(room_id: str, authorization: str | None = Header(None)) -> dict:
+    db = get_db()
+    try:
+        await agent_room.require_room(db, room_id, _room_key(authorization))
+    except RoomForbidden as exc:
+        raise _http(exc)
+    sketch = await agent_room.get_sketch(db, room_id)
+    if not sketch:
+        return {"image": None}
+    return {"image": f"data:{sketch['mime']};base64,{sketch['data']}", "note": sketch.get("note") or "", "at": sketch.get("at")}
