@@ -15,7 +15,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { cloudRunService, Airdrop, GlobalMetrics, NewListing, TrendingCoin } from '@/services/cloudRunService'
-import { FEED_PROBLEM_COPY as PROBLEM_COPY, readFeed, type FeedProblem as TabProblem } from '@/lib/feedStatus'
+import { FEED_PROBLEM_COPY as PROBLEM_COPY, readFeed, type FeedProblem as TabProblem, type FeedSource } from '@/lib/feedStatus'
 import { fmtCompactUsd, fmtPct, fmtPrice, fmtPrize, fmtTimeAgo, isFiniteNum } from '@/lib/format'
 
 const REFRESH_MS = 5 * 60 * 1000
@@ -33,6 +33,8 @@ interface HubState {
   loading: boolean
   /** Tabs whose source failed, with the reason. A tab that is simply empty is not here. */
   problems: Partial<Record<TabKey, TabProblem>>
+  /** Tabs showing stand-in rows while CoinMarketCap is failing. */
+  sources: Partial<Record<TabKey, FeedSource>>
   lastUpdated: number | null
 }
 
@@ -202,6 +204,7 @@ export function MarketIntelligenceHub() {
     metrics: null,
     loading: true,
     problems: {},
+    sources: {},
     lastUpdated: null,
   })
   const [tab, setTab] = useState<TabKey>('hot')
@@ -234,10 +237,15 @@ export function MarketIntelligenceHub() {
       if (losers.problem) problems.losers = losers.problem
       if (listings.problem) problems.listings = listings.problem
       if (airdrops.problem) problems.airdrops = airdrops.problem
+      const sources: HubState['sources'] = {}
+      for (const [k, f] of [['hot', hot], ['gainers', gainers], ['losers', losers], ['listings', listings], ['airdrops', airdrops]] as const) {
+        if (f.source) sources[k] = f.source
+      }
       setState(prev => ({
         ...prev,
         loading: false,
         problems,
+        sources,
         hot: hot.rows,
         gainers: gainers.rows,
         losers: losers.rows,
@@ -271,8 +279,13 @@ export function MarketIntelligenceHub() {
   // had a row to show, claiming LIVE would be a lie — say so instead.
   const empty = !state.loading && tabsWithRows === 0 && failedTabs === 0
   const down = !state.loading && tabsWithRows === 0 && failedTabs > 0
-  const partial = !state.loading && !down && failedTabs > 0
+  // Stand-in rows count as partial: the data is real, but not from the usual source.
+  const partial = !state.loading && !down && (failedTabs > 0 || Object.keys(state.sources).length > 0)
   const tabProblem = state.problems[tab]
+  // The current tab's stand-in, else any tab's, else the metrics strip's.
+  const standIn: FeedSource | undefined = state.sources[tab]
+    ?? (Object.values(state.sources)[0] as FeedSource | undefined)
+    ?? (state.metrics?.source === 'coingecko' ? 'coingecko' : undefined)
 
   // Land on a tab that has something to show instead of an empty first tab.
   useEffect(() => {
@@ -448,8 +461,12 @@ export function MarketIntelligenceHub() {
       </div>
 
       <p className="text-[9px] text-muted-foreground/60 px-4 py-2 border-t border-white/5 flex items-center gap-1.5">
-        <span className="w-1 h-1 rounded-full bg-cyan-400" />
-        CoinMarketCap · refreshes every 5 min
+        <span className={`w-1 h-1 rounded-full ${standIn ? 'bg-amber-400' : 'bg-cyan-400'}`} />
+        {standIn === 'coingecko'
+          ? 'CoinMarketCap is not answering — CoinGecko is standing in · refreshes every 5 min'
+          : standIn === 'cache'
+            ? "CoinMarketCap is not answering — showing its last good data · refreshes every 5 min"
+            : 'CoinMarketCap · refreshes every 5 min'}
       </p>
     </Card>
   )

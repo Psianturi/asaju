@@ -26,4 +26,10 @@ describe('readFeed', () => {
   it('marks a rejected request as unreachable', () => {
     expect(readFeed({ status: 'rejected', reason: new Error('timeout') })).toEqual({ rows: [], problem: 'unreachable' })
   })
+
+  it('reports a stand-in source only when it supplied rows', () => {
+    expect(readFeed(ok({ results: [1], available: true, source: 'coingecko' }))).toEqual({ rows: [1], source: 'coingecko' })
+    expect(readFeed(ok({ results: [1], available: true, source: 'coinmarketcap' }))).toEqual({ rows: [1] })
+    expect(readFeed(ok({ results: [], available: false, reason: 'upstream_error', source: null }))).toEqual({ rows: [], problem: 'upstream_error' })
+  })
 })

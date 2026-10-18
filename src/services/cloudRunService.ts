@@ -244,6 +244,10 @@ export type FeedUnavailableReason =
 export interface FeedAvailability {
   available?: boolean
   reason?: FeedUnavailableReason | null
+  /** Raw cause from the provider (e.g. "HTTP 503", "ReadTimeout"), for diagnosis. */
+  detail?: string | null
+  /** Where the rows came from: CMC, its last good answer, or the CoinGecko stand-in. */
+  source?: 'coinmarketcap' | 'cache' | 'coingecko' | null
 }
 
 export interface TrendingCoin {
@@ -307,6 +311,7 @@ export interface GlobalMetrics {
   defi_volume_24h?: number
   stablecoin_volume_24h?: number
   last_updated?: string
+  source?: 'coingecko'
 }
 
 export interface CmcAiSummary {
@@ -1547,6 +1552,8 @@ export interface RoomCitation {
 
 export interface RoomMessage {
   id: string
+  /** "sketch" = the owner put the whiteboard on the table. */
+  kind?: 'sketch'
   speaker: { type: 'agent' | 'owner'; agent_id?: string; name: string }
   text: string
   citations: RoomCitation[]
@@ -1593,6 +1600,8 @@ export interface AgentRoom {
   messages: RoomMessage[]
   synthesis: RoomSynthesis | null
   transfers_done: string[]
+  /** When the owner last shared a whiteboard sketch; agents see it from then on. */
+  sketch_at?: number
   created_at: number
 }
 
@@ -1629,7 +1638,19 @@ async function roomRequest<T>(path: string, init: RequestInit = {}, roomKey?: st
   return response.json()
 }
 
+export interface RoomConfig {
+  min_participants: number
+  max_participants: number
+  default_turns: number
+  max_turns: number
+  max_owner_messages: number
+  rooms_per_day: number
+}
+
 export const agentRoomService = {
+  config() {
+    return roomRequest<RoomConfig>('/config', { method: 'GET' })
+  },
   requestChallenge(params: { owner: string; agentIds: string[]; topic: string; mode: RoomMode; maxTurns: number }) {
     return roomRequest<RoomChallenge>('/challenge', {
       method: 'POST',
@@ -1657,6 +1678,14 @@ export const agentRoomService = {
   },
   conclude(roomId: string, roomKey: string) {
     return roomRequest<{ synthesis: RoomSynthesis }>(`/${encodeURIComponent(roomId)}/conclude`, { method: 'POST' }, roomKey)
+  },
+  shareSketch(roomId: string, roomKey: string, image: string, note: string) {
+    return roomRequest<{ message: RoomMessage }>(`/${encodeURIComponent(roomId)}/sketch`, {
+      method: 'POST', body: JSON.stringify({ image, note }),
+    }, roomKey)
+  },
+  getSketch(roomId: string, roomKey: string) {
+    return roomRequest<{ image: string | null; note?: string }>(`/${encodeURIComponent(roomId)}/sketch`, { method: 'GET' }, roomKey)
   },
   transfer(roomId: string, roomKey: string, eventId: string, toAgentId: string) {
     return roomRequest<{ status: string; lesson_id?: string }>(`/${encodeURIComponent(roomId)}/transfer`, {

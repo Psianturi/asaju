@@ -33,14 +33,28 @@ def chain_owner_matches_firestore(monkeypatch):
 
 
 @pytest_asyncio.fixture(autouse=True)
+def no_coingecko_network(monkeypatch):
+    """Market feeds fall back to CoinGecko when CMC fails. Tests have no
+    network, so the fallback fails fast unless a test provides its own."""
+    from services import market_data_service
+
+    async def _offline(*args, **kwargs):
+        raise RuntimeError("no network in tests")
+
+    monkeypatch.setattr(market_data_service, "_coingecko_get", _offline)
+
+
+@pytest_asyncio.fixture(autouse=True)
 def reset_cmc_feed_failures():
     """CMC feed failures are remembered per process (retry window), so one test's
     simulated outage must not leak into the next test's happy path."""
     from services import market_data_service
 
     market_data_service._FEED_FAILURES.clear()
+    market_data_service._FEED_SERVED.clear()
     yield
     market_data_service._FEED_FAILURES.clear()
+    market_data_service._FEED_SERVED.clear()
 
 
 def make_wallet() -> str:

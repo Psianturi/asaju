@@ -11,6 +11,7 @@ in this module is deduplicated through Firestore so N agents checking the same
 data within the TTL window cost one upstream call, not N.
 """
 
+import asyncio
 import logging
 import time
 
@@ -149,9 +150,21 @@ async def _cmc_get(path: str, params: dict | None = None) -> dict:
 
     headers = {"X-CMC_PRO_API_KEY": api_key}
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(f"{_CMC_BASE}{path}", params=params, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+        for attempt in (1, 2):
+            try:
+                resp = await client.get(f"{_CMC_BASE}{path}", params=params, headers=headers)
+                if resp.status_code >= 500 and attempt == 1:
+                    raise httpx.HTTPStatusError("CMC 5xx", request=resp.request, response=resp)
+                resp.raise_for_status()
+                return resp.json()
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                # One quick retry for a dropped connection or a CMC 5xx; a 4xx
+                # (plan, key, rate limit) will not change on retry.
+                transient = isinstance(exc, httpx.TransportError) or exc.response.status_code >= 500
+                if attempt == 2 or not transient:
+                    raise
+                await asyncio.sleep(0.8)
+    raise RuntimeError("unreachable")
 
 
 # ── Feed availability ─────────────────────────────────────────────────────────
@@ -165,6 +178,12 @@ async def _cmc_get(path: str, params: dict | None = None) -> dict:
 
 _FEED_RETRY_SECONDS = 300
 _FEED_FAILURES: dict[str, dict] = {}
+# Where a failed feed's rows came from instead: "cache" (last good CMC answer)
+# or "coingecko" (a comparable feed from the other provider).
+_FEED_SERVED: dict[str, str] = {}
+# A last good answer older than this is not shown; an empty state is more
+# honest than day-old movers.
+_STALE_MAX_SECONDS = 6 * 3600
 
 # CMC status.error_code → short reason the frontend maps to plain language.
 _CMC_ERROR_REASONS = {
@@ -201,16 +220,48 @@ def _describe_cmc_failure(exc: Exception) -> dict:
 
 
 def cmc_feed_status(feed: str) -> dict:
-    """{"available": bool, "reason": str | None} for the last attempt at `feed`
-    on this instance. Routers merge it into their response."""
+    """Availability of the last attempt at `feed` on this instance, merged into
+    the router's response:
+
+      {"available", "reason", "detail", "source"}
+
+    `source` says where the rows came from: "coinmarketcap", "cache" (the
+    last good CMC answer while CMC is failing), "coingecko" (fallback feed),
+    or None when nothing could be shown — then `reason`/`detail` say why.
+    """
     failure = _FEED_FAILURES.get(feed)
     if not failure:
-        return {"available": True, "reason": None}
-    return {"available": False, "reason": failure["reason"]}
+        return {"available": True, "reason": None, "detail": None, "source": "coinmarketcap"}
+    served = _FEED_SERVED.get(feed)
+    if served:
+        return {"available": True, "reason": failure["reason"], "detail": failure.get("detail"), "source": served}
+    return {"available": False, "reason": failure["reason"], "detail": failure.get("detail"), "source": None}
 
 
-async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: dict | None = None) -> list:
-    """Cached CMC list endpoint that records why it failed instead of caching []."""
+async def _read_stale(key: str, max_age: float) -> object | None:
+    """The cached payload for `key` regardless of TTL, if younger than max_age."""
+    try:
+        snap = await get_db().collection(_CACHE_COLLECTION).document(key).get()
+        if not snap.exists:
+            return None
+        data = snap.to_dict() or {}
+        if time.time() - data.get("fetched_at", 0) > max_age:
+            return None
+        return _normalize_cmc_payload(data.get("payload"))
+    except Exception as exc:
+        logger.warning("Market cache stale read failed for '%s': %s", key, exc)
+        return None
+
+
+async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: dict | None = None,
+                    fallback=None) -> list:
+    """Cached CMC list endpoint that records why it failed instead of caching [].
+
+    While CMC is failing, the feed degrades in order: the last good answer
+    (up to _STALE_MAX_SECONDS old), then `fallback()` from another provider,
+    then an empty list with the reason. Fallback rows are never written to
+    the CMC cache key.
+    """
 
     async def fetch():
         recent = _FEED_FAILURES.get(feed)
@@ -219,17 +270,101 @@ async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: di
         data = await _cmc_get(path, params)
         return data.get("data", [])
 
+    async def degrade() -> list:
+        stale = await _read_stale(key, _STALE_MAX_SECONDS)
+        if isinstance(stale, list) and stale:
+            _FEED_SERVED[feed] = "cache"
+            return stale
+        if fallback is not None:
+            try:
+                rows = await fallback()
+            except Exception as exc:
+                logger.warning("Fallback for %s failed: %s", feed, exc.__class__.__name__)
+                rows = []
+            if rows:
+                _FEED_SERVED[feed] = "coingecko"
+                return rows
+        _FEED_SERVED.pop(feed, None)
+        return []
+
     try:
         result = await _cached(key, ttl_seconds, fetch, normalize=True)
     except _FeedCoolingDown:
-        return []
+        return await degrade()
     except Exception as exc:
         failure = _describe_cmc_failure(exc)
         _FEED_FAILURES[feed] = {"at": time.time(), **failure}
         logger.warning("CMC %s fetch failed (%s): %s", feed, failure["reason"], failure["detail"])
-        return []
+        return await degrade()
     _FEED_FAILURES.pop(feed, None)
+    _FEED_SERVED.pop(feed, None)
     return result
+
+
+# ── CoinGecko stand-ins, shaped like CMC's normalized rows ───────────────────
+
+def _cg_row(coin_id, name, symbol, rank, price, change_24h, market_cap=None, volume=None) -> dict:
+    return {
+        "id": coin_id, "name": name, "symbol": (symbol or "").upper(), "cmc_rank": rank,
+        "quote": [{"symbol": "USD", "price": price, "percent_change_24h": change_24h,
+                   "market_cap": market_cap, "volume_24h": volume}],
+    }
+
+
+async def _cg_trending(limit: int) -> list:
+    """CoinGecko's trending searches — the closest match to CMC "most visited"."""
+    async def fetch():
+        data = await _coingecko_get("/search/trending")
+        rows = []
+        for entry in (data or {}).get("coins", []):
+            item = entry.get("item") or {}
+            info = item.get("data") or {}
+            price = info.get("price")
+            change = (info.get("price_change_percentage_24h") or {}).get("usd")
+            if not isinstance(price, (int, float)):
+                continue
+            rows.append(_cg_row(item.get("coin_id") or item.get("id"), item.get("name"), item.get("symbol"),
+                                item.get("market_cap_rank"), price, change))
+        return rows
+
+    rows = await _cached("cg_trending", _TTL_TRENDING, fetch)
+    return (rows or [])[:limit]
+
+
+async def _cg_top_markets() -> list:
+    async def fetch():
+        return await _coingecko_get("/coins/markets", {
+            "vs_currency": "usd", "order": "market_cap_desc", "per_page": 100, "page": 1,
+            "price_change_percentage": "24h",
+        })
+    return await _cached("cg_top100", _TTL_TRENDING, fetch) or []
+
+
+async def _cg_movers(limit: int, sort_dir: str) -> list:
+    """Biggest 24h movers among the top 100 by market cap."""
+    coins = [c for c in await _cg_top_markets() if isinstance(c.get("price_change_percentage_24h"), (int, float))]
+    coins.sort(key=lambda c: c["price_change_percentage_24h"], reverse=(sort_dir == "desc"))
+    return [_cg_row(c.get("id"), c.get("name"), c.get("symbol"), c.get("market_cap_rank"),
+                    c.get("current_price"), c.get("price_change_percentage_24h"),
+                    c.get("market_cap"), c.get("total_volume")) for c in coins[:limit]]
+
+
+async def _cg_global_metrics() -> dict | None:
+    async def fetch():
+        data = (await _coingecko_get("/global") or {}).get("data") or {}
+        mcap = (data.get("total_market_cap") or {}).get("usd")
+        if not isinstance(mcap, (int, float)):
+            return None
+        share = data.get("market_cap_percentage") or {}
+        return {
+            "total_market_cap": mcap,
+            "total_volume_24h": (data.get("total_volume") or {}).get("usd"),
+            "total_market_cap_yesterday_percentage_change": data.get("market_cap_change_percentage_24h_usd"),
+            "btc_dominance": share.get("btc"),
+            "eth_dominance": share.get("eth"),
+            "source": "coingecko",
+        }
+    return await _cached("cg_global", _TTL_GLOBAL_METRICS, fetch)
 
 
 async def get_prices(coin_ids: list[str]) -> dict:
@@ -343,6 +478,8 @@ async def get_trending_gainers_losers(
         _TTL_TRENDING,
         "/v1/cryptocurrency/trending/gainers-losers",
         {"time_period": time_period, "limit": limit, "sort_dir": sort_dir},
+        # CoinGecko only offers 24h change on this call, so it stands in for 24h only.
+        fallback=(lambda: _cg_movers(limit, sort_dir)) if time_period == "24h" else None,
     )
 
 
@@ -378,6 +515,7 @@ async def get_most_visited(limit: int = 10) -> list:
     return await _cmc_feed(
         "most_visited", f"most_visited:{limit}", _TTL_MOST_VISITED,
         "/v1/cryptocurrency/trending/most-visited", {"limit": limit},
+        fallback=lambda: _cg_trending(limit),
     )
 
 
@@ -419,9 +557,20 @@ async def get_global_metrics() -> dict | None:
             return payload
         except Exception as exc:
             logger.warning("CMC global metrics fetch failed: %s", exc)
-            return None
+            raise  # a failure must not be cached as the answer for the whole TTL
 
-    return await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
+    try:
+        metrics = await _cached("global_metrics", _TTL_GLOBAL_METRICS, fetch)
+    except Exception:
+        metrics = await _read_stale("global_metrics", _STALE_MAX_SECONDS)
+    if metrics:
+        return metrics
+    # CMC failed: never cache that None as the answer, and fill from CoinGecko.
+    try:
+        return await _cg_global_metrics()
+    except Exception as exc:
+        logger.warning("CoinGecko global metrics fallback failed: %s", exc.__class__.__name__)
+        return None
 
 
 async def get_cmc_ai_market_brief() -> dict | None:
