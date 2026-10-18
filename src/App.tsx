@@ -40,7 +40,7 @@ import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
 import { WisdomTimeline } from '@/components/WisdomTimeline'
 import { ActivityLog } from '@/components/ActivityLog'
-import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Storefront, Newspaper, Binoculars, House, Lightning, SquaresFour, UsersThree } from '@phosphor-icons/react'
+import { Robot, Wallet as WalletIcon, ChartLine, Globe, Plus, Brain, CloudArrowUp, FlowArrow, ShieldCheck, Newspaper, Binoculars, House, Lightning } from '@phosphor-icons/react'
 import maefLogo from '@/assets/maef-logo.png'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
@@ -1223,7 +1223,6 @@ function App() {
                   />
                   <div className="text-left">
                     <h1 className="text-sm font-black tracking-widest text-white leading-none">ASAJU AI</h1>
-                    <p className="text-[9px] text-muted-foreground font-mono hidden 2xl:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
                   </div>
                 </button>
               </div>
@@ -1233,13 +1232,13 @@ function App() {
                   instead of pushing the network and wallet buttons off-screen. */}
               <nav className="order-last lg:order-none w-full lg:w-auto flex items-center gap-0.5 lg:flex-1 justify-start lg:justify-center min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-1 px-1">
                 {([
-                  { view: 'dashboard', label: 'Dashboard', icon: SquaresFour, color: 'primary' },
-                  { view: 'my-agents', label: 'My Agents', icon: Robot, color: 'secondary' },
-                  { view: 'room', label: 'Agent Room', icon: UsersThree, color: 'primary' },
-                  { view: 'analytics', label: 'Analytics', icon: ChartLine, color: 'primary' },
-                  { view: 'vault', label: 'NFT Vault', icon: WalletIcon, color: 'primary' },
-                  { view: 'marketplace', label: 'Marketplace', icon: Storefront, color: 'secondary' },
-                ] as const).map(({ view, label, icon: Icon, color }) => (
+                  { view: 'dashboard', label: 'Dashboard' },
+                  { view: 'my-agents', label: 'My Agents' },
+                  { view: 'room', label: 'Agent Room' },
+                  { view: 'analytics', label: 'Analytics' },
+                  { view: 'vault', label: 'NFT Vault' },
+                  { view: 'marketplace', label: 'Marketplace' },
+                ] as const).map(({ view, label }) => (
                   <Button
                     key={view}
                     // Leaving an agent's detail page is part of switching tabs: the
@@ -1254,7 +1253,6 @@ function App() {
                         : `text-muted-foreground hover:text-foreground hover:bg-white/5`
                     )}
                   >
-                    <Icon className="mr-1.5 hidden 2xl:inline" size={14} weight="duotone" />
                     {label}
                   </Button>
                 ))}
