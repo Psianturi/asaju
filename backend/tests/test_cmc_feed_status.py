@@ -47,7 +47,7 @@ async def test_plan_unsupported_is_reported_and_not_cached(db, monkeypatch):
         return {"data": payload}
 
     monkeypatch.setattr("services.market_data_service._cmc_get", ok)
-    mds._FEED_FAILURES["airdrops"]["at"] -= mds._FEED_RETRY_SECONDS + 1
+    mds._FEED_FAILURES["airdrops"]["at"] -= mds._RETRY_BY_REASON["plan_unsupported"] + 1
     assert await get_airdrops(limit=4) == payload
     assert cmc_feed_status("airdrops") == {"available": True, "reason": None, "detail": None, "source": "coinmarketcap"}
 
@@ -172,3 +172,60 @@ async def test_expired_plan_is_named(db, monkeypatch):
     monkeypatch.setattr("services.market_data_service._cmc_get", expired)
     await get_airdrops(4)
     assert cmc_feed_status("airdrops")["reason"] == "plan_expired"
+
+
+
+async def test_refused_endpoint_is_left_alone_for_hours(db, monkeypatch):
+    calls = []
+
+    async def refused(path, params=None):
+        calls.append(path)
+        raise _cmc_http_error(403, 1006, "Your plan doesn't support this endpoint.")
+
+    monkeypatch.setattr("services.market_data_service._cmc_get", refused)
+    await get_airdrops(4)
+    mds._FEED_FAILURES["airdrops"]["at"] -= mds._FEED_RETRY_SECONDS + 1   # 5 min later: still skipped
+    db.collection("market_cache")._docs.clear()
+    await get_airdrops(4)
+    assert calls == ["/v1/cryptocurrency/airdrops"]
+
+
+async def test_movers_come_from_cmc_listings_when_trending_is_not_in_the_plan(db, monkeypatch):
+    def coin(sym, change, vol=5e6):
+        return {"id": len(sym), "symbol": sym, "name": sym, "cmc_rank": 1,
+                "quote": {"USD": {"price": 1.0, "percent_change_24h": change, "volume_24h": vol}}}
+
+    async def cmc(path, params=None):
+        if "gainers-losers" in path:
+            raise _cmc_http_error(403, 1006, "Your plan doesn't support this endpoint.")
+        assert path == "/v1/cryptocurrency/listings/latest"
+        return {"data": [coin("AAA", 3.0), coin("BBB", 12.0), coin("THIN", 90.0, vol=10), coin("CCC", -8.0)]}
+
+    monkeypatch.setattr("services.market_data_service._cmc_get", cmc)
+    gainers = await mds.get_trending_gainers_losers("24h", 2, "desc")
+    assert [c["symbol"] for c in gainers] == ["BBB", "AAA"]          # thin-volume coin left out
+    status = cmc_feed_status("gainers")
+    assert status["source"] == "cmc_listings" and status["reason"] == "plan_unsupported"
+    losers = await mds.get_trending_gainers_losers("24h", 1, "asc")
+    assert [c["symbol"] for c in losers] == ["CCC"]
+
+
+async def test_fear_greed_falls_back_and_failures_are_not_cached(db, monkeypatch):
+    async def down(path, params=None):
+        raise _cmc_http_error(403, 1006, "plan")
+
+    async def alt():
+        return {"value": 41, "value_classification": "Fear", "source": "alternative.me"}
+
+    monkeypatch.setattr("services.market_data_service._cmc_get", down)
+    monkeypatch.setattr("services.market_data_service._alt_fear_greed", alt)
+    fg = await mds.get_fear_greed_index()
+    assert fg["value"] == 41 and fg["source"] == "alternative.me"
+
+    async def none():
+        return None
+
+    db.collection("market_cache")._docs.clear()
+    monkeypatch.setattr("services.market_data_service._alt_fear_greed", none)
+    assert await mds.get_fear_greed_index() is None
+    assert "fear_greed" not in db.collection("market_cache")._docs

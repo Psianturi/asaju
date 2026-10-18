@@ -18,11 +18,11 @@ type FeedResponse<T> = {
   results?: T[]
   available?: boolean
   reason?: FeedUnavailableReason | null
-  source?: 'coinmarketcap' | 'cache' | 'coingecko' | null
+  source?: 'coinmarketcap' | 'cache' | 'coingecko' | 'cmc_listings' | null
 }
 
 /** Rows shown while CoinMarketCap is failing come from a stand-in; say which. */
-export type FeedSource = 'cache' | 'coingecko'
+export type FeedSource = 'cache' | 'coingecko' | 'cmc_listings'
 
 /**
  * Rows from one feed call, plus why it is empty when the call did not succeed.
@@ -36,5 +36,5 @@ export function readFeed<T>(r: PromiseSettledResult<FeedResponse<T>>): { rows: T
     return { rows, problem: r.value.reason ?? 'upstream_error' }
   }
   const source = r.value.source
-  return rows.length > 0 && (source === 'cache' || source === 'coingecko') ? { rows, source } : { rows }
+  return rows.length > 0 && (source === 'cache' || source === 'coingecko' || source === 'cmc_listings') ? { rows, source } : { rows }
 }

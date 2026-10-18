@@ -248,7 +248,7 @@ export interface FeedAvailability {
   /** Raw cause from the provider (e.g. "HTTP 503", "ReadTimeout"), for diagnosis. */
   detail?: string | null
   /** Where the rows came from: CMC, its last good answer, or the CoinGecko stand-in. */
-  source?: 'coinmarketcap' | 'cache' | 'coingecko' | null
+  source?: 'coinmarketcap' | 'cache' | 'coingecko' | 'cmc_listings' | null
 }
 
 export interface TrendingCoin {

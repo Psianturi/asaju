@@ -35,7 +35,7 @@ _TTL_NEWS = 1800        # 30 min
 _TTL_TRENDING = 600     # 10 min â€” matches CMC's own update cadence for these endpoints
 _TTL_NEW_LISTINGS = 3600  # 1 hour â€” new listings don't churn minute to minute
 _TTL_AIRDROPS = 3600    # 1 hour
-_TTL_GLOBAL_METRICS = 600  # 10 min â€” total mcap/BTC dominance updates frequently
+_TTL_GLOBAL_METRICS = 1800  # 30 min â€” total mcap/BTC dominance updates frequently
 _TTL_MOST_VISITED = 600    # 10 min
 _TTL_CATEGORIES = 86400    # 24h â€” category list rarely changes
 
@@ -177,6 +177,18 @@ async def _cmc_get(path: str, params: dict | None = None) -> dict:
 # cached as data, and is retried after _FEED_RETRY_SECONDS.
 
 _FEED_RETRY_SECONDS = 300
+# How long to leave an endpoint alone after it failed, by why it failed. A
+# plan that does not include an endpoint will not include it in five minutes
+# either; retrying it only burns the per-minute rate limit.
+_RETRY_BY_REASON = {
+    "plan_unsupported": 6 * 3600,
+    "plan_expired": 3600,
+    "auth": 3600,
+    "not_configured": 3600,
+    "rate_limited": 120,
+}
+# One listings call (200 coins = 1 credit on CMC) feeds gainers AND losers.
+_TTL_LISTINGS_MOVERS = 900
 _FEED_FAILURES: dict[str, dict] = {}
 # Where a failed feed's rows came from instead: "cache" (last good CMC answer)
 # or "coingecko" (a comparable feed from the other provider).
@@ -268,7 +280,7 @@ async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: di
 
     async def fetch():
         recent = _FEED_FAILURES.get(feed)
-        if recent and time.time() - recent["at"] < _FEED_RETRY_SECONDS:
+        if recent and time.time() - recent["at"] < _RETRY_BY_REASON.get(recent["reason"], _FEED_RETRY_SECONDS):
             raise _FeedCoolingDown()
         data = await _cmc_get(path, params)
         return data.get("data", [])
@@ -280,12 +292,14 @@ async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: di
             return stale
         if fallback is not None:
             try:
-                rows = await fallback()
+                got = await fallback()
             except Exception as exc:
                 logger.warning("Fallback for %s failed: %s", feed, exc.__class__.__name__)
-                rows = []
+                got = []
+            # A fallback may say where its rows came from: (rows, source).
+            rows, source = got if isinstance(got, tuple) else (got, "coingecko")
             if rows:
-                _FEED_SERVED[feed] = "coingecko"
+                _FEED_SERVED[feed] = source
                 return rows
         _FEED_SERVED.pop(feed, None)
         return []
@@ -350,6 +364,51 @@ async def _cg_movers(limit: int, sort_dir: str) -> list:
     return [_cg_row(c.get("id"), c.get("name"), c.get("symbol"), c.get("market_cap_rank"),
                     c.get("current_price"), c.get("price_change_percentage_24h"),
                     c.get("market_cap"), c.get("total_volume")) for c in coins[:limit]]
+
+
+async def _cmc_listing_movers(limit: int, sort_dir: str) -> list:
+    """Biggest 24h movers from CMC's listings endpoint, which every plan has.
+    Coins under $1M daily volume are left out so thin tokens don't top the list."""
+    async def fetch():
+        data = await _cmc_get("/v1/cryptocurrency/listings/latest",
+                              {"limit": 200, "sort": "market_cap", "convert": "USD"})
+        return data.get("data", [])
+
+    coins = await _cached("cmc_listings_top200", _TTL_LISTINGS_MOVERS, fetch, normalize=True) or []
+
+    def usd(c: dict) -> dict:
+        q = c.get("quote")
+        return (q[0] if isinstance(q, list) and q else {}) if not isinstance(q, dict) else q.get("USD", {})
+
+    liquid = [c for c in coins if isinstance(usd(c).get("percent_change_24h"), (int, float))
+              and (usd(c).get("volume_24h") or 0) >= 1_000_000]
+    liquid.sort(key=lambda c: usd(c)["percent_change_24h"], reverse=(sort_dir == "desc"))
+    return liquid[:limit]
+
+
+async def _movers_fallback(limit: int, sort_dir: str) -> tuple[list, str]:
+    """CMC listings first (same provider, any plan), then CoinGecko."""
+    try:
+        rows = await _cmc_listing_movers(limit, sort_dir)
+        if rows:
+            return rows, "cmc_listings"
+    except Exception as exc:
+        logger.warning("CMC listings movers failed: %s", exc.__class__.__name__)
+    return await _cg_movers(limit, sort_dir), "coingecko"
+
+
+async def _alt_fear_greed() -> dict | None:
+    """alternative.me's Crypto Fear & Greed index — free, no key — shaped like CMC's."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get("https://api.alternative.me/fng/", params={"limit": 1})
+        resp.raise_for_status()
+        row = ((resp.json() or {}).get("data") or [{}])[0]
+    try:
+        value = int(row.get("value"))
+    except (TypeError, ValueError):
+        return None
+    return {"value": value, "value_classification": row.get("value_classification"),
+            "update_time": row.get("timestamp"), "source": "alternative.me"}
 
 
 async def _cg_global_metrics() -> dict | None:
@@ -446,12 +505,24 @@ async def get_fear_greed_index() -> dict | None:
     async def fetch():
         try:
             data = await _cmc_get("/v3/fear-and-greed/latest")
-            return data.get("data")
+            payload = data.get("data")
         except Exception as exc:
             logger.warning("CMC Fear & Greed fetch failed: %s", exc)
-            return None
+            payload = None
+        if not payload:
+            try:
+                payload = await _alt_fear_greed()
+            except Exception as exc:
+                logger.warning("Fear & Greed fallback failed: %s", exc.__class__.__name__)
+                payload = None
+        if not payload:
+            raise RuntimeError("no Fear & Greed source answered")  # never cache "nothing"
+        return payload
 
-    return await _cached("fear_greed", _TTL_FEAR_GREED, fetch)
+    try:
+        return await _cached("fear_greed", _TTL_FEAR_GREED, fetch)
+    except RuntimeError:
+        return await _read_stale("fear_greed", 24 * 3600)
 
 
 async def get_asset_news(limit: int = 5) -> list:
@@ -482,7 +553,7 @@ async def get_trending_gainers_losers(
         "/v1/cryptocurrency/trending/gainers-losers",
         {"time_period": time_period, "limit": limit, "sort_dir": sort_dir},
         # CoinGecko only offers 24h change on this call, so it stands in for 24h only.
-        fallback=(lambda: _cg_movers(limit, sort_dir)) if time_period == "24h" else None,
+        fallback=(lambda: _movers_fallback(limit, sort_dir)) if time_period == "24h" else None,
     )
 
 

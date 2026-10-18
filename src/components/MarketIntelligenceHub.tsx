@@ -279,9 +279,18 @@ export function MarketIntelligenceHub() {
   // had a row to show, claiming LIVE would be a lie — say so instead.
   const empty = !state.loading && tabsWithRows === 0 && failedTabs === 0
   const down = !state.loading && tabsWithRows === 0 && failedTabs > 0
-  // Stand-in rows count as partial: the data is real, but not from the usual source.
-  const partial = !state.loading && !down && (failedTabs > 0 || Object.keys(state.sources).length > 0)
+  // Partial = something on screen is degraded: a feed that failed for a reason
+  // that can pass, or rows from a stand-in provider. A feed the plan simply
+  // does not include (its tab is hidden) and movers taken from CMC's own
+  // listings are not degraded.
+  const transientFailures = Object.values(state.problems).filter(p => p !== 'plan_unsupported').length
+  const standInTabs = Object.values(state.sources).filter(src => src !== 'cmc_listings').length
+  const partial = !state.loading && !down && (transientFailures > 0 || standInTabs > 0)
   const tabProblem = state.problems[tab]
+  // A feed the API plan does not include will not appear later in the day:
+  // drop its tab rather than show a permanent "not in your plan" box.
+  const shownTabs = TABS.filter(t => !(state.problems[t.key] === 'plan_unsupported' && state[t.key].length === 0))
+  const tabs = shownTabs.length > 0 ? shownTabs : TABS
   // The current tab's stand-in, else any tab's, else the metrics strip's.
   const standIn: FeedSource | undefined = state.sources[tab]
     ?? (Object.values(state.sources)[0] as FeedSource | undefined)
@@ -377,7 +386,7 @@ export function MarketIntelligenceHub() {
         <div className="scanning-line pointer-events-none absolute top-0 bottom-0 left-0 right-0" aria-hidden="true" />
 
         <div className="flex items-center gap-0.5 border-b border-white/5 -mx-4 px-4 pb-0 relative z-10">
-          {TABS.map(t => {
+          {tabs.map(t => {
             const active = tab === t.key
             return (
               <button
@@ -466,7 +475,9 @@ export function MarketIntelligenceHub() {
           ? 'CoinMarketCap is not answering — CoinGecko is standing in · refreshes every 5 min'
           : standIn === 'cache'
             ? "CoinMarketCap is not answering — showing its last good data · refreshes every 5 min"
-            : 'CoinMarketCap · refreshes every 5 min'}
+            : standIn === 'cmc_listings'
+              ? 'Movers from CoinMarketCap listings (the trending feed is not in the current plan) · refreshes every 5 min'
+              : 'CoinMarketCap · refreshes every 5 min'}
       </p>
     </Card>
   )

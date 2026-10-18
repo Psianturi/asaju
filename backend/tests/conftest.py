@@ -42,6 +42,7 @@ def no_coingecko_network(monkeypatch):
         raise RuntimeError("no network in tests")
 
     monkeypatch.setattr(market_data_service, "_coingecko_get", _offline)
+    monkeypatch.setattr(market_data_service, "_alt_fear_greed", _offline)
 
 
 @pytest_asyncio.fixture(autouse=True)
