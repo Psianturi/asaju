@@ -6,6 +6,15 @@ import App from './App.tsx'
 import { LandingPage } from './LandingPage.tsx'
 import { ErrorFallback } from './ErrorFallback.tsx'
 import { BlockchainProvider } from './hooks/useBlockchain'
+import { privyEnabled } from './lib/privy'
+import { lazy, Suspense, type ReactNode } from 'react'
+
+// Wraps the app in Privy only when an app id is configured.
+const PrivyRoot = lazy(() => import('./components/PrivyBridge').then(m => ({ default: m.PrivyRoot })))
+function MaybePrivy({ children }: { children: ReactNode }) {
+  if (!privyEnabled) return <>{children}</>
+  return <Suspense fallback={null}><PrivyRoot>{children}</PrivyRoot></Suspense>
+}
 
 import "./main.css"
 import "./styles/theme.css"
@@ -19,9 +28,11 @@ createRoot(document.getElementById('root')!).render(
         <Route
           path="/dashboard/*"
           element={
-            <BlockchainProvider>
-              <App />
-            </BlockchainProvider>
+            <MaybePrivy>
+              <BlockchainProvider>
+                <App />
+              </BlockchainProvider>
+            </MaybePrivy>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

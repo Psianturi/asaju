@@ -51,6 +51,7 @@ import { CloudRunAPIError, cloudRunService, validateEventUrl } from '@/services/
 import { ContractVerificationData, verificationService } from '@/lib/blockchain/verificationService'
 import { CONTRACT_ADDRESSES } from '@/lib/blockchain/config'
 import { mantleService } from '@/lib/blockchain/mantleService'
+import { privyEnabled, OPEN_WALLET_PICKER } from '@/lib/privy'
 import { ChainSelector } from '@/components/ChainSelector'
 import { NetworkMismatchAlert } from '@/components/NetworkMismatchAlert'
 import { DEFAULT_CHAIN_ID, getChain } from '@/lib/blockchain/chains'
@@ -428,6 +429,12 @@ function App() {
   // whatever chain the wallet is already on. Manual connect clicks omit it,
   // so they keep using selectedChainId (the user's ChainSelector choice).
   const handleWalletConnect = async (address: string, chainIdOverride?: number) => {
+    // No browser wallet: open the picker, where Privy's email / Google sign-in lives,
+    // instead of failing with "no wallet found".
+    if (privyEnabled && !mantleService.getActiveProvider()) {
+      window.dispatchEvent(new CustomEvent(OPEN_WALLET_PICKER))
+      return
+    }
     setDataLoaded(false)
     try {
       const initialChainId = chainIdOverride ?? selectedChainId
@@ -436,8 +443,9 @@ function App() {
       setWalletAddress(connectedAddress)
       // Detect wallet's current chain
       try {
-        const eth = (window as any).okxwallet ?? (window as any).ethereum
-        const chainHex: string = await eth.request({ method: 'eth_chainId' })
+        // Ask the wallet actually in use (a picked extension or a Privy embedded wallet).
+        const eth = mantleService.getActiveProvider() ?? (window as any).okxwallet ?? (window as any).ethereum
+        const chainHex = (await eth.request({ method: 'eth_chainId' })) as string
         const detectedChainId = parseInt(chainHex, 16)
         setWalletChainId(detectedChainId)
         setSelectedChainId(detectedChainId)

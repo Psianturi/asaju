@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Button } from '@/components/ui/button'
 import { Wallet, WarningCircle, CaretDown, Copy, ArrowSquareOut, SignOut } from '@phosphor-icons/react'
@@ -14,6 +14,11 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { motion } from 'framer-motion'
 import { detectWallets, DetectedWallet, mantleService } from '@/lib/blockchain/mantleService'
+import { privyEnabled, OPEN_WALLET_PICKER } from '@/lib/privy'
+
+// Privy's SDK is large; it is fetched only when an app id is configured.
+const PrivyLoginButton = lazy(() => import('@/components/PrivyBridge').then(m => ({ default: m.PrivyLoginButton })))
+const PrivySync = lazy(() => import('@/components/PrivyBridge').then(m => ({ default: m.PrivySync })))
 
 interface WalletConnectProps {
   onConnect: (address: string) => void
@@ -38,10 +43,21 @@ export function WalletConnect({ onConnect, isConnected, address, balance, chainI
   const [detectedWallets, setDetectedWallets] = useState<DetectedWallet[]>([])
 
   useEffect(() => {
+    const open = () => setShowDialog(true)
+    window.addEventListener(OPEN_WALLET_PICKER, open)
+    return () => window.removeEventListener(OPEN_WALLET_PICKER, open)
+  }, [])
+
+  useEffect(() => {
     if (showDialog) {
       setDetectedWallets(detectWallets())
     }
   }, [showDialog])
+
+  const connectPrivy = useCallback(() => onConnect(''), [onConnect])
+  const privySync = privyEnabled ? (
+    <Suspense fallback={null}><PrivySync isConnected={!!isConnected} onConnect={connectPrivy} /></Suspense>
+  ) : null
 
   const handleWalletSelect = (wallet: DetectedWallet) => {
     mantleService.setPreferredProvider(wallet.provider)
@@ -62,6 +78,8 @@ export function WalletConnect({ onConnect, isConnected, address, balance, chainI
     // One compact button: address + balance at a glance, everything else
     // (copy, explorer, disconnect) one click away instead of crowding the header.
     return (
+      <>
+      {privySync}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -104,11 +122,13 @@ export function WalletConnect({ onConnect, isConnected, address, balance, chainI
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      </>
     )
   }
 
   return (
     <>
+      {privySync}
       <Button
         onClick={() => setShowDialog(true)}
         data-wallet-trigger
@@ -179,6 +199,17 @@ export function WalletConnect({ onConnect, isConnected, address, balance, chainI
                   </motion.div>
                 )
               })
+            )}
+
+            {privyEnabled && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="h-px flex-1 bg-border/50" />no wallet?<span className="h-px flex-1 bg-border/50" />
+                </div>
+                <Suspense fallback={null}>
+                  <PrivyLoginButton onStart={() => setShowDialog(false)} />
+                </Suspense>
+              </div>
             )}
 
             <div className="pt-3 border-t border-border/30">

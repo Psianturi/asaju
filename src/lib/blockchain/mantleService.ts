@@ -116,6 +116,11 @@ export class MantleBlockchainService {
     this.preferredProvider = provider
   }
 
+  /** The provider the app is actually using (a picked wallet, Privy, or the injected default). */
+  getActiveProvider(): EthProvider | undefined {
+    return this.getEthProvider()
+  }
+
   private getEthProvider(): EthProvider | undefined {
     return this.preferredProvider ?? resolveProvider()
   }
