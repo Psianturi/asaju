@@ -1242,7 +1242,7 @@ function App() {
                     className={cn(
                       'px-2.5 h-8 text-sm font-medium transition-all duration-200 shrink-0',
                       mainView === view
-                        ? 'bg-primary/10 text-primary border border-primary/40'
+                        ? 'bg-primary/10 hover:bg-primary/15 text-primary border border-primary/40'
                         : `text-muted-foreground hover:text-foreground hover:bg-white/5`
                     )}
                   >
