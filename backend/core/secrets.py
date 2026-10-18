@@ -66,16 +66,15 @@ def _get_secret(secret_id: str) -> str:
 
 
 def _get_env_or_secret(name: str, *, default: str) -> str:
-    """Non-secret setting that may still be overridden in Secret Manager.
+    """Non-secret setting: an env var, else the default.
 
-    Model names and tuning knobs are not credentials, but keeping them behind
-    the same lookup means a deploy can change one without a code change.
+    Model names and tuning knobs are not credentials. Looking them up in
+    Secret Manager first logged a 403 ERROR on every cold start whenever no
+    such secret existed (the runtime account may read only real secrets),
+    and added a network round-trip for a constant. Set them as plain Cloud
+    Run env vars instead.
     """
-    try:
-        value = _get_secret(name).strip()
-    except RuntimeError:
-        value = ""
-    return value or os.environ.get(name, "").strip() or default
+    return os.environ.get(name, "").strip() or default
 
 
 @lru_cache(maxsize=None)
