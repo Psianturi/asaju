@@ -1,5 +1,5 @@
 /**
- * BaseCard — the standardized container used across Analytics, NFT Vault,
+ * BaseCard — the standardized container used across NFT Vault,
  * Marketplace, and any other non-specialised list/table view.
  *
  * The dashboard gets a richer variant (gradient borders + glow), but anywhere

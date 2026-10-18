@@ -8,7 +8,6 @@ import { NotificationBell } from '@/components/NotificationBell'
 import { Agent, NFT, Event, MarketplaceAgent } from '@/lib/types'
 import { cn, isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
 import { buildScoutedOpportunities } from '@/lib/scoutUtils'
-import { AnalyticsView } from '@/views/AnalyticsView'
 import { VaultView } from '@/views/VaultView'
 import { MarketplaceView } from '@/views/MarketplaceView'
 import { AgentDetailView } from '@/views/AgentDetailView'
@@ -74,9 +73,9 @@ function App() {
   const [walletAddress, setWalletAddress] = useState<string>()
   const [selectedChainId, setSelectedChainId] = useState(DEFAULT_CHAIN_ID)
   const [walletChainId, setWalletChainId] = useState<number | undefined>()
-  type MainView = 'dashboard' | 'my-agents' | 'room' | 'analytics' | 'vault' | 'marketplace'
-  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', 'agent-room': 'room', analytics: 'analytics', 'nft-vault': 'vault', marketplace: 'marketplace' }
-  const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', 'my-agents': 'my-agents', room: 'agent-room', analytics: 'analytics', vault: 'nft-vault', marketplace: 'marketplace' }
+  type MainView = 'dashboard' | 'my-agents' | 'room' | 'vault' | 'marketplace'
+  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', 'agent-room': 'room', 'nft-vault': 'vault', marketplace: 'marketplace' }
+  const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', 'my-agents': 'my-agents', room: 'agent-room', vault: 'nft-vault', marketplace: 'marketplace' }
   const [mainView, setMainView] = useState<MainView>(() => {
     const hashView = HASH_TO_VIEW[window.location.hash.slice(1)]
     if (hashView) return hashView
@@ -1235,7 +1234,6 @@ function App() {
                   { view: 'dashboard', label: 'Dashboard' },
                   { view: 'my-agents', label: 'My Agents' },
                   { view: 'room', label: 'Agent Room' },
-                  { view: 'analytics', label: 'Analytics' },
                   { view: 'vault', label: 'NFT Vault' },
                   { view: 'marketplace', label: 'Marketplace' },
                 ] as const).map(({ view, label }) => (
@@ -1354,11 +1352,6 @@ function App() {
               walletConnected={walletConnected}
               onConnectWallet={() => handleWalletConnect('')}
             />
-          )}
-
-          {/* â”€â”€ Analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-          {!agentDetailId && mainView === 'analytics' && (
-            <AnalyticsView agents={displayedAgents} events={displayedEvents} nfts={displayedNFTs} />
           )}
 
           {/* â”€â”€ NFT Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
