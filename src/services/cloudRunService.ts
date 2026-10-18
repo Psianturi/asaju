@@ -1,11 +1,14 @@
 import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
 
+// Dev-only override first, so pointing a preview branch at the tagged Cloud Run
+// revision never requires editing the variable that Production also uses.
 export const GCP_BACKEND_URL =
+  import.meta.env.VITE_GCP_BACKEND_URL_DEV ||
   import.meta.env.VITE_GCP_BACKEND_URL ||
   'https://mantle-agentic-event-21898396920.asia-southeast1.run.app'
 
-if (!import.meta.env.VITE_GCP_BACKEND_URL) {
+if (!import.meta.env.VITE_GCP_BACKEND_URL_DEV && !import.meta.env.VITE_GCP_BACKEND_URL) {
   console.warn('VITE_GCP_BACKEND_URL is not set. Using production Cloud Run fallback URL.')
 }
 const REQUEST_TIMEOUT = 55000

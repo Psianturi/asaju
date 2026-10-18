@@ -1,6 +1,20 @@
+/**
+ * Backend URL.
+ *
+ * The dev URL is read first so a `dev` preview can point at the tagged Cloud Run
+ * revision without touching the shared variable. Vercel warns that editing a
+ * variable present in both environments removes it from the other one, so the
+ * two are deliberately kept as separate names rather than one name edited in
+ * two places.
+ */
+const backendUrl =
+  import.meta.env.VITE_GCP_BACKEND_URL_DEV ||
+  import.meta.env.VITE_GCP_BACKEND_URL ||
+  'https://agentic-event-factory.run.app'
+
 export const config = {
   backend: {
-    url: import.meta.env.VITE_GCP_BACKEND_URL || 'https://agentic-event-factory.run.app',
+    url: backendUrl,
     projectId: import.meta.env.VITE_GCP_PROJECT_ID || 'agentic-event-factory',
     timeout: 55000,
     pollingInterval: 3000,
@@ -45,7 +59,10 @@ export const config = {
 export type AppConfig = typeof config
 
 export function isBackendAvailable(): boolean {
-  return !!import.meta.env.VITE_GCP_BACKEND_URL
+  return !!(
+    import.meta.env.VITE_GCP_BACKEND_URL_DEV ||
+    import.meta.env.VITE_GCP_BACKEND_URL
+  )
 }
 
 export function isDevelopment(): boolean {
