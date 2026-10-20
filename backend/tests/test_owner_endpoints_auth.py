@@ -95,6 +95,7 @@ def env(monkeypatch):
         "chain_id": 97,
         "user_wallet": owner.address,
         "custom_instructions": "be careful",
+        "private_key_enc": "enc:agent-key",
     }
     monkeypatch.setattr(agents_router, "get_db", lambda: db)
 
@@ -102,6 +103,11 @@ def env(monkeypatch):
         return owner.address
 
     monkeypatch.setattr(agent_auth, "_read_agent_owner_on_chain", chain_owner)
+
+    async def not_listed(_wallet, _chain):
+        return {"seller": "0x" + "00" * 20, "price_wei": 0, "active": False}
+
+    monkeypatch.setattr(agents_router.web3_service, "get_marketplace_listing", not_listed)
     return db, owner
 
 
@@ -315,3 +321,46 @@ async def test_scout_with_mandate_runs_once_per_cooldown(scout_env, monkeypatch)
         await agents_router.run_scout_now("agent-1", _Req())
     assert exc.value.status_code == 429
     assert runs == ["agent-1"]
+
+
+async def test_removed_agent_keeps_its_key_in_the_archive(env):
+    """The agent doc held the only copy of the wallet key; removing it must not
+    strand the gas left in that wallet."""
+    db, owner = env
+    ch = await _challenge(db, "delete_agent")
+    await delete_agent("agent-1", auth_nonce=ch["nonce"], auth_signature=_sign(ch["message"], owner))
+
+    archived = db.stores["archived_agents"]["agent-1"]
+    assert archived["private_key_enc"] == "enc:agent-key"
+    assert archived["archived_by"].lower() == owner.address.lower()
+
+
+async def test_listed_agent_cannot_be_removed(env, monkeypatch):
+    db, owner = env
+
+    async def listed(_wallet, _chain):
+        return {"seller": owner.address, "price_wei": 10**18, "active": True}
+
+    monkeypatch.setattr(agents_router.web3_service, "get_marketplace_listing", listed)
+    ch = await _challenge(db, "delete_agent")
+    with pytest.raises(HTTPException) as exc:
+        await delete_agent("agent-1", auth_nonce=ch["nonce"], auth_signature=_sign(ch["message"], owner))
+
+    assert exc.value.status_code == 409
+    assert "agent-1" in db.agents
+    assert "agent-1" not in db.stores.get("archived_agents", {})
+
+
+async def test_unreadable_marketplace_removes_nothing(env, monkeypatch):
+    db, owner = env
+
+    async def rpc_down(_wallet, _chain):
+        raise ConnectionError("rpc down")
+
+    monkeypatch.setattr(agents_router.web3_service, "get_marketplace_listing", rpc_down)
+    ch = await _challenge(db, "delete_agent")
+    with pytest.raises(HTTPException) as exc:
+        await delete_agent("agent-1", auth_nonce=ch["nonce"], auth_signature=_sign(ch["message"], owner))
+
+    assert exc.value.status_code == 503
+    assert "agent-1" in db.agents

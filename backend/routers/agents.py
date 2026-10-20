@@ -24,7 +24,7 @@ from pydantic import BaseModel, field_validator
 from web3 import Web3
 
 from core.agent_auth import require_agent_owner
-from core.agent_mandate import active_mandate
+from core.agent_mandate import active_mandate, revoke_mandate
 from core.config import get_chain_config
 from core.database import get_db
 from core.rate_limit import enforce as enforce_rate_limit
@@ -1406,6 +1406,9 @@ async def get_agent_private_key(agent_id: str) -> str:
 
 
 EVENTS_COLLECTION = "agent_events"
+# Deleted agents keep their record here, private key included: the key is the
+# only way to ever move what is left in the agent's wallet.
+ARCHIVED_AGENTS_COLLECTION = "archived_agents"
 
 
 class ChatRequest(BaseModel):
@@ -2057,12 +2060,17 @@ async def delete_agent(
     auth_signature: str = Query(..., description="Owner's signature over that challenge"),
 ) -> dict:
     """
-    Permanently delete an agent's off-chain record (Firestore doc, events,
+    Remove an agent from the owner's workspace (Firestore doc, events,
     proposals). The on-chain agent and its NFTs are untouched.
 
     Requires the current on-chain owner's signature. A caller-supplied wallet
     address proves nothing — owner addresses are public — and the Firestore
     user_wallet can lag a marketplace sale.
+
+    The agent document holds the only copy of the agent wallet's key, so it is
+    archived (key included) before removal; deleting it outright stranded any
+    gas left in the wallet for good. An agent still listed in the escrow is
+    refused: a buyer would otherwise pay for an agent with no memory or key.
     """
     db = get_db()
 
@@ -2084,6 +2092,30 @@ async def delete_agent(
         nonce=auth_nonce,
         signature=auth_signature,
     )
+    chain_id = int(data.get("chain_id", 5003))
+
+    try:
+        listing = await web3_service.get_marketplace_listing(data.get("agent_wallet", ""), chain_id)
+    except Exception as exc:
+        # An RPC outage must not read as "not listed".
+        raise HTTPException(status_code=503, detail="Could not check the marketplace; try again shortly") from exc
+    if listing and listing.get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail="This agent is listed on the marketplace. Cancel the listing first, then remove it.",
+        )
+
+    try:
+        await db.collection(ARCHIVED_AGENTS_COLLECTION).document(agent_id).set(
+            {**data, "archived_at": time.time(), "archived_by": wallet}
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Failed to archive agent; nothing was removed") from exc
+
+    try:
+        await revoke_mandate(db, agent_id=agent_id, chain_id=chain_id, reason="agent removed by owner")
+    except Exception as exc:
+        logger.warning("Could not revoke mandate for removed agent %s: %s", agent_id, exc)
 
     # Delete agent doc
     try:
