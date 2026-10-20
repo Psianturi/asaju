@@ -9,7 +9,8 @@ import { MagnifyingGlass, Globe, CheckCircle, ListBullets } from '@phosphor-icon
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { ScoutDecisionTable } from '@/components/ScoutDecisionTable'
-import { cloudRunService } from '@/services/cloudRunService'
+import { cloudRunService, mandateService } from '@/services/cloudRunService'
+import { DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
 
 interface ProactiveScoutingPanelProps {
@@ -45,14 +46,26 @@ export function ProactiveScoutingPanel({ agent, onToggleScout, onApproveEvent }:
       toast.error('Proactive Scouting requires Level 2+')
       return
     }
-    onToggleScout(agent.id, enabled)
-    if (enabled) {
-      toast.success('Proactive Scouting Enabled', {
-        description: 'Agent will now scan for relevant events automatically'
-      })
-    } else {
+    if (!enabled) {
+      onToggleScout(agent.id, false)
       toast.info('Proactive Scouting Disabled')
+      return
     }
+    // Background runs need the owner's signed mandate; switching on without
+    // one would look enabled and never run.
+    mandateService.status(agent.id, agent.chainId ?? DEFAULT_CHAIN_ID)
+      .then(st => {
+        if (st.active) {
+          onToggleScout(agent.id, true)
+          toast.success('Proactive Scouting Enabled', { description: 'Agent will now scan for relevant events automatically' })
+        } else {
+          toast.info('One signature first', {
+            description: 'Auto-Scout needs your mandate to run while you are away. Grant it on the agent page.',
+            action: { label: 'Open agent', onClick: () => { window.location.hash = `agent/${agent.id}` } },
+          })
+        }
+      })
+      .catch(() => toast.error('Could not check Auto-Scout permission', { description: 'Check your connection and try again.' }))
   }
 
   const handleApprove = (eventId: string) => {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Robot, Storefront } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Storefront } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +13,7 @@ import { getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/c
 import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
-import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
+import { AutoScoutCard } from '@/components/AutoScoutCard'
 import { TermHint } from '@/components/TermHint'
 import { NetworkMismatchBanner } from '@/components/NetworkMismatchBanner'
 import { GLOSSARY } from '@/lib/glossary'
@@ -356,40 +356,9 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
         </Card>
       )}
 
-      {/* Auto-Scout toggle — the only place this control actually lives.
-          The dashboard's "enable Auto-Scout" banner links here; before this,
-          it landed on a page with no way to act on it. Milestone-based
-          minting means gas is only spent at level-ups, not per video, so
-          this is safe to leave on. */}
-      {onToggleScout && (
-        <Card className="glass-card-hover p-4 border border-border/30">
-          <div className="flex items-center gap-3">
-            <Robot
-              size={18}
-              className={agent.autoScoutEnabled ? 'text-emerald-500' : 'text-muted-foreground'}
-              weight="fill"
-            />
-            <div className="flex-1">
-              <p className="text-sm font-semibold">Auto-Scout</p>
-              <p className="text-[10px] text-muted-foreground">
-                {!AUTO_SCOUT_AVAILABLE
-                  ? AUTO_SCOUT_PAUSED_COPY
-                  : agent.autoScoutEnabled
-                    ? 'The agent searches YouTube on its own and mints when it hits a milestone.'
-                    : 'Off — the agent only learns when you submit a video manually.'}
-              </p>
-            </div>
-            <Switch
-              checked={agent.autoScoutEnabled || false}
-              // While paused an owner may still switch it off, but not on.
-              disabled={!AUTO_SCOUT_AVAILABLE && !agent.autoScoutEnabled}
-              onCheckedChange={(checked) => onToggleScout(agent.id, checked)}
-              aria-label={agent.autoScoutEnabled ? 'Disable auto-scout' : 'Enable auto-scout'}
-              className="data-[state=checked]:bg-emerald-500"
-            />
-          </div>
-        </Card>
-      )}
+      {/* Auto-Scout and the mandate that lets it run unattended. The
+          dashboard's "enable Auto-Scout" banner links here. */}
+      {onToggleScout && <AutoScoutCard agent={agent} onToggleScout={onToggleScout} />}
 
       {/* Wisdom timeline */}
       <Card className="glass-card-hover p-6 border border-primary/20">

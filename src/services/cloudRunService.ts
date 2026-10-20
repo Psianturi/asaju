@@ -1694,3 +1694,75 @@ export const agentRoomService = {
     }, roomKey)
   },
 }
+
+// ── Auto-Scout mandate ───────────────────────────────────────────────────────
+// A mandate is the owner's one-time signed permission for background learning
+// (attend_event only: no trading, no transfers). The scheduler needs one
+// because it holds no wallet.
+
+export interface AgentMandate {
+  owner_wallet: string
+  chain_id: number
+  scopes: string[]
+  max_runs_per_day: number
+  runs_used_today: number
+  runs_day: string
+  expires_at: number
+  last_used_at?: number
+}
+
+export interface MandateStatus {
+  active: boolean
+  mandate: AgentMandate | null
+  history_count: number
+}
+
+export interface SignChallenge {
+  nonce: string
+  message: string
+  expires_at: number
+}
+
+export interface ScoutRunResult {
+  status: 'attended' | 'no_new_events' | 'skipped' | string
+  message?: string
+  reason_code?: string
+}
+
+const mandateQuery = (params: Record<string, string | number>) =>
+  new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+
+export const mandateService = {
+  async status(agentId: string, chainId: number): Promise<MandateStatus> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate?${mandateQuery({ agent_id: agentId, chain_id: chainId })}`)
+    return handleAPIResponse<MandateStatus>(res)
+  },
+
+  async request(agentId: string, agentWallet: string, chainId: number, maxRunsPerDay: number): Promise<SignChallenge> {
+    const q = mandateQuery({ agent_id: agentId, agent_wallet: agentWallet, chain_id: chainId, scopes: 'attend_event', max_runs_per_day: maxRunsPerDay })
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate?${q}`, { method: 'POST' })
+    return handleAPIResponse<SignChallenge>(res)
+  },
+
+  async confirm(nonce: string, signature: string): Promise<AgentMandate> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate/confirm?${mandateQuery({ nonce, signature })}`, { method: 'POST' })
+    return handleAPIResponse<AgentMandate>(res)
+  },
+
+  async requestRevoke(agentId: string, chainId: number): Promise<SignChallenge> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate/revoke?${mandateQuery({ agent_id: agentId, chain_id: chainId })}`, { method: 'POST' })
+    return handleAPIResponse<SignChallenge>(res)
+  },
+
+  async confirmRevoke(nonce: string, signature: string): Promise<{ revoked: boolean }> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate/revoke/confirm?${mandateQuery({ nonce, signature })}`, { method: 'POST' })
+    return handleAPIResponse<{ revoked: boolean }>(res)
+  },
+
+  /** One scout cycle now, spending one run of the mandate's daily budget. */
+  async runNow(agentId: string): Promise<ScoutRunResult> {
+    // Discovery + summary + mint can take a while on a cold instance.
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}/scout`, { method: 'POST' }, 120_000)
+    return handleAPIResponse<ScoutRunResult>(res)
+  },
+}

@@ -184,7 +184,9 @@ async def grant_mandate(
     if not doc.exists:
         raise HTTPException(status_code=401, detail="Unknown or expired mandate request")
     challenge = doc.to_dict() or {}
-    if float(challenge.get("expires_at") or 0) < time.time():
+    # `expires_at` is the mandate's own expiry (days away); the request to sign
+    # it lapses after MANDATE_CHALLENGE_TTL_SECONDS like every other challenge.
+    if float(challenge.get("created_at") or 0) + MANDATE_CHALLENGE_TTL_SECONDS < time.time():
         raise HTTPException(status_code=401, detail="Mandate request expired — start again")
 
     try:

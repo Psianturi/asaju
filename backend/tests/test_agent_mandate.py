@@ -322,3 +322,24 @@ async def test_mandate_survives_a_normal_run(monkeypatch):
             db, agent_id="agent-1", chain_id=97, action="attend_event"
         ) is not None
     assert db.mandates["agent-1:97"]["runs_used_today"] == 3
+
+async def test_request_to_sign_lapses_after_ten_minutes(monkeypatch):
+    """The mandate lasts days, but the request to sign it must not: an unused
+    signing request should not stay redeemable for a week."""
+    import time as _time
+
+    owner = Account.create()
+    db = _FakeDb()
+    db.agents["agent-1"] = {"agent_wallet": "0x" + "aa" * 20, "ownership_epoch": 0}
+    _patch_owner(monkeypatch, owner.address)
+    challenge = await issue_mandate_challenge(
+        db, agent_id="agent-1", agent_wallet="0x" + "aa" * 20, chain_id=97,
+        scopes=["attend_event"], max_runs_per_day=2,
+    )
+    signature = _sign(challenge["message"], owner)
+    later = _time.time() + agent_mandate.MANDATE_CHALLENGE_TTL_SECONDS + 5
+    monkeypatch.setattr(agent_mandate.time, "time", lambda: later)
+
+    with pytest.raises(HTTPException) as exc:
+        await grant_mandate(db, nonce=challenge["nonce"], signature=signature)
+    assert exc.value.status_code == 401
