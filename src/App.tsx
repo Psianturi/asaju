@@ -51,6 +51,7 @@ import { ContractVerificationData, verificationService } from '@/lib/blockchain/
 import { CONTRACT_ADDRESSES } from '@/lib/blockchain/config'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import { privyEnabled, OPEN_WALLET_PICKER } from '@/lib/privy'
+import { markReturningUser, clearReturningUser, STAY_HOME } from '@/lib/returningUser'
 import { ChainSelector } from '@/components/ChainSelector'
 import { NetworkMismatchAlert } from '@/components/NetworkMismatchAlert'
 import { DEFAULT_CHAIN_ID, getChain } from '@/lib/blockchain/chains'
@@ -452,6 +453,7 @@ function App() {
       const now = Date.now().toString()
       localStorage.setItem(WALLET_SESSION_KEY, now)
       localStorage.setItem(WALLET_LAST_ACTIVITY_KEY, now)
+      markReturningUser()
       // Clear any previous wallet's data before loading new wallet's data
       setAgents([])
       setEvents([])
@@ -529,6 +531,7 @@ function App() {
   const handleWalletDisconnect = () => {
     blockchain.disconnectWallet()
     localStorage.removeItem(WALLET_SESSION_KEY)
+    clearReturningUser()
     setWalletConnected(false)
     setWalletAddress(undefined)
     setWalletChainId(undefined)
@@ -1206,14 +1209,14 @@ function App() {
               {/* Left: Home icon + Logo */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => navigate('/')}
+                  onClick={() => navigate('/', { state: STAY_HOME })}
                   className="hidden sm:flex w-8 h-8 rounded-lg items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
                   title="Back to home"
                 >
                   <House size={16} weight="duotone" />
                 </button>
                 {/* The logo doubles as the home link, which is all a phone has room for. */}
-                <button onClick={() => navigate('/')} className="flex items-center gap-2" title="Back to home">
+                <button onClick={() => navigate('/', { state: STAY_HOME })} className="flex items-center gap-2" title="Back to home">
                   <img
                     src={maefLogo}
                     alt="ASAJU AI"
