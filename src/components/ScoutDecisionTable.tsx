@@ -22,6 +22,7 @@ const REASON_CODE_LABELS: Record<string, { label: string; color: string }> = {
   LOW_GAS:           { label: 'Low gas',          color: 'text-red-400 bg-red-500/10 border-red-500/30' },
   MINT_CAP_REACHED:  { label: 'Mint cap',         color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
   AGENT_NOT_AUTHORIZED: { label: 'Not authorized', color: 'text-red-400 bg-red-500/10 border-red-500/30' },
+  NO_MANDATE:        { label: 'No mandate',       color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
 }
 
 function ScoreBar({ score, threshold }: { score: number | null; threshold: number | null }) {

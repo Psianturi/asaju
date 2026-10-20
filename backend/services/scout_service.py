@@ -286,10 +286,19 @@ async def _score_candidates_with_gemini(
     return scored_candidates
 
 
-def _threshold_for_balance(balance_mnt: float) -> int:
-    if balance_mnt >= 0.15:
+def _threshold_for_balance(balance: float, provision: float) -> int:
+    """Score an agent's pick must reach before it spends gas, by how full its
+    wallet is relative to this chain's starting provision.
+
+    The old absolute cut-offs (0.15 / 0.08 MNT) only made sense on Mantle; on
+    chains whose provision is far smaller, every agent read as nearly empty and
+    needed 95/100, so Auto Scout skipped almost everything. The ratios below
+    reproduce the Mantle behaviour (0.15 and 0.08 of a 0.5 provision).
+    """
+    ratio = balance / provision if provision > 0 else 0.0
+    if ratio >= 0.30:
         return 80
-    if balance_mnt >= 0.08:
+    if ratio >= 0.16:
         return 90
     return 95
 
@@ -301,6 +310,7 @@ async def discover_event(
     agent_wallet: str,
     custom_instructions: str | None = None,
     additional_niches: list[str] | None = None,
+    chain_id: int = 5003,
 ) -> dict[str, Any]:
     """Full Secretary workflow with hybrid filtering, RPC gas thresholding, and rational skip decisions."""
     from core.database import get_db
@@ -401,17 +411,24 @@ async def discover_event(
         }
 
     try:
-        agent_gas_balance = await web3_service.get_native_balance(agent_wallet)
+        # The agent's own chain: reading Mantle for a BNB or Robinhood agent
+        # returned 0 and pinned every run to the strictest threshold.
+        agent_gas_balance = await web3_service.get_native_balance(agent_wallet, chain_id)
     except Exception as exc:
         logger.warning("Secretary RPC balance check failed for %s: %s", agent_id, type(exc).__name__)
         return {
             "status": "skipped",
             "reason_code": "RPC_UNAVAILABLE",
-            "message": "Failed to read on-chain MNT balance before decision gate.",
+            "message": f"Failed to read the agent's gas balance on chain {chain_id} before the decision gate.",
             "error": str(exc),
         }
+    try:
+        provision = await web3_service.get_agent_provision(chain_id)
+    except Exception as exc:
+        logger.warning("agentProvision read failed for chain %d (%s); assuming 0.5", chain_id, type(exc).__name__)
+        provision = 0.5
 
-    threshold = _threshold_for_balance(agent_gas_balance)
+    threshold = _threshold_for_balance(agent_gas_balance, provision)
     top_candidate = scored_candidates[0]
     top_candidate["threshold_applied"] = threshold
     top_candidate["agent_gas_balance"] = agent_gas_balance

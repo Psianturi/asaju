@@ -421,12 +421,15 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
                 signature=req.auth_signature,
             )
         else:
-            mandate = await consume_mandate_run(
-                db,
-                agent_id=req.agent_id,
-                chain_id=req.chain_id,
-                action="attend_event",
-            )
+            try:
+                mandate = await consume_mandate_run(
+                    db,
+                    agent_id=req.agent_id,
+                    chain_id=req.chain_id,
+                    action="attend_event",
+                )
+            except PermissionError as exc:
+                raise HTTPException(status_code=403, detail={"code": "NO_MANDATE", "message": str(exc)}) from exc
             logger.info(
                 "Mode B via mandate: agent %s acting under a mandate owned by %s "
                 "(%d/%d runs used today)",

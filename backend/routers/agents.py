@@ -1641,6 +1641,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     agent_wallet = data.get("agent_wallet", "")
     custom_instructions = data.get("custom_instructions")
     is_funded = data.get("funded", False)
+    chain_id = int(data.get("chain_id") or 5003)
 
     if not agent_wallet:
         raise HTTPException(status_code=400, detail="Agent has no wallet address")
@@ -1672,6 +1673,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             agent_wallet=agent_wallet,
             custom_instructions=custom_instructions,
             additional_niches=additional_niches,
+            chain_id=chain_id,
         )
     except RuntimeError as exc:
         msg = str(exc)
@@ -1750,17 +1752,20 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     weekly_cap = int(data.get("weekly_mint_cap", 10))
 
     async def _count_recent_mints(window_seconds: float) -> int:
+        # Counted from this agent's own scout log. Attended events carry no
+        # "source" field, so counting them by source never found a single
+        # Auto Scout mint and the cap never applied.
         cutoff = time.time() - window_seconds
         count = 0
         try:
-            async for ev_doc in (
-                db.collection(EVENTS_COLLECTION)
+            async for log_doc in (
+                db.collection(SCOUT_LOGS_COLLECTION)
                 .where(filter=FieldFilter("agent_id", "==", agent_id))
-                .where(filter=FieldFilter("created_at", ">=", cutoff))
+                .where(filter=FieldFilter("action", "==", "MINTED"))
+                .where(filter=FieldFilter("run_at", ">=", cutoff))
                 .stream()
             ):
-                ev = ev_doc.to_dict() or {}
-                if ev.get("source") in ("auto_scout", "scout", "scheduler"):
+                if (log_doc.to_dict() or {}).get("minted") is not False:
                     count += 1
         except Exception as exc:
             logger.warning(
@@ -1828,7 +1833,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
         platform="YouTube",
         niche=niche,
         mode_b=is_funded,
-        chain_id=int(data.get("chain_id", 5003)),
+        chain_id=chain_id,
     )
 
     try:
@@ -1847,6 +1852,8 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
                 reason_code = "LLM_UNAVAILABLE"
             elif code == "AGENT_NOT_AUTHORIZED":
                 reason_code = "LLM_UNAVAILABLE"
+            elif code == "NO_MANDATE":
+                reason_code = "NO_MANDATE"
             reason_description = str(detail.get("message") or reason_description)
         elif isinstance(detail, str):
             lower = detail.lower()
@@ -1901,7 +1908,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     try:
         from services.web3_service import web3_service
 
-        gas_balance = await web3_service.get_native_balance(agent_wallet)
+        gas_balance = await web3_service.get_native_balance(agent_wallet, chain_id)
     except Exception:
         gas_balance = decision.get("agent_gas_balance")
 

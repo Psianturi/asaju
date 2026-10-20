@@ -1763,6 +1763,16 @@ export const mandateService = {
   async runNow(agentId: string): Promise<ScoutRunResult> {
     // Discovery + summary + mint can take a while on a cold instance.
     const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}/scout`, { method: 'POST' }, 120_000)
-    return handleAPIResponse<ScoutRunResult>(res)
+    if (!res.ok) {
+      // Show the backend's own reason (missing YouTube key, no mandate, out of
+      // gas…) instead of the generic text handleAPIResponse uses for 5xx.
+      let message = `Scout run failed (HTTP ${res.status})`
+      try {
+        const detail = (await res.json())?.detail
+        message = (typeof detail === 'string' ? detail : detail?.message) || message
+      } catch { /* keep the status text */ }
+      throw new Error(message)
+    }
+    return res.json() as Promise<ScoutRunResult>
   },
 }

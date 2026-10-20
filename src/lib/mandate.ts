@@ -32,6 +32,9 @@ export function describeScoutRun(r: ScoutRunResult): { tone: 'success' | 'info' 
     MINT_CAP_REACHED: 'Daily mint limit reached. It will continue tomorrow.',
     INSUFFICIENT_GAS: "The agent's wallet is low on gas. Top it up and try again.",
     YOUTUBE_API_LIMIT: 'YouTube search quota is used up for today.',
+    LOW_SCORE: 'No video was good enough to spend gas on this time.',
+    DUPLICATE_TOPIC: 'The best videos repeat what it learned recently, so it skipped them.',
   }
-  return { tone: 'warning', text: (r.reason_code && why[r.reason_code]) || r.message || 'Skipped this time.' }
+  // The backend's own message carries the numbers (score vs threshold, caps).
+  return { tone: 'warning', text: r.message || (r.reason_code && why[r.reason_code]) || 'Skipped this time.' }
 }
