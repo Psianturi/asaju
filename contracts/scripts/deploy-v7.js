@@ -91,6 +91,10 @@ async function main() {
     if (!ethers.isAddress(v)) throw new Error(`${k} is not an address: ${v}`);
   }
   if ((await ethers.provider.getCode(legacy)) === "0x") throw new Error(`No contract at legacy address ${legacy}.`);
+  // A Safe exists per chain; an empty address here would leave V7 with no reachable admin.
+  if ((await ethers.provider.getCode(safe)) === "0x" && process.env.V7_SAFE_IS_EOA !== "yes") {
+    throw new Error(`V7_SAFE ${safe} has no contract on chain ${chainId}. Activate the Safe on this network first (Safe app → Add another network), or set V7_SAFE_IS_EOA=yes for a plain wallet.`);
+  }
   if (paymentToken !== ZERO && (await ethers.provider.getCode(paymentToken)) === "0x") throw new Error(`No contract at payment token ${paymentToken}.`);
   if (chain.kind === "V4" && migrationSigner === ZERO) console.warn("WARNING: no V7_MIGRATION_SIGNER — Mantle agents cannot migrate until the timelock sets one.");
 
