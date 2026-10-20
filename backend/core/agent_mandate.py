@@ -243,7 +243,23 @@ async def grant_mandate(
         "mandate granted: agent=%s scopes=%s owner=%s until=%s",
         agent_id, mandate["scopes"], current_owner, mandate["expires_at"],
     )
+    if "attend_event" in mandate["scopes"]:
+        await _set_auto_scout(db, agent_id, True)
     return mandate
+
+
+async def _set_auto_scout(db, agent_id: str, enabled: bool) -> None:
+    """auto_scout_enabled mirrors the signed mandate: only grant/revoke flip it,
+    so nobody can switch another owner's background runs on or off unsigned."""
+    update: dict[str, Any] = {"auto_scout_enabled": enabled}
+    if enabled:
+        update.update({"auto_scout_disabled_reason": None, "auto_scout_disabled_at": None})
+    try:
+        await db.collection("agents").document(agent_id).update(update)
+    except Exception as exc:
+        # The mandate itself is the gate for every run, so a failed flag write
+        # can only make the scheduler skip or pick up an agent; log and move on.
+        logger.warning("mandate: could not set auto_scout_enabled=%s on %s: %s", enabled, agent_id, exc)
 
 
 async def _current_epoch(db, agent_id: str) -> int:
@@ -312,6 +328,7 @@ async def active_mandate(
         logger.info(
             "mandate for agent %s revoked: owner moved to %s", agent_id, current_owner
         )
+        await _set_auto_scout(db, agent_id, False)
         return None
 
     # Sold away and sold back: same owner again, but a different epoch, so the
@@ -328,6 +345,7 @@ async def active_mandate(
             "mandate for agent %s revoked: epoch %s -> %s",
             agent_id, mandate.get("ownership_epoch"), epoch,
         )
+        await _set_auto_scout(db, agent_id, False)
         return None
 
     return mandate
@@ -387,6 +405,7 @@ async def revoke_mandate(
         return False
     await ref.update({"revoked_at": time.time(), "revoked_reason": reason})
     logger.info("mandate for agent %s revoked: %s", agent_id, reason)
+    await _set_auto_scout(db, agent_id, False)
     return True
 
 

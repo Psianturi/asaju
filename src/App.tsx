@@ -47,6 +47,7 @@ import { useBlockchain } from '@/hooks/useBlockchain'
 import { useScoutLogListener } from '@/hooks/useScoutLogListener'
 import { useSubAgentTasks } from '@/hooks/useSubAgentTasks'
 import { CloudRunAPIError, cloudRunService, validateEventUrl } from '@/services/cloudRunService'
+import { signAgentAction } from '@/lib/agentAuth'
 import { ContractVerificationData, verificationService } from '@/lib/blockchain/verificationService'
 import { CONTRACT_ADDRESSES } from '@/lib/blockchain/config'
 import { mantleService } from '@/lib/blockchain/mantleService'
@@ -861,16 +862,18 @@ function App() {
     setConfigDialogOpen(true)
   }
 
-  const handleSaveAgentConfig = (agentId: string, instructions: string, customAgenda: string) => {
+  const handleSaveAgentConfig = async (agentId: string, instructions: string, customAgenda: string) => {
+    const agent = (agents ?? []).find((a) => a.id === agentId)
+    if (!agent) throw new Error('Agent not found')
+    // Instructions feed the agent's prompts, so the backend only accepts them
+    // with the current owner's signature. Update local state after it agrees.
+    const auth = await signAgentAction(agent, 'update_config')
+    await cloudRunService.updateAgentState(agentId, { customInstructions: instructions, customAgenda }, auth)
     setAgents((current) =>
       (current ?? []).map((a) =>
         a.id === agentId ? { ...a, customInstructions: instructions, customAgenda } : a
       )
     )
-
-    void cloudRunService.updateAgentState(agentId, { customInstructions: instructions, customAgenda }).catch((error) => {
-      console.warn('[cloudRunService] failed to persist agent config:', error)
-    })
   }
 
   const handleToggleScout = (agentId: string, enabled: boolean) => {
@@ -903,9 +906,8 @@ function App() {
       }
     }
 
-    void cloudRunService.updateAgentState(agentId, { autoScoutEnabled: enabled }).catch((error) => {
-      console.warn('[cloudRunService] failed to persist auto scout state:', error)
-    })
+    // Local view only: the backend switches auto_scout_enabled itself when the
+    // owner signs a mandate grant or revoke.
   }
 
   const [scoutingAgentId, setScoutingAgentId] = useState<string | null>(null)
@@ -1023,19 +1025,25 @@ function App() {
     )
   }
 
-  const handleSaveCustomAgenda = (agentId: string, agenda: string) => {
-    setAgents((current) =>
-      (current ?? []).map((a) =>
-        a.id === agentId ? { ...a, customAgenda: agenda } : a
+  const handleSaveCustomAgenda = async (agentId: string, agenda: string) => {
+    const agent = (agents ?? []).find((a) => a.id === agentId)
+    if (!agent) return
+    try {
+      const auth = await signAgentAction(agent, 'update_config')
+      await cloudRunService.updateAgentState(agentId, { customAgenda: agenda }, auth)
+      setAgents((current) =>
+        (current ?? []).map((a) =>
+          a.id === agentId ? { ...a, customAgenda: agenda } : a
+        )
       )
-    )
-    toast.success('Custom Agenda Updated', {
-      description: 'Agent will now scout events based on your custom criteria'
-    })
-
-    void cloudRunService.updateAgentState(agentId, { customAgenda: agenda }).catch((error) => {
-      console.warn('[cloudRunService] failed to persist custom agenda:', error)
-    })
+      toast.success('Custom Agenda Updated', {
+        description: 'Agent will now scout events based on your custom criteria'
+      })
+    } catch (error) {
+      toast.error('Agenda not saved', {
+        description: error instanceof Error ? error.message : 'The signature was declined or the save failed.',
+      })
+    }
   }
 
   const handleChatWithAgent = (agent: Agent) => {
@@ -1080,7 +1088,8 @@ function App() {
       return
     }
     try {
-      await cloudRunService.deleteAgent(agent.id, walletAddress)
+      const auth = await signAgentAction(agent, 'delete_agent')
+      await cloudRunService.deleteAgent(agent.id, auth)
       setAgents(current => (current ?? []).filter(a => a.id !== agent.id))
       toast.success(`${agent.name} removed`, { description: 'Agent deleted from dashboard' })
     } catch (err: unknown) {

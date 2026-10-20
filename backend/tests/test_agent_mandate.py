@@ -292,6 +292,42 @@ async def test_owner_can_revoke(monkeypatch):
     ) is None
 
 
+async def test_grant_switches_auto_scout_on_and_clears_the_pause(monkeypatch):
+    owner = Account.create()
+    db = _FakeDb()
+    db.agents["agent-1"] = {
+        "agent_wallet": "0x" + "aa" * 20,
+        "auto_scout_enabled": False,
+        "auto_scout_disabled_reason": "Auto-disabled after 3 consecutive LOW_GAS scout runs.",
+    }
+    await _grant(db, monkeypatch, owner)
+
+    assert db.agents["agent-1"]["auto_scout_enabled"] is True
+    assert db.agents["agent-1"]["auto_scout_disabled_reason"] is None
+
+
+async def test_revoke_switches_auto_scout_off(monkeypatch):
+    owner = Account.create()
+    db = _FakeDb()
+    await _grant(db, monkeypatch, owner)
+    assert db.agents["agent-1"]["auto_scout_enabled"] is True
+
+    await revoke_mandate(db, agent_id="agent-1", chain_id=97)
+    assert db.agents["agent-1"]["auto_scout_enabled"] is False
+
+
+async def test_sale_switches_auto_scout_off(monkeypatch):
+    owner, buyer = Account.create(), Account.create()
+    db = _FakeDb()
+    await _grant(db, monkeypatch, owner)
+
+    _patch_owner(monkeypatch, buyer.address)
+    assert await active_mandate(
+        db, agent_id="agent-1", chain_id=97, action="attend_event"
+    ) is None
+    assert db.agents["agent-1"]["auto_scout_enabled"] is False
+
+
 async def test_unverifiable_ownership_blocks_the_mandate(monkeypatch):
     """If the chain cannot be read we must not act on a mandate we cannot
     check. A stale mandate is exactly what this guards against."""

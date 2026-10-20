@@ -142,7 +142,10 @@ export function AutoScoutCard({ agent, onToggleScout }: {
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           {!agent.autoScoutEnabled && (
-            <Button size="sm" onClick={() => onToggleScout(agent.id, true)} disabled={busy !== null}>Turn on</Button>
+            <Button size="sm" onClick={grant} disabled={busy !== null}
+              title="Paused (for example after low gas). Re-sign to resume background runs.">
+              {busy === 'grant' ? 'Waiting for signature…' : 'Sign & resume'}
+            </Button>
           )}
           <Button size="sm" variant="outline" onClick={runNow} disabled={busy !== null || info!.spent}
             title={info!.spent ? 'Today’s runs are used up' : 'Runs one cycle now under the mandate, without another signature'}>

@@ -66,17 +66,17 @@ export interface MarkAgentFundedResponse {
   funded: boolean
 }
 
+// Only owner-editable text. Auto-Scout on/off follows the signed mandate and
+// breeding fields are written by the server, so neither is sent from here.
 export interface UpdateAgentStateRequest {
   customInstructions?: string
-  autoScoutEnabled?: boolean
   customAgenda?: string
-  generation?: number
-  parentIds?: string[]
-  breedingCount?: number
-  maxBreedings?: number
-  geneticTraits?: string[]
-  lastBreedingTime?: number
-  breedingCooldownHours?: number
+}
+
+/** A signed agent-auth challenge, proving the caller is the current owner. */
+export interface AgentAuth {
+  nonce: string
+  signature: string
 }
 
 export interface AssignEventRequest {
@@ -716,18 +716,12 @@ export const cloudRunService = {
     return handleAPIResponse<MarkAgentFundedResponse>(response)
   },
 
-  async updateAgentState(agentId: string, state: UpdateAgentStateRequest): Promise<void> {
+  async updateAgentState(agentId: string, state: UpdateAgentStateRequest, auth: AgentAuth): Promise<void> {
     const backendPayload = {
       custom_instructions: state.customInstructions,
-      auto_scout_enabled: state.autoScoutEnabled,
       custom_agenda: state.customAgenda,
-      generation: state.generation,
-      parent_ids: state.parentIds,
-      breeding_count: state.breedingCount,
-      max_breedings: state.maxBreedings,
-      genetic_traits: state.geneticTraits,
-      last_breeding_time: state.lastBreedingTime,
-      breeding_cooldown_hours: state.breedingCooldownHours,
+      auth_nonce: auth.nonce,
+      auth_signature: auth.signature,
     }
 
     const response = await fetchWithTimeout(
@@ -794,9 +788,11 @@ export const cloudRunService = {
       action: params.action ?? 'attend_event',
       chain_id: String(params.chainId),
     })
+    // POST, not GET: the backend only registers POST (each call writes a
+    // challenge doc), so a GET here was always a 405.
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/event/agent-auth-challenge?${query.toString()}`,
-      { method: 'GET' },
+      { method: 'POST' },
     )
     return handleAPIResponse<AgentAuthChallenge>(response)
   },
@@ -1035,16 +1031,6 @@ export const cloudRunService = {
     }
   },
 
-  async updateAgentInstructions(agentId: string, instructions: string): Promise<{ success: boolean }> {
-    try {
-      await cloudRunService.updateAgentState(agentId, { customInstructions: instructions })
-      return { success: true }
-    } catch (error) {
-      if (error instanceof CloudRunAPIError) throw error
-      throw new CloudRunAPIError('Failed to update agent instructions', undefined, error)
-    }
-  },
-
   async healthCheck(): Promise<{ status: string; version: string; autonomous_execution_enabled?: boolean }> {
     try {
       const response = await fetchWithTimeout(
@@ -1219,9 +1205,10 @@ export const cloudRunService = {
 
   // ── Agent Management ────────────────────────────────────────────────────────
 
-  async deleteAgent(agentId: string, walletAddress: string): Promise<void> {
+  async deleteAgent(agentId: string, auth: AgentAuth): Promise<void> {
+    const query = new URLSearchParams({ auth_nonce: auth.nonce, auth_signature: auth.signature })
     const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}?wallet=${encodeURIComponent(walletAddress)}`,
+      `${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}?${query.toString()}`,
       { method: 'DELETE' },
     )
     await handleAPIResponse<{ status: string }>(response)

@@ -23,6 +23,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import BaseModel, field_validator
 from web3 import Web3
 
+from core.agent_auth import require_agent_owner
 from core.config import get_chain_config
 from core.database import get_db
 from core.kms_service import decrypt_private_key, encrypt_private_key
@@ -379,16 +380,13 @@ class BreedRequest(BaseModel):
 
 
 class UpdateAgentStateRequest(BaseModel):
+    # Only owner-editable text. Breeding fields are server-written, and
+    # auto_scout_enabled follows the signed mandate (grant/revoke), so neither
+    # is accepted here.
     custom_instructions: str | None = None
-    auto_scout_enabled: bool | None = None
     custom_agenda: str | None = None
-    generation: int | None = None
-    parent_ids: list[str] | None = None
-    breeding_count: int | None = None
-    max_breedings: int | None = None
-    genetic_traits: list[str] | None = None
-    last_breeding_time: float | None = None
-    breeding_cooldown_hours: int | None = None
+    auth_nonce: str
+    auth_signature: str
 
 
 class ScoutLogMetricsResponse(BaseModel):
@@ -1327,7 +1325,20 @@ async def update_agent_state(agent_id: str, req: UpdateAgentStateRequest) -> dic
     if not doc.exists:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
-    payload = req.model_dump(exclude_none=True)
+    data = doc.to_dict() or {}
+    # custom_instructions is injected into the agent's prompts, so an unsigned
+    # write here would let anyone who knows an agent_id steer another owner's agent.
+    await require_agent_owner(
+        db,
+        agent_id=agent_id,
+        agent_wallet=data.get("agent_wallet", ""),
+        action="update_config",
+        chain_id=int(data.get("chain_id", 5003)),
+        nonce=req.auth_nonce,
+        signature=req.auth_signature,
+    )
+
+    payload = req.model_dump(exclude_none=True, exclude={"auth_nonce", "auth_signature"})
     if not payload:
         return {"status": "noop", "agent_id": agent_id, "updated_fields": []}
 
@@ -1968,17 +1979,17 @@ PROPOSALS_COLLECTION = "proposals"
 @router.delete("/{agent_id}", status_code=200)
 async def delete_agent(
     agent_id: str,
-    wallet: str = Query(..., description="Owner wallet address — must match agent's user_wallet"),
+    auth_nonce: str = Query(..., description="Nonce from /api/v1/event/agent-auth-challenge (action=delete_agent)"),
+    auth_signature: str = Query(..., description="Owner's signature over that challenge"),
 ) -> dict:
     """
-    Soft-delete an agent from Firestore.
-    Validates that the requesting wallet owns the agent before deleting.
-    Also cleans up associated events and proposals.
-    """
-    if not Web3.is_address(wallet):
-        raise HTTPException(status_code=400, detail="Invalid wallet address")
-    wallet = Web3.to_checksum_address(wallet)
+    Permanently delete an agent's off-chain record (Firestore doc, events,
+    proposals). The on-chain agent and its NFTs are untouched.
 
+    Requires the current on-chain owner's signature. A caller-supplied wallet
+    address proves nothing — owner addresses are public — and the Firestore
+    user_wallet can lag a marketplace sale.
+    """
     db = get_db()
 
     try:
@@ -1990,9 +2001,15 @@ async def delete_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     data = doc.to_dict() or {}
-    owner = data.get("user_wallet", "")
-    if owner.lower() != wallet.lower():
-        raise HTTPException(status_code=403, detail="Wallet does not own this agent")
+    wallet = await require_agent_owner(
+        db,
+        agent_id=agent_id,
+        agent_wallet=data.get("agent_wallet", ""),
+        action="delete_agent",
+        chain_id=int(data.get("chain_id", 5003)),
+        nonce=auth_nonce,
+        signature=auth_signature,
+    )
 
     # Delete agent doc
     try:

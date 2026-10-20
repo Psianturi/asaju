@@ -47,8 +47,12 @@ export function ProactiveScoutingPanel({ agent, onToggleScout, onApproveEvent }:
       return
     }
     if (!enabled) {
-      onToggleScout(agent.id, false)
-      toast.info('Proactive Scouting Disabled')
+      // Stopping is signed too (it revokes the mandate); flipping only the
+      // switch here would look off while the backend kept running.
+      toast.info('Stop it with one signature', {
+        description: 'Auto-Scout runs under your signed mandate. Revoke it on the agent page to stop background runs.',
+        action: { label: 'Open agent', onClick: () => { window.location.hash = `agent/${agent.id}` } },
+      })
       return
     }
     // Background runs need the owner's signed mandate; switching on without

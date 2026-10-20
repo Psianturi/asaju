@@ -12,7 +12,8 @@ interface AgentConfigDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   agent: Agent
-  onSave: (agentId: string, instructions: string, customAgenda: string) => void
+  /** Signs and persists; rejects if the owner declines or the save fails. */
+  onSave: (agentId: string, instructions: string, customAgenda: string) => Promise<void>
 }
 
 export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentConfigDialogProps) {
@@ -22,16 +23,20 @@ export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentCo
 
   const handleSave = async () => {
     setIsSaving(true)
-    
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    onSave(agent.id, instructions, customAgenda)
-    setIsSaving(false)
-    onOpenChange(false)
-    
-    toast.success('Agent Configuration Updated!', {
-      description: `${agent.name} has been reconfigured`
-    })
+    try {
+      await onSave(agent.id, instructions, customAgenda)
+      onOpenChange(false)
+      toast.success('Agent Configuration Updated!', {
+        description: `${agent.name} has been reconfigured`
+      })
+    } catch (err) {
+      // Stay open so nothing the owner typed is lost.
+      toast.error('Configuration not saved', {
+        description: err instanceof Error ? err.message : 'The signature was declined or the save failed.',
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const exampleInstructions = {
@@ -160,7 +165,7 @@ export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentCo
               className="flex-1 bg-gradient-to-r from-primary to-accent hover:opacity-90 font-semibold"
             >
               <FloppyDisk className="mr-2" weight="duotone" />
-              {isSaving ? 'Saving...' : 'Save Configuration'}
+              {isSaving ? 'Waiting for signature…' : 'Sign & save'}
             </Button>
           </div>
         </div>
