@@ -181,3 +181,13 @@ async def test_mode_a_without_signature_or_mandate_is_refused(client, monkeypatc
     resp = await _attend(ac, "agent-noauth", "0x" + "ab" * 20)
     assert resp.status_code == 403
     assert resp.json()["detail"]["code"] == "NO_MANDATE"
+
+
+async def test_mandate_cannot_mint_to_another_wallet(client):
+    """A mandate authorises this agent only; the mint target must be its own wallet."""
+    ac, db = client
+    await db.collection("agents").document("agent-bind").set(
+        {"agent_id": "agent-bind", "agent_wallet": "0x" + "ab" * 20, "chain_id": CHAIN_ID, "total_events": 1}
+    )
+    resp = await _attend(ac, "agent-bind", "0x" + "cd" * 20)
+    assert resp.status_code == 409

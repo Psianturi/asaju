@@ -393,6 +393,11 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     agent_data = agent_doc.to_dict() or {}
     if int(agent_data.get("chain_id", 5003)) != req.chain_id:
         raise HTTPException(status_code=409, detail="Agent is registered on a different network")
+    # The mint goes to req.agent_wallet; the mandate path never checks it, so
+    # bind it to this agent here for both paths.
+    recorded_wallet = (agent_data.get("agent_wallet") or "").strip().lower()
+    if not recorded_wallet or recorded_wallet != (req.agent_wallet or "").strip().lower():
+        raise HTTPException(status_code=409, detail="agent_wallet does not belong to this agent")
 
     if not req.event_title:
         req.event_title = "YouTube Event"
