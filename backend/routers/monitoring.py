@@ -13,6 +13,7 @@ from web3 import Web3
 
 from core.database import get_db
 from core.config import get_chain_config
+from core.pending_spawn import confirm_on_chain, is_direct, is_pending
 from services.web3_service import web3_service
 
 logger = logging.getLogger(__name__)
@@ -131,8 +132,10 @@ async def get_spawn_quota(user_wallet: str, chain_id: int = Query(default=5003))
     spawned_agents = []
     for doc in docs:
         data = doc.to_dict() or {}
-        # Count only direct spawns, exclude bred offspring
-        if data.get("ownership_status") != "bred" and data.get("chain_id", 5003) == chain_id:
+        # Count only direct spawns confirmed on-chain (same rule /agent/spawn enforces)
+        if is_direct(data) and data.get("chain_id", 5003) == chain_id:
+            if is_pending(data) and await confirm_on_chain(db, AGENTS_COLLECTION, data) is not True:
+                continue
             spawned_agents.append({
                 "agent_wallet": data.get("agent_wallet"),
                 "agent_name": data.get("agent_name"),

@@ -27,6 +27,7 @@ from core.agent_auth import require_agent_owner
 from core.agent_mandate import active_mandate, revoke_mandate
 from core.config import get_chain_config
 from core.database import get_db
+from core.pending_spawn import archive_abandoned, confirm_on_chain, is_direct, is_pending
 from core.rate_limit import enforce as enforce_rate_limit
 from core.kms_service import decrypt_private_key, encrypt_private_key
 from services.comprehension_service import build_live_scout_log, compute_comprehension
@@ -428,14 +429,18 @@ class ScoutLogResponse(BaseModel):
 
 
 @router.post("/spawn", response_model=SpawnResponse, status_code=201)
-async def spawn_agent(req: SpawnRequest) -> SpawnResponse:
+async def spawn_agent(req: SpawnRequest, request: Request) -> SpawnResponse:
     """
     Creates a new AI agent with its own autonomous wallet, persisted in Firestore.
 
     The agent's private key is stored in Firestore so it survives Cloud Run
     cold starts. The user must call spawnAgent() on the smart contract to
     fund the agent with 0.5 MNT for gas autonomy.
+
+    The record stays pending (hidden, not counted) until the chain confirms
+    spawnAgent(); retrying with the same name resumes the same record.
     """
+    enforce_rate_limit(request, "agent-spawn", limit=10, window_seconds=600)
     agent_id = hashlib.sha256(
         f"{req.user_wallet}:{req.chain_id}:{req.agent_name}".encode()
     ).hexdigest()[:16]
@@ -454,17 +459,26 @@ async def spawn_agent(req: SpawnRequest) -> SpawnResponse:
         data = doc.to_dict()
         return _to_response(data, needs_funding=not data.get("funded", False))
 
-    # Per-wallet, per-chain limit applies only to directly spawned agents.
-    # Bred offspring are excluded — their slot cost is paid via breedAgents() on-chain.
+    # Per-wallet, per-chain limit applies only to directly spawned agents that
+    # exist on-chain. An attempt whose spawnAgent() never landed is not an
+    # agent: it is confirmed if the chain has it, archived once abandoned.
     MAX_AGENTS_PER_WALLET = 3
     try:
         existing_query = db.collection(AGENTS_COLLECTION).where("user_wallet", "==", req.user_wallet)
         existing_docs = await existing_query.get()
-        existing_count = sum(
-            1 for doc in existing_docs
-            if (doc.to_dict() or {}).get("ownership_status") != "bred"
-            and (doc.to_dict() or {}).get("chain_id", 5003) == req.chain_id
-        )
+        existing_count = 0
+        for existing in existing_docs:
+            other = existing.to_dict() or {}
+            if not is_direct(other) or other.get("chain_id", 5003) != req.chain_id:
+                continue
+            if is_pending(other):
+                confirmed = await confirm_on_chain(db, AGENTS_COLLECTION, other)
+                if confirmed is False:
+                    await archive_abandoned(db, AGENTS_COLLECTION, other)
+                    continue
+                if confirmed is None:
+                    continue  # chain unreadable: do not count a slot we cannot prove
+            existing_count += 1
         if existing_count >= MAX_AGENTS_PER_WALLET:
             raise HTTPException(
                 status_code=422,
@@ -1046,6 +1060,16 @@ async def list_agents_by_wallet(
     except Exception as exc:
         logger.error("Firestore query failed for wallet %s: %s", wallet, exc)
         raise HTTPException(status_code=503, detail="Database temporarily unavailable")
+
+    # A direct spawn whose transaction never landed is not an agent yet. Show it
+    # only once the chain confirms it (which also heals a missed /mark-funded).
+    pending = [d for d in docs if is_pending(d)]
+    if pending:
+        confirmed = await asyncio.gather(
+            *(confirm_on_chain(db, AGENTS_COLLECTION, d) for d in pending), return_exceptions=True
+        )
+        hidden = {id(d) for d, ok in zip(pending, confirmed) if ok is not True}
+        docs = [d for d in docs if id(d) not in hidden]
 
     # Refresh gas balances from the chain — a manual top-up is a plain transfer
     # the backend never records, so the cached value goes stale. Parallel,

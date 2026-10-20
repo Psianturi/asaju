@@ -38,6 +38,7 @@ from core.agent_mandate import (
     list_mandates,
 )
 from core.kms_service import decrypt_private_key
+from core.pending_spawn import is_pending
 from core.rate_limit import enforce as enforce_rate_limit
 from services.llm_service import classify_event_niche, summarize_event
 from services.web3_service import web3_service
@@ -393,6 +394,12 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     agent_data = agent_doc.to_dict() or {}
     if int(agent_data.get("chain_id", 5003)) != req.chain_id:
         raise HTTPException(status_code=409, detail="Agent is registered on a different network")
+    # An agent whose spawnAgent() never landed does not exist on-chain yet.
+    if is_pending(agent_data):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AGENT_NOT_ACTIVATED", "message": "This agent is not active on-chain yet. Finish spawning it first."},
+        )
     # The mint goes to req.agent_wallet; the mandate path never checks it, so
     # bind it to this agent here for both paths.
     recorded_wallet = (agent_data.get("agent_wallet") or "").strip().lower()

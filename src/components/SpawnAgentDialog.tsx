@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { cloudRunService } from '@/services/cloudRunService'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import { getChain } from '@/lib/blockchain/chains'
+import { describeSpawnError, formatShortfall, spawnShortfall } from '@/lib/spawnPreflight'
 import { monitoringService, SpawnQuotaResponse } from '@/services/monitoringService'
 import { toast } from 'sonner'
 
@@ -71,9 +72,25 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
       return
     }
 
+    // Check funds before anything is created: a spawn the wallet cannot pay for
+    // used to leave a half-made agent behind.
+    const spawnFee = chain?.spawnFee ?? '1'
+    const symbol = chain?.nativeSymbol ?? 'token'
+    try {
+      const short = spawnShortfall(await mantleService.getBalanceWei(userWallet, chainId), spawnFee)
+      if (short > 0n) {
+        toast.error(`Not enough ${symbol} to spawn`, {
+          description: `Spawning costs ${spawnFee} ${symbol} plus gas. Add about ${formatShortfall(short, symbol)} to your wallet and try again.`,
+        })
+        return
+      }
+    } catch {
+      // Balance unreadable: let the wallet decide rather than block the user.
+    }
+
     setPhase('spawning')
     setErrorMessage('')
-    
+
     const steps = [
       { step: 'Generating deterministic wallet...', status: 'pending' as const },
       { step: `Provisioning gas reserves (${chain?.agentProvision ?? '?'} ${chain?.nativeSymbol ?? 'token'})...`, status: 'pending' as const },
@@ -189,11 +206,8 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
         s.status === 'active' ? { ...s, status: 'error' } : s
       ))
       
-      let errorMsg = 'Failed to spawn agent'
-      if (error instanceof Error) {
-        errorMsg = error.message
-      }
-      
+      const errorMsg = describeSpawnError(error, chain?.nativeSymbol ?? 'token')
+
       setErrorMessage(errorMsg)
       toast.error('Deployment failed', {
         description: errorMsg

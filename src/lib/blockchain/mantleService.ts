@@ -555,6 +555,12 @@ export class MantleBlockchainService {
     }
   }
 
+  /** Balance in wei; throws when the chain cannot be read (unlike getBalance). */
+  async getBalanceWei(address: string, chainId = this.currentChainId): Promise<bigint> {
+    const provider = new JsonRpcProvider(this.getChainConfig(chainId).rpcUrl)
+    return provider.getBalance(address)
+  }
+
   async getBalance(address: string, chainId = this.currentChainId): Promise<string> {
     try {
       const chain = this.getChainConfig(chainId)
