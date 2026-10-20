@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import html
 import json
 import logging
 import re
@@ -111,9 +112,10 @@ async def search_youtube(
             snippet = item.get("snippet", {})
             candidates.append({
                 "video_id": video_id,
-                "title": snippet.get("title", "Untitled"),
-                "description": snippet.get("description", "")[:300],
-                "channel": snippet.get("channelTitle", ""),
+                # The search API returns these HTML-escaped ("&amp;", "&#39;").
+                "title": html.unescape(snippet.get("title", "Untitled")),
+                "description": html.unescape(snippet.get("description", ""))[:300],
+                "channel": html.unescape(snippet.get("channelTitle", "")),
                 "published_at": snippet.get("publishedAt", ""),
                 "url": f"https://www.youtube.com/watch?v={video_id}",
             })

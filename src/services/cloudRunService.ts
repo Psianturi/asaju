@@ -1,5 +1,6 @@
 import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
+import { decodeEntities } from '@/lib/agentRoom'
 
 // Dev-only override first, so pointing a preview branch at the tagged Cloud Run
 // revision never requires editing the variable that Production also uses.
@@ -641,7 +642,7 @@ export const cloudRunService = {
         comprehensionNextMilestone: r.comprehension_next_milestone ?? 20,
         comprehensionProgressToNext: r.comprehension_progress_to_next ?? 20,
         comprehensionSampledNiches: r.comprehension_sampled_niches ?? [],
-        recentScoutLog: r.recent_scout_log ?? [],
+        recentScoutLog: (r.recent_scout_log ?? []).map(l => (l.title ? { ...l, title: decodeEntities(l.title) } : l)),
       }))
     } catch (error) {
       // Non-fatal: return empty list if backend is unreachable
@@ -691,7 +692,8 @@ export const cloudRunService = {
         agentId: r.agent_id,
         chainId: r.chain_id ?? 5003,
         eventUrl: r.event_url,
-        eventTitle: r.event_title,
+        // YouTube returns titles HTML-escaped ("&amp;"); older records kept them that way.
+        eventTitle: decodeEntities(r.event_title ?? ''),
         platform: r.platform,
         wisdomSummary: r.wisdom_summary,
         txHash: r.tx_hash ?? '',

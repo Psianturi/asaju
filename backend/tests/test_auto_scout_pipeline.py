@@ -109,3 +109,33 @@ async def test_mint_cap_counts_real_auto_scout_mints(monkeypatch):
     out = await agents_module.run_auto_scout(agent_id="a1")
     assert out["reason_code"] == "MINT_CAP_REACHED"
     attend.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_mint_count_skips_instead_of_minting_uncapped(monkeypatch):
+    db = _agent_db()
+    logs = db.collection(SCOUT_LOGS_COLLECTION)
+
+    def broken_where(*_a, **_k):
+        raise RuntimeError("FailedPrecondition: index missing")
+
+    monkeypatch.setattr(logs, "where", broken_where)
+    monkeypatch.setattr(agents_module, "get_db", lambda: db)
+    monkeypatch.setattr("services.scout_service.discover_event", AsyncMock(return_value={
+        "status": "ready_to_mint", "candidate": dict(CANDIDATE), "score": 85, "threshold_applied": 80, "agent_gas_balance": 0.008}))
+    attend = AsyncMock()
+    monkeypatch.setattr("routers.events.attend_event", attend)
+
+    out = await agents_module.run_auto_scout(agent_id="a1")
+    assert out["reason_code"] == "MINT_CAP_REACHED"
+    assert "could not be counted" in out["message"]
+    attend.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_mantle_contract_has_a_default_when_env_is_unset(monkeypatch):
+    from core import config
+    monkeypatch.setattr(config.settings, "contract_address", "")
+    assert config.mantle_contract_address() == config.MANTLE_CONTRACT_DEFAULT
+    monkeypatch.setattr(config.settings, "contract_address", "0x" + "ab" * 20)
+    assert config.mantle_contract_address() == "0x" + "ab" * 20

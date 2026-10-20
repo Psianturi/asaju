@@ -46,6 +46,17 @@ CHAIN_CONFIGS: dict[int, dict] = {
 }
 
 
+# Mantle Sepolia's live agent contract (MAEFNFTV4), the same address the
+# frontend uses. CONTRACT_ADDRESS still overrides it; without a default, a
+# revision deployed without that env var refused every Mantle attend and scout
+# with "Smart contract not configured for chain 5003".
+MANTLE_CONTRACT_DEFAULT = "0x66fD8b5411856D42c08D9356e879a6e7dF0c9419"
+
+
+def mantle_contract_address() -> str:
+    return (settings.contract_address or "").strip() or MANTLE_CONTRACT_DEFAULT
+
+
 def get_chain_config(chain_id: int) -> dict:
     """Return chain config or raise ValueError for unsupported chain_id."""
     cfg = CHAIN_CONFIGS.get(chain_id)

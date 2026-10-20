@@ -288,7 +288,8 @@ class Web3Service:
         # Mantle: contract address from Cloud Run env var (CONTRACT_ADDRESS) for flexibility
         # Other chains: hardcoded address from CHAIN_CONFIGS
         if chain_id == 5003:
-            addr = settings.contract_address
+            from core.config import mantle_contract_address
+            addr = mantle_contract_address()
         else:
             addr = get_chain_config(chain_id)["contract_address"]
 

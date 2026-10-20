@@ -367,7 +367,8 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     # Guard: contract must be deployed before minting
     from core.config import CHAIN_CONFIGS
     if req.chain_id == 5003:
-        contract_addr_check = settings.contract_address
+        from core.config import mantle_contract_address
+        contract_addr_check = mantle_contract_address()
     else:
         contract_addr_check = CHAIN_CONFIGS.get(req.chain_id, {}).get("contract_address", "")
 

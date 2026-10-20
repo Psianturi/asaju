@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 from web3 import Web3
 
-from core.config import settings
+from core.config import mantle_contract_address, settings
 from services.web3_service import web3_service
 
 logger = logging.getLogger(__name__)
@@ -19,10 +19,9 @@ async def health() -> dict:
         "status": "ok",
         "environment": settings.environment,
         "chain_id": settings.chain_id,
-        "contract_configured": (
-            bool(settings.contract_address)
-            and not settings.contract_address.startswith("0x0000")
-        ),
+        # Mantle's address falls back to the known deployment when the env var
+        # is unset, so report what the attend guard will actually use.
+        "contract_configured": not mantle_contract_address().startswith("0x0000"),
         # Lets the frontend hide/disable "Execute Transfer" instead of showing
         # a clickable action that always 400s — matches the exact check
         # create_execution_challenge() uses in routers/proposals.py.

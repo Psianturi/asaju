@@ -1839,28 +1839,30 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     daily_cap = int(data.get("daily_mint_cap", 3))
     weekly_cap = int(data.get("weekly_mint_cap", 10))
 
-    async def _count_recent_mints(window_seconds: float) -> int:
+    async def _count_recent_mints(window_seconds: float) -> int | None:
         # Counted from this agent's own scout log. Attended events carry no
         # "source" field, so counting them by source never found a single
-        # Auto Scout mint and the cap never applied.
+        # Auto Scout mint and the cap never applied. Filtered on agent_id only
+        # (automatic single-field index); a composite query failed with
+        # FailedPrecondition where its index was never deployed.
         cutoff = time.time() - window_seconds
         count = 0
         try:
             async for log_doc in (
                 db.collection(SCOUT_LOGS_COLLECTION)
                 .where(filter=FieldFilter("agent_id", "==", agent_id))
-                .where(filter=FieldFilter("action", "==", "MINTED"))
-                .where(filter=FieldFilter("run_at", ">=", cutoff))
                 .stream()
             ):
-                if (log_doc.to_dict() or {}).get("minted") is not False:
+                log = log_doc.to_dict() or {}
+                if log.get("action") == "MINTED" and (log.get("run_at") or 0) >= cutoff and log.get("minted") is not False:
                     count += 1
         except Exception as exc:
             logger.warning(
-                "Mint cap query failed for agent %s: %s — falling back to no cap",
+                "Mint cap query failed for agent %s: %s — skipping this run rather than minting uncapped",
                 agent_id,
                 exc.__class__.__name__,
             )
+            return None
         return count
 
     if daily_cap > 0 or weekly_cap > 0:
@@ -1868,7 +1870,11 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             _count_recent_mints(24 * 3600),
             _count_recent_mints(7 * 24 * 3600),
         )
-        capped = (daily_cap > 0 and minted_24h >= daily_cap) or (weekly_cap > 0 and minted_7d >= weekly_cap)
+        # An unreadable count is treated as capped: spending gas blind is the
+        # failure that matters here.
+        unknown = minted_24h is None or minted_7d is None
+        minted_24h, minted_7d = minted_24h or 0, minted_7d or 0
+        capped = unknown or (daily_cap > 0 and minted_24h >= daily_cap) or (weekly_cap > 0 and minted_7d >= weekly_cap)
         if capped:
             balance = decision.get("agent_gas_balance")
             await _update_agent_balance_cache(doc_ref, balance)
@@ -1885,6 +1891,8 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
                 candidate_title=video.get("title"),
                 candidate_url=video.get("url"),
                 reason_description=(
+                    "Could not read recent Auto-Scout mints, so this run was skipped instead of minting past the cap."
+                    if unknown else
                     f"Daily/weekly mint cap reached (24h={minted_24h}/{daily_cap}, 7d={minted_7d}/{weekly_cap}). "
                     "Raise the cap on the agent document or wait for the window to roll over."
                 ),
@@ -1892,9 +1900,12 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             return {
                 "status": "skipped",
                 "message": (
-                    f"Mint cap reached — {minted_24h}/{daily_cap} in last 24h, "
-                    f"{minted_7d}/{weekly_cap} in last 7 days. "
-                    "Adjust caps in the agent config to override."
+                    "Skipped: recent mints could not be counted, so the cap could not be checked."
+                    if unknown else (
+                        f"Mint cap reached — {minted_24h}/{daily_cap} in last 24h, "
+                        f"{minted_7d}/{weekly_cap} in last 7 days. "
+                        "Adjust caps in the agent config to override."
+                    )
                 ),
                 "agent_id": agent_id,
                 "reason_code": "MINT_CAP_REACHED",
