@@ -3,6 +3,7 @@
  * claimLegacy(). Calls V6.setMarketplaceApproval(v7, true) as the V6 owner.
  *
  *   V7_CONFIRM=yes npx hardhat run scripts/v7-enable-v6-claims.js --network bscTestnet
+ *   V7_CONFIRM=yes V7_REVOKE=yes ...   # after migration: revoke again
  *
  * Reads the V7 address from deployments/v7-<chainId>.json. This grants the V7
  * contract the same power V6's escrow already has; V7's code only uses it in
@@ -34,7 +35,9 @@ async function main() {
     console.log("Dry run only. Re-run with V7_CONFIRM=yes.");
     return;
   }
-  await (await v6.setMarketplaceApproval(dep.agent, true)).wait();
+  // V7_REVOKE=yes once every V6 agent has migrated: removes V7's power over V6.
+  const approve = process.env.V7_REVOKE !== "yes";
+  await (await v6.setMarketplaceApproval(dep.agent, approve)).wait();
   console.log("Approved:", await v6.isApprovedMarketplace(dep.agent));
 }
 

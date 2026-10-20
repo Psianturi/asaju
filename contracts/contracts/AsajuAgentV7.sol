@@ -75,8 +75,13 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     struct Decision {
         bytes32 commitment;
         uint64  committedAt;
+        uint64  maturesAt;   // end of the prediction horizon
+        uint64  revealBy;    // maturesAt + REVEAL_GRACE; unrevealed after this = forfeited
         uint64  revealedAt;
+        bool    forfeited;   // stamped by markForfeited(); decisionStatus() does not need it
     }
+
+    enum DecisionStatus { Pending, Revealed, Forfeited }
 
     struct InitParams {
         address admin;               // TimelockController
@@ -98,6 +103,10 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     uint16  public constant MAX_ROYALTY_BPS = 1000;   // 10%
     uint256 public constant WISDOM_LESSONS  = 5;
     uint256 public constant MAX_LABEL_BYTES = 32;
+    uint256 public constant MAX_LESSON_BATCH = 50;
+    uint64  public constant MIN_HORIZON  = 1 hours;
+    uint64  public constant MAX_HORIZON  = 90 days;
+    uint64  public constant REVEAL_GRACE = 24 hours;
     bytes32 private constant CLAIM_TYPEHASH =
         keccak256("LegacyClaim(address agentWallet,address owner,uint256 deadline)");
     bytes32 private constant SPAWN_TYPEHASH =
@@ -113,6 +122,7 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     uint8   public maxBreedsPerAgent = 3;
     uint256 public minLevelToBreed = 1;
     uint256 public minAgentBalanceForExecution;
+    uint16  public maxCommitsPerDay = 3;
 
     /// Provision prepaid by breeders for offspring not yet activated. Never withdrawable.
     uint256 public pendingProvisionEscrow;
@@ -125,7 +135,7 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     ILegacyAgent public immutable legacy;
     LegacyKind   public immutable legacyKind;
     address public migrationSigner;
-    uint64  public migrationDeadline;
+    uint64  public immutable migrationDeadline;
     bool    public migrationClosed;
 
     mapping(address => bool)          public isAgentSpawned;
@@ -141,6 +151,8 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     mapping(address => uint64)        public lastBredAt;
     mapping(address => uint8)         public breedCount;
     mapping(bytes32 => bool)          public proposalRecorded;
+    mapping(address => uint64)        private _commitDay;
+    mapping(address => uint16)        private _commitsToday;
 
     // ── Events ───────────────────────────────────────────────────────────────
 
@@ -153,8 +165,9 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     event ProposalExecuted(address indexed agentWallet, bytes32 indexed proposalHash, uint256 proposalsApprovedTotal, uint256 heritageScoreAfter, uint256 timestamp);
 
     event LessonRecorded(uint256 indexed tokenId, uint256 indexed index, bytes32 contentHash, string uri, uint256 timestamp);
-    event DecisionCommitted(uint256 indexed tokenId, uint256 indexed id, bytes32 commitment, address committer, uint256 timestamp);
+    event DecisionCommitted(uint256 indexed tokenId, uint256 indexed id, bytes32 commitment, address committer, uint64 maturesAt, uint64 revealBy);
     event DecisionRevealed(uint256 indexed tokenId, uint256 indexed id, bytes payload, uint256 timestamp);
+    event DecisionForfeited(uint256 indexed tokenId, uint256 indexed id, uint256 timestamp);
     event LegacyClaimed(address indexed agentWallet, address indexed owner, LegacyKind kind, uint256 lessons);
     event ProfileUpdated(address indexed agentWallet, string name, string niche);
     event FeesUpdated(uint256 spawnFee, uint256 agentProvision, uint256 breedCost);
@@ -180,6 +193,11 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     error BadCommitment();
     error UnknownDecision(uint256 id);
     error AlreadyRevealed(uint256 id);
+    error BadHorizon();
+    error DailyCommitLimit();
+    error RevealWindowClosed(uint256 id);
+    error RevealWindowOpen(uint256 id);
+    error BadBatch();
     error InvalidLabel();
     error ValueTooHigh();
     error ProvisionExceedsFee();
@@ -214,10 +232,8 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
         legacyKind = p.legacyKind;
         imageBaseURI = p.imageBaseURI;
         chainLabel = p.chainLabel;
-        if (p.legacyKind == LegacyKind.V4) {
-            migrationSigner = p.migrationSigner;
-            migrationDeadline = uint64(block.timestamp) + p.migrationWindow;
-        }
+        migrationDeadline = p.legacyKind == LegacyKind.V4 ? uint64(block.timestamp) + p.migrationWindow : 0;
+        if (p.legacyKind == LegacyKind.V4) migrationSigner = p.migrationSigner;
     }
 
     // ── Identity ─────────────────────────────────────────────────────────────
@@ -337,22 +353,43 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
 
     // ── Lessons (Proof of Learning) ──────────────────────────────────────────
 
-    /// @notice Only the agent's own wallet records its lessons.
+    /// @notice Only the agent's own wallet records its lessons. The on-chain
+    ///         level is the official one; the app reads it from here.
     function recordLesson(address agentWallet, bytes32 contentHash, string calldata uri) external returns (uint256 index) {
+        _checkLessonCaller(agentWallet);
+        index = _pushLesson(agentWallet, contentHash, uri);
+        _afterLessons(agentWallet, 1);
+    }
+
+    /// @notice Several lessons in one transaction (e.g. once a day) to keep gas low.
+    function recordLessons(address agentWallet, bytes32[] calldata contentHashes, string[] calldata uris)
+        external returns (uint256 firstIndex)
+    {
+        _checkLessonCaller(agentWallet);
+        uint256 n = contentHashes.length;
+        if (n == 0 || n > MAX_LESSON_BATCH || uris.length != n) revert BadBatch();
+        firstIndex = _lessons[agentWallet].length;
+        for (uint256 i; i < n; ++i) _pushLesson(agentWallet, contentHashes[i], uris[i]);
+        _afterLessons(agentWallet, n);
+    }
+
+    function _checkLessonCaller(address agentWallet) private view {
         if (msg.sender != agentWallet) revert NotAuthorized(msg.sender);
         if (!isAgentSpawned[agentWallet]) revert NotSpawned(agentWallet);
+    }
 
+    function _pushLesson(address agentWallet, bytes32 contentHash, string calldata uri) private returns (uint256 index) {
         index = _lessons[agentWallet].length;
         _lessons[agentWallet].push(contentHash);
+        emit LessonRecorded(tokenIdOf(agentWallet), index, contentHash, uri, block.timestamp);
+    }
 
+    function _afterLessons(address agentWallet, uint256 added) private {
         AgentStats storage s = _stats[agentWallet];
-        s.totalEvents += 1;
+        s.totalEvents += added;
         s.lastEventTimestamp = block.timestamp;
         _refreshLevel(agentWallet, s);
-
-        uint256 tokenId = tokenIdOf(agentWallet);
-        emit LessonRecorded(tokenId, index, contentHash, uri, block.timestamp);
-        emit MetadataUpdate(tokenId);
+        emit MetadataUpdate(tokenIdOf(agentWallet));
     }
 
     /// @dev Frozen formula: level = lessons / 2 + 1, wisdom at 5 lessons.
@@ -384,25 +421,70 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
     }
 
     // ── Verifiable track record ──────────────────────────────────────────────
+    //
+    // Scoring rule (applied off-chain from events; anyone can recompute it):
+    //   - every commitment counts; one not revealed by its revealBy is scored
+    //     WRONG (status Forfeited), so revealing only the winners does not help;
+    //   - a revealed decision is judged at maturesAt against market data;
+    //   - at most maxCommitsPerDay commitments per agent per UTC day.
 
     /// @notice commitment = keccak256(abi.encode(agentWallet, payload, salt)).
-    function commitDecision(address agentWallet, bytes32 commitment) external whenNotPaused returns (uint256 id) {
+    /// @param horizon  Seconds until the prediction matures (1 hour .. 90 days).
+    function commitDecision(address agentWallet, bytes32 commitment, uint64 horizon)
+        external whenNotPaused returns (uint256 id)
+    {
         if (msg.sender != agentWallet && msg.sender != agentOwner(agentWallet)) revert NotAuthorized(msg.sender);
         if (!isAgentSpawned[agentWallet]) revert NotSpawned(agentWallet);
         if (commitment == bytes32(0)) revert BadCommitment();
+        if (horizon < MIN_HORIZON || horizon > MAX_HORIZON) revert BadHorizon();
+
+        uint64 day = uint64(block.timestamp / 1 days);
+        if (_commitDay[agentWallet] != day) {
+            _commitDay[agentWallet] = day;
+            _commitsToday[agentWallet] = 0;
+        }
+        if (_commitsToday[agentWallet] >= maxCommitsPerDay) revert DailyCommitLimit();
+        _commitsToday[agentWallet] += 1;
+
+        uint64 maturesAt = uint64(block.timestamp) + horizon;
+        uint64 revealBy = maturesAt + REVEAL_GRACE;
         id = _decisions[agentWallet].length;
-        _decisions[agentWallet].push(Decision(commitment, uint64(block.timestamp), 0));
-        emit DecisionCommitted(tokenIdOf(agentWallet), id, commitment, msg.sender, block.timestamp);
+        _decisions[agentWallet].push(Decision(commitment, uint64(block.timestamp), maturesAt, revealBy, 0, false));
+        emit DecisionCommitted(tokenIdOf(agentWallet), id, commitment, msg.sender, maturesAt, revealBy);
     }
 
-    /// @notice Anyone holding payload and salt may reveal; the hash decides.
+    /// @notice Anyone holding payload and salt may reveal, until revealBy.
     function revealDecision(address agentWallet, uint256 id, bytes calldata payload, bytes32 salt) external {
         if (id >= _decisions[agentWallet].length) revert UnknownDecision(id);
         Decision storage d = _decisions[agentWallet][id];
         if (d.revealedAt != 0) revert AlreadyRevealed(id);
+        if (block.timestamp > d.revealBy) revert RevealWindowClosed(id);
         if (keccak256(abi.encode(agentWallet, payload, salt)) != d.commitment) revert BadCommitment();
         d.revealedAt = uint64(block.timestamp);
         emit DecisionRevealed(tokenIdOf(agentWallet), id, payload, block.timestamp);
+    }
+
+    /// @notice Anyone may stamp an expired, unrevealed decision as forfeited (an event for indexers).
+    function markForfeited(address agentWallet, uint256 id) external {
+        if (id >= _decisions[agentWallet].length) revert UnknownDecision(id);
+        Decision storage d = _decisions[agentWallet][id];
+        if (d.revealedAt != 0) revert AlreadyRevealed(id);
+        if (block.timestamp <= d.revealBy) revert RevealWindowOpen(id);
+        if (d.forfeited) return;
+        d.forfeited = true;
+        emit DecisionForfeited(tokenIdOf(agentWallet), id, block.timestamp);
+    }
+
+    function decisionStatus(address agentWallet, uint256 id) external view returns (DecisionStatus) {
+        if (id >= _decisions[agentWallet].length) revert UnknownDecision(id);
+        Decision storage d = _decisions[agentWallet][id];
+        if (d.revealedAt != 0) return DecisionStatus.Revealed;
+        if (block.timestamp > d.revealBy) return DecisionStatus.Forfeited;
+        return DecisionStatus.Pending;
+    }
+
+    function commitsToday(address agentWallet) external view returns (uint16) {
+        return _commitDay[agentWallet] == uint64(block.timestamp / 1 days) ? _commitsToday[agentWallet] : 0;
     }
 
     // ── Profile (name / niche shown in metadata) ─────────────────────────────
@@ -565,6 +647,11 @@ contract AsajuAgentV7 is ERC721, IERC2981, IERC4906, Ownable, Pausable, Reentran
         agentProvision = newProvision;
         breedCost = newBreedCost;
         emit FeesUpdated(newSpawnFee, newProvision, newBreedCost);
+    }
+
+    function setMaxCommitsPerDay(uint16 maxPerDay) external onlyOwner {
+        if (maxPerDay == 0) revert ValueTooHigh();
+        maxCommitsPerDay = maxPerDay;
     }
 
     function setBreedRules(uint64 cooldown, uint8 maxBreeds, uint256 minLevel) external onlyOwner {

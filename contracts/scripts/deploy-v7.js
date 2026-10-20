@@ -19,7 +19,7 @@
  *   V7_PAYMENT_TOKEN            ERC-20 for the market; empty = native coin
  *   V7_IMAGE_BASE_URI           e.g. https://.../passport/ (tier + ".png" appended)
  *   V7_MIGRATION_SIGNER         Mantle only: attestation key (not an admin key)
- *   V7_MIGRATION_WINDOW_DAYS    Mantle only (default 60)
+ *   V7_MIGRATION_WINDOW_DAYS    Mantle only (default 30)
  *   V7_LEGACY_OVERRIDE          use this legacy address instead of the table below
  */
 
@@ -84,7 +84,7 @@ async function main() {
   const legacy = env("V7_LEGACY_OVERRIDE", chain.legacy);
   const kind = LEGACY_KIND[chain.kind];
   const migrationSigner = chain.kind === "V4" ? env("V7_MIGRATION_SIGNER", ZERO) : ZERO;
-  const windowDays = BigInt(env("V7_MIGRATION_WINDOW_DAYS", "60"));
+  const windowDays = BigInt(env("V7_MIGRATION_WINDOW_DAYS", "30"));
 
   if (marketFee > 1000 || royalty > 1000) throw new Error("Fee and royalty are capped at 1000 bps.");
   for (const [k, v] of Object.entries({ guardian, treasury, paymentToken, legacy, migrationSigner })) {

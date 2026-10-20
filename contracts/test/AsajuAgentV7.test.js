@@ -106,6 +106,24 @@ describe("AsajuAgentV7 — lessons, level, metadata", () => {
     assert.equal(await agent.lessonAt(w.address, 0), id("lesson-0"));
   });
 
+  it("records lessons in a batch with the same level rule, only from the agent", async () => {
+    const { ethers, agent, alice } = await setupV7();
+    const w = await spawnV7(ethers, agent, alice);
+    const hashes = [0, 1, 2, 3].map((i) => id(`b${i}`));
+    const uris = hashes.map((_, i) => `ipfs://b/${i}`);
+    await reverts(agent.connect(alice).recordLessons(w.address, hashes, uris), agent, "NotAuthorized");
+    await reverts(agent.connect(w).recordLessons(w.address, hashes, uris.slice(1)), agent, "BadBatch");
+    await reverts(agent.connect(w).recordLessons(w.address, [], []), agent, "BadBatch");
+    await reverts(agent.connect(w).recordLessons(w.address, Array(51).fill(id("x")), Array(51).fill("")), agent, "BadBatch");
+    await agent.connect(w).recordLessons(w.address, hashes, uris);
+    await agent.connect(w).recordLesson(w.address, id("single"), "");
+    const s = await agent.getAgentStats(w.address);
+    assert.equal(s.totalEvents, 5n);
+    assert.equal(s.currentLevel, 3n);
+    assert.equal(s.wisdomUnlocked, true);
+    assert.equal(await agent.lessonAt(w.address, 3), hashes[3]);
+  });
+
   it("V7 FIX: recordGasSpent no longer exists", async () => {
     const { agent } = await setupV7();
     assert.equal(agent.interface.getFunction("recordGasSpent"), null);
@@ -211,22 +229,59 @@ describe("AsajuAgentV7 — decisions and proposals", () => {
     const payload = AbiCoder.defaultAbiCoder().encode(["string", "string"], ["BUY", "ETH"]);
     const salt = id("salt");
     const c = commitmentOf(w.address, payload, salt);
-    await reverts(agent.connect(bob).commitDecision(w.address, c), agent, "NotAuthorized");
-    await agent.connect(w).commitDecision(w.address, c);
-    await agent.connect(alice).commitDecision(w.address, commitmentOf(w.address, "0x01", salt));
+    await reverts(agent.connect(bob).commitDecision(w.address, c, DAY), agent, "NotAuthorized");
+    await agent.connect(w).commitDecision(w.address, c, DAY);
+    await agent.connect(alice).commitDecision(w.address, commitmentOf(w.address, "0x01", salt), DAY);
     assert.equal(await agent.decisionCount(w.address), 2n);
     await reverts(agent.connect(bob).revealDecision(w.address, 0, payload, id("wrong")), agent, "BadCommitment");
     await agent.connect(bob).revealDecision(w.address, 0, payload, salt);
     await reverts(agent.connect(bob).revealDecision(w.address, 0, payload, salt), agent, "AlreadyRevealed");
     const d = await agent.decisionAt(w.address, 0);
     assert.ok(d.revealedAt >= d.committedAt);
+    assert.equal(d.revealBy - d.maturesAt, DAY); // 24h grace
+    assert.equal(await agent.decisionStatus(w.address, 0), 1n); // Revealed
+  });
+
+  it("V7 FIX: hiding a losing call does not help — unrevealed past revealBy is forfeited", async () => {
+    const { ethers, agent, alice, bob } = await setupV7();
+    const w = await spawnV7(ethers, agent, alice);
+    const up = AbiCoder.defaultAbiCoder().encode(["string"], ["BTC up"]);
+    const down = AbiCoder.defaultAbiCoder().encode(["string"], ["BTC down"]);
+    await agent.connect(w).commitDecision(w.address, commitmentOf(w.address, up, id("s1")), DAY);
+    await agent.connect(w).commitDecision(w.address, commitmentOf(w.address, down, id("s2")), DAY);
+    await reverts(agent.connect(bob).markForfeited(w.address, 1), agent, "RevealWindowOpen");
+    await warp(ethers, DAY + 1n);
+    await agent.connect(w).revealDecision(w.address, 0, up, id("s1")); // the "winner", inside the grace
+    assert.equal(await agent.decisionStatus(w.address, 1), 0n); // still Pending in grace
+    await warp(ethers, DAY);
+    await reverts(agent.connect(w).revealDecision(w.address, 1, down, id("s2")), agent, "RevealWindowClosed");
+    assert.equal(await agent.decisionStatus(w.address, 1), 2n); // Forfeited = scored wrong
+    const r = await (await agent.connect(bob).markForfeited(w.address, 1)).wait();
+    assert.ok(r.logs.some((l) => agent.interface.parseLog(l)?.name === "DecisionForfeited"));
+    assert.equal((await agent.decisionAt(w.address, 1)).forfeited, true);
+    await reverts(agent.connect(bob).markForfeited(w.address, 0), agent, "AlreadyRevealed");
+  });
+
+  it("caps commitments per agent per day and bounds the horizon", async () => {
+    const { ethers, agent, admin, alice } = await setupV7();
+    const w = await spawnV7(ethers, agent, alice);
+    await reverts(agent.connect(w).commitDecision(w.address, id("c0"), 60n), agent, "BadHorizon");
+    await reverts(agent.connect(w).commitDecision(w.address, id("c0"), 91n * DAY), agent, "BadHorizon");
+    for (let i = 0; i < 3; i++) await agent.connect(i % 2 ? alice : w).commitDecision(w.address, id(`c${i}`), DAY);
+    assert.equal(await agent.commitsToday(w.address), 3n);
+    await reverts(agent.connect(alice).commitDecision(w.address, id("c3"), DAY), agent, "DailyCommitLimit");
+    await warp(ethers, DAY);
+    await agent.connect(w).commitDecision(w.address, id("c3"), DAY);
+    await reverts(agent.connect(alice).setMaxCommitsPerDay(10), agent, "OwnableUnauthorizedAccount");
+    await agent.connect(admin).setMaxCommitsPerDay(10);
+    assert.equal(await agent.maxCommitsPerDay(), 10n);
   });
 
   it("pause stops new commitments", async () => {
     const { ethers, agent, admin, alice } = await setupV7();
     const w = await spawnV7(ethers, agent, alice);
     await agent.connect(admin).pause();
-    await reverts(agent.connect(w).commitDecision(w.address, id("c")), agent, "EnforcedPause");
+    await reverts(agent.connect(w).commitDecision(w.address, id("c"), DAY), agent, "EnforcedPause");
   });
 
   it("proposal records count once and cap heritage at 100", async () => {
