@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [hardhatEthers, hardhatVerify],
   solidity: {
     version: "0.8.24",
+    // Optional local compiler (native or soljson.js) for machines that cannot
+    // download one; unset, Hardhat downloads 0.8.24 as usual.
+    ...(process.env.SOLC_PATH ? { path: process.env.SOLC_PATH } : {}),
     settings: {
       optimizer: { enabled: true, runs: 200 },
       evmVersion: "cancun",
