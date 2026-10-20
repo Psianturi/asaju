@@ -135,6 +135,14 @@ MAEF_ABI: list[dict] = [
         "stateMutability": "payable",
         "type": "function",
     },
+    # Present on every generation (V4, V5, V6).
+    {
+        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "name": "isAgentSpawned",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
     # ── V5 only — agent ownership. Absent on V4 deployments (e.g. live Mantle),
     # which is exactly how _is_v5() tells the two generations apart.
     {
@@ -496,6 +504,30 @@ class Web3Service:
         return await loop.run_in_executor(
             None, self._sync_agent_owner, agent_wallet, chain_id
         )
+
+    async def is_agent_spawned(self, agent_wallet: str, chain_id: int = 5003) -> bool | None:
+        """Live-read isAgentSpawned(agentWallet). None when the chain can't be read."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_is_agent_spawned, agent_wallet, chain_id
+        )
+
+    def _sync_is_agent_spawned(self, agent_wallet: str, chain_id: int) -> bool | None:
+        try:
+            contract = self._init_contract(chain_id)
+            return bool(
+                contract.functions.isAgentSpawned(
+                    Web3.to_checksum_address(agent_wallet)
+                ).call()
+            )
+        except Exception as exc:
+            logger.debug(
+                "isAgentSpawned read failed for %s on chain %s: %s",
+                agent_wallet,
+                chain_id,
+                exc.__class__.__name__,
+            )
+            return None
 
     def _sync_agent_owner(self, agent_wallet: str, chain_id: int) -> str | None:
         try:

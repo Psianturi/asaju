@@ -31,6 +31,7 @@ from web3 import Web3
 from core.config import settings
 from core.database import get_db
 from core.agent_auth import current_owner_of
+from core.rate_limit import client_ip, enforce as enforce_rate_limit
 from core.kms_service import decrypt_private_key
 from google.cloud.firestore_v1.base_query import FieldFilter
 from services.llm_service import ProposalGenerationError, generate_agent_proposal
@@ -242,7 +243,7 @@ def _approval_message(
 
 
 def _enforce_proposal_action_rate_limit(request: Request, proposal_id: str) -> None:
-    client_host = request.client.host if request.client else "unknown"
+    client_host = client_ip(request)
     key = f"{client_host}:{proposal_id}"
     now = time.time()
     attempts = _approval_attempts[key]
@@ -434,17 +435,52 @@ async def _bg_autonomous_transfer(
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
+PROPOSE_COOLDOWN_SECONDS = 60
+MAX_PENDING_PROPOSALS = 5
+
+
+async def _guard_proposal_request(db, agent_id: str, agent_ref, agent_data: dict) -> None:
+    """Each proposal spends LLM quota and lands in the owner's inbox, and the
+    endpoint is reachable by anyone who knows an agent_id. Cap it per agent, in
+    Firestore so the cap holds across instances: a short cooldown, and no new
+    proposal while too many unexpired ones are still waiting on the owner."""
+    now = time.time()
+    wait = float(agent_data.get("last_proposal_requested_at") or 0) + PROPOSE_COOLDOWN_SECONDS - now
+    if wait > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"A proposal was just requested for this agent. Try again in {int(wait) + 1}s.",
+        )
+    pending = 0
+    async for doc in (
+        db.collection(PROPOSALS_COLLECTION)
+        .where(filter=FieldFilter("agent_id", "==", agent_id))
+        .where(filter=FieldFilter("status", "==", "pending"))
+        .stream()
+    ):
+        if float((doc.to_dict() or {}).get("expires_at") or 0) > now:
+            pending += 1
+    if pending >= MAX_PENDING_PROPOSALS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"This agent already has {pending} proposals waiting. Approve or reject them first.",
+        )
+    await agent_ref.update({"last_proposal_requested_at": now})
+
+
 @router.post("/api/v1/agent/{agent_id}/propose", response_model=ProposalResponse, status_code=201)
-async def generate_proposal(agent_id: str) -> ProposalResponse:
+async def generate_proposal(agent_id: str, request: Request) -> ProposalResponse:
     """
     Gemini analyses the agent's event history and generates a strategic proposal.
     Saved to Firestore with a 7-day TTL and keccak256 hash for on-chain auditability.
     """
+    enforce_rate_limit(request, "agent-propose", limit=20, window_seconds=600)
     db = get_db()
 
     # Fetch agent
+    agent_ref = db.collection(AGENTS_COLLECTION).document(agent_id)
     try:
-        agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+        agent_doc = await agent_ref.get()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database temporarily unavailable") from exc
 
@@ -452,6 +488,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
     agent_data = agent_doc.to_dict() or {}
+    await _guard_proposal_request(db, agent_id, agent_ref, agent_data)
     agent_wallet = agent_data.get("agent_wallet", "")
     agent_name = agent_data.get("agent_name", "Agent")
     niche = agent_data.get("niche", "General")
@@ -639,7 +676,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
 
 
 @router.post("/api/v1/agent/{agent_id}/force-evaluate", response_model=ProposalResponse)
-async def force_evaluate(agent_id: str) -> ProposalResponse:
+async def force_evaluate(agent_id: str, request: Request) -> ProposalResponse:
     """Manual override: re-evaluate the agent synchronously against the latest
     market snapshot, without persisting the result. Markets move fast — the
     owner uses this to wake their agent outside the Auto-Scout cycle when a
@@ -652,6 +689,9 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
     Reuses the same data fetch + Gemini call as `generate_proposal` so the
     reasoning trace is identical to what a real proposal would have.
     """
+    # Nothing is persisted, so only LLM quota is at stake: cap per agent and per caller.
+    enforce_rate_limit(request, f"agent-force-eval:{agent_id}", limit=5, window_seconds=600)
+    enforce_rate_limit(request, "agent-force-eval", limit=20, window_seconds=600)
     db = get_db()
 
     try:
@@ -1192,7 +1232,7 @@ def _execution_message(
 
 
 def _enforce_execution_rate_limit(request: Request, proposal_id: str) -> None:
-    client_host = request.client.host if request.client else "unknown"
+    client_host = client_ip(request)
     key = f"{client_host}:execute:{proposal_id}"
     now = time.time()
     attempts = _approval_attempts[key]

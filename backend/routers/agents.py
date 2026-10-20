@@ -18,14 +18,16 @@ import time
 import uuid
 
 from eth_account import Account
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import BaseModel, field_validator
 from web3 import Web3
 
 from core.agent_auth import require_agent_owner
+from core.agent_mandate import active_mandate
 from core.config import get_chain_config
 from core.database import get_db
+from core.rate_limit import enforce as enforce_rate_limit
 from core.kms_service import decrypt_private_key, encrypt_private_key
 from services.comprehension_service import build_live_scout_log, compute_comprehension
 from services.llm_service import chat_with_agent, generate_lineage_biography, generate_wisdom_report
@@ -1275,6 +1277,10 @@ async def get_agent_scout_logs(agent_id: str) -> list[ScoutLogResponse]:
     return [ScoutLogResponse(**item) for item in logs[:20]]
 
 
+MARK_FUNDED_READ_ATTEMPTS = 3
+MARK_FUNDED_RETRY_SECONDS = 2
+
+
 @router.post("/{agent_id}/mark-funded")
 async def mark_agent_funded(agent_id: str) -> dict:
     """
@@ -1299,6 +1305,24 @@ async def mark_agent_funded(agent_id: str) -> dict:
 
     if not doc.exists:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    data = doc.to_dict() or {}
+    if not (data.get("funded") and data.get("spawned_on_v4")):
+        # Trust the contract, not the caller. A few retries cover RPC nodes
+        # that lag the receipt the browser just saw.
+        wallet = data.get("agent_wallet", "")
+        chain_id = int(data.get("chain_id", 5003))
+        spawned = None
+        for attempt in range(MARK_FUNDED_READ_ATTEMPTS):
+            spawned = await web3_service.is_agent_spawned(wallet, chain_id) if wallet else False
+            if spawned:
+                break
+            if attempt + 1 < MARK_FUNDED_READ_ATTEMPTS:
+                await asyncio.sleep(MARK_FUNDED_RETRY_SECONDS)
+        if spawned is None:
+            raise HTTPException(status_code=503, detail="Could not read the contract; try again shortly")
+        if not spawned:
+            raise HTTPException(status_code=409, detail="Agent is not spawned on-chain yet")
 
     try:
         await doc_ref.update({"funded": True, "spawned_on_v4": True})
@@ -1391,8 +1415,11 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/{agent_id}/chat")
-async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
+async def agent_chat(agent_id: str, req: ChatRequest, request: Request) -> dict:
     """Reply to a user message as the named agent, using Gemini with event grounding."""
+    # Unauthenticated and LLM-backed: cap per agent and per caller.
+    enforce_rate_limit(request, f"agent-chat:{agent_id}", limit=30, window_seconds=600)
+    enforce_rate_limit(request, "agent-chat", limit=60, window_seconds=600)
     db = get_db()
 
     try:
@@ -1567,11 +1594,13 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
 
 
 @router.post("/{agent_id}/wisdom")
-async def generate_agent_wisdom(agent_id: str) -> dict:
+async def generate_agent_wisdom(agent_id: str, request: Request) -> dict:
     """
     Generate a Wisdom Report by analysing all events the agent has attended.
     Reads event summaries from Firestore and calls Gemini for analysis.
     """
+    enforce_rate_limit(request, f"agent-wisdom:{agent_id}", limit=5, window_seconds=600)
+    enforce_rate_limit(request, "agent-wisdom", limit=15, window_seconds=600)
     db = get_db()
 
     # Fetch agent to get niche
@@ -1624,7 +1653,52 @@ async def generate_agent_wisdom(agent_id: str) -> dict:
     }
 
 
+MANUAL_SCOUT_COOLDOWN_SECONDS = 10 * 60
+
+
 @router.post("/{agent_id}/scout")
+async def run_scout_now(agent_id: str, request: Request) -> dict:
+    """Owner-triggered scout ("Run a scout now").
+
+    Every run spends YouTube and LLM quota before any mint, so it is only
+    allowed under the owner's active, signed mandate, and at most once per
+    agent per cooldown window. The scheduler calls run_auto_scout() directly
+    and is not affected by these HTTP-only gates.
+    """
+    enforce_rate_limit(request, "agent-scout", limit=10, window_seconds=600)
+    db = get_db()
+    doc_ref = db.collection(AGENTS_COLLECTION).document(agent_id)
+    try:
+        doc = await doc_ref.get()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable") from exc
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    data = doc.to_dict() or {}
+
+    mandate = await active_mandate(
+        db, agent_id=agent_id, chain_id=int(data.get("chain_id") or 5003), action="attend_event"
+    )
+    if mandate is None:
+        raise HTTPException(
+            status_code=403,
+            detail="No active Auto-Scout mandate (or today's runs are used up). "
+                   "Grant it with one signature on the agent page.",
+        )
+
+    now = time.time()
+    wait = float(data.get("last_manual_scout_at") or 0) + MANUAL_SCOUT_COOLDOWN_SECONDS - now
+    if wait > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"This agent just scouted. Try again in {max(1, round(wait / 60))} min.",
+        )
+    # Stamp before running so a burst of clicks cannot start parallel runs.
+    await doc_ref.update({"last_manual_scout_at": now})
+
+    return await run_auto_scout(agent_id=agent_id)
+
+
 async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> dict:
     """
     Secretary sub-agent: autonomously discover and attend a YouTube event.

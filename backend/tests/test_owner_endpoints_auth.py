@@ -215,3 +215,103 @@ async def test_seller_cannot_delete_after_sale(env, monkeypatch):
 
     assert exc.value.status_code == 403
     assert "agent-1" in db.agents
+
+
+# ── POST /mark-funded ──────────────────────────────────────────────────────
+
+
+def _patch_spawned(monkeypatch, value):
+    calls = []
+
+    async def read(wallet, chain_id):
+        calls.append((wallet, chain_id))
+        return value
+
+    monkeypatch.setattr(agents_router.web3_service, "is_agent_spawned", read)
+    monkeypatch.setattr(agents_router, "MARK_FUNDED_RETRY_SECONDS", 0)
+    return calls
+
+
+async def test_mark_funded_checks_the_contract(env, monkeypatch):
+    db, _owner = env
+    calls = _patch_spawned(monkeypatch, True)
+    res = await agents_router.mark_agent_funded("agent-1")
+
+    assert res["funded"] is True
+    assert db.agents["agent-1"]["funded"] is True
+    assert calls == [(AGENT_WALLET, 97)]
+
+
+async def test_mark_funded_refuses_an_unspawned_agent(env, monkeypatch):
+    db, _owner = env
+    _patch_spawned(monkeypatch, False)
+    with pytest.raises(HTTPException) as exc:
+        await agents_router.mark_agent_funded("agent-1")
+
+    assert exc.value.status_code == 409
+    assert "funded" not in db.agents["agent-1"]
+
+
+async def test_mark_funded_fails_closed_when_chain_unreadable(env, monkeypatch):
+    db, _owner = env
+    _patch_spawned(monkeypatch, None)
+    with pytest.raises(HTTPException) as exc:
+        await agents_router.mark_agent_funded("agent-1")
+
+    assert exc.value.status_code == 503
+    assert "funded" not in db.agents["agent-1"]
+
+
+# ── POST /scout ────────────────────────────────────────────────────────────
+
+
+class _Req:
+    client = type("C", (), {"host": "198.51.100.7"})()
+    headers: dict = {}
+
+
+@pytest.fixture
+def scout_env(env, monkeypatch):
+    from core.rate_limit import reset_state
+
+    reset_state()
+    runs = []
+
+    async def fake_run(agent_id, scheduler_run_id=None):
+        runs.append(agent_id)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(agents_router, "run_auto_scout", fake_run)
+    yield env[0], runs
+    reset_state()
+
+
+def _patch_mandate(monkeypatch, mandate):
+    async def read(*_, **__):
+        return mandate
+
+    monkeypatch.setattr(agents_router, "active_mandate", read)
+
+
+async def test_scout_without_mandate_is_refused(scout_env, monkeypatch):
+    _db, runs = scout_env
+    _patch_mandate(monkeypatch, None)
+    with pytest.raises(HTTPException) as exc:
+        await agents_router.run_scout_now("agent-1", _Req())
+
+    assert exc.value.status_code == 403
+    assert runs == []
+
+
+async def test_scout_with_mandate_runs_once_per_cooldown(scout_env, monkeypatch):
+    db, runs = scout_env
+    _patch_mandate(monkeypatch, {"scopes": ["attend_event"]})
+
+    await agents_router.run_scout_now("agent-1", _Req())
+    assert runs == ["agent-1"]
+    assert db.agents["agent-1"]["last_manual_scout_at"]
+
+    with pytest.raises(HTTPException) as exc:
+        await agents_router.run_scout_now("agent-1", _Req())
+    assert exc.value.status_code == 429
+    assert runs == ["agent-1"]
