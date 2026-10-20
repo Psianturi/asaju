@@ -35,7 +35,7 @@ const CHAINS = {
   97:       { label: "BNB Smart Chain Testnet", legacy: "0x1d6422DfF98f839c92cc2E23E0E0600d2C31965C", kind: "V6", explorer: "https://testnet.bscscan.com" },
   11155111: { label: "Ethereum Sepolia",        legacy: "0xD8F5691436B6647bE7a05BeF7dD637FbbCf819ab", kind: "V6", explorer: "https://sepolia.etherscan.io" },
   46630:    { label: "Robinhood Chain Testnet", legacy: "0x480E7BA834348ef45a140Aa8F5b09c4997c5F0a3", kind: "V6", explorer: "https://explorer.testnet.chain.robinhood.com" },
-  5003:     { label: "Mantle Sepolia",          legacy: "0x66fD8b5411856D42c08D9356e879a6e7dF0c9419", kind: "V4", explorer: "https://explorer.sepolia.mantle.xyz" },
+  5003:     { label: "Mantle Sepolia",          legacy: "0x66fD8b5411856D42c08D9356e879a6e7dF0c9419", kind: "V4", explorer: "https://sepolia.mantlescan.xyz" },
 };
 
 const MAX_RUNTIME = 24576;

@@ -6,6 +6,20 @@ import "dotenv/config";
 /** @type import('hardhat/config').HardhatUserConfig */
 export default defineConfig({
   plugins: [hardhatEthers, hardhatVerify],
+  // Hardhat 3 verify reads explorers from here. Mantle Sepolia's explorer is
+  // Mantlescan now (Etherscan API V2); its old Blockscout API answers 503.
+  chainDescriptors: {
+    5003: {
+      name: "Mantle Sepolia",
+      blockExplorers: {
+        etherscan: {
+          name: "Mantlescan Sepolia",
+          url: "https://sepolia.mantlescan.xyz",
+          apiUrl: "https://api.etherscan.io/v2/api",
+        },
+      },
+    },
+  },
   solidity: {
     version: "0.8.24",
     // Optional local compiler (native or soljson.js) for machines that cannot
