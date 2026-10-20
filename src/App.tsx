@@ -35,7 +35,6 @@ import { TopUpGasDialog } from '@/components/TopUpGasDialog'
 import { MarketplaceListingDialog } from '@/components/MarketplaceListingDialog'
 import { GenesisMintConfirmation } from '@/components/GenesisMintConfirmation'
 import { AgentBreedingDialog } from '@/components/AgentBreedingDialog'
-import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
 import { WisdomTimeline } from '@/components/WisdomTimeline'
 import { ActivityLog } from '@/components/ActivityLog'
@@ -1017,22 +1016,6 @@ function App() {
     }
   }
 
-  const handleApproveScoutedEvent = (agentId: string, eventId: string) => {
-    setAgents((current) =>
-      (current ?? []).map((a) => {
-        if (a.id === agentId && a.scoutedOpportunities) {
-          return {
-            ...a,
-            scoutedOpportunities: a.scoutedOpportunities.map((evt) =>
-              evt.id === eventId ? { ...evt, approved: true } : evt
-            )
-          }
-        }
-        return a
-      })
-    )
-  }
-
   const handleSaveCustomAgenda = async (agentId: string, agenda: string) => {
     const agent = (agents ?? []).find((a) => a.id === agentId)
     if (!agent) return
@@ -1356,8 +1339,7 @@ function App() {
               onListMarketplace={(agent) => setListingDialogAgent(agent)}
               onDeleteAgent={handleDeleteAgent}
               onRetrySpawn={handleRetrySpawn}
-              onToggleScout={handleToggleScout}
-              onApproveEvent={handleApproveScoutedEvent}
+              onTopUpGas={(a) => { setSelectedAgentForTopUp(a); setTopUpDialogOpen(true) }}
               proposalCounts={proposalCounts}
               userBalance={userBalance ?? 0}
               onInitiateFusion={() => setBreedingDialogOpen(true)}
