@@ -27,7 +27,8 @@ export async function reverts(promise, contract, expected) {
   try {
     await (await promise).wait?.();
   } catch (e) {
-    const data = e?.data ?? e?.error?.data ?? e?.info?.error?.data;
+    const data = [e?.data, e?.error?.data, e?.info?.error?.data, String(e?.message ?? "").match(/return data: (0x[0-9a-fA-F]+)/)?.[1]]
+      .find((d) => typeof d === "string" && d.length >= 10);
     let name;
     try { name = data ? contract.interface.parseError(data)?.name : undefined } catch { /* not a custom error */ }
     const text = `${name ?? ""} ${e?.shortMessage ?? ""} ${e?.message ?? ""}`;
