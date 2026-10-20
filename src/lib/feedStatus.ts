@@ -5,13 +5,15 @@ export type FeedProblem = FeedUnavailableReason | 'unreachable'
 
 /** Plain-language explanation shown in place of an empty table. */
 export const FEED_PROBLEM_COPY: Record<FeedProblem, string> = {
-  plan_unsupported: "This feed isn't included in the current CoinMarketCap API plan.",
-  rate_limited: 'CoinMarketCap rate limit reached — retrying in a few minutes.',
-  auth: 'The CoinMarketCap API key was rejected.',
-  not_configured: 'No CoinMarketCap API key is configured.',
-  upstream_error: "CoinMarketCap didn't respond — retrying automatically.",
-  plan_expired: 'The CoinMarketCap API plan has expired — renew it or set a new API key.',
-  unreachable: "Couldn't reach the ASAJU backend — retrying automatically.",
+  // Users see that a feed is unavailable, never why at the provider level
+  // (plans, keys, limits) — that detail lives in /api/v1/market/status.
+  plan_unsupported: 'This feed is not available right now.',
+  rate_limited: 'This feed is busy — it refreshes on its own in a few minutes.',
+  auth: 'This feed is temporarily unavailable.',
+  not_configured: 'This feed is temporarily unavailable.',
+  upstream_error: 'This feed is temporarily unavailable — it retries on its own.',
+  plan_expired: 'This feed is temporarily unavailable.',
+  unreachable: "Couldn't reach the ASAJU server — retrying automatically.",
 }
 
 type FeedResponse<T> = {

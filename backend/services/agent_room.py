@@ -657,6 +657,7 @@ async def open_room(db, *, nonce: str, signature: str, owner_of) -> dict:
             "level": int(a.get("level") or 1),
             "events": int(a.get("total_events") or 0),
             "chain_id": int(a.get("chain_id") or 5003),
+            "avatar_seed": a.get("avatar_seed"),
         })
     if ch["mode"] == "mentor":
         mentor = max(participants, key=lambda p: (p["level"], p["events"]))

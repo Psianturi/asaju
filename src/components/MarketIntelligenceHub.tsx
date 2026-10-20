@@ -14,21 +14,19 @@ import {
 } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Card } from '@/components/ui/card'
-import { cloudRunService, Airdrop, GlobalMetrics, NewListing, TrendingCoin } from '@/services/cloudRunService'
+import { cloudRunService, GlobalMetrics, TrendingCoin } from '@/services/cloudRunService'
 import { FEED_PROBLEM_COPY as PROBLEM_COPY, readFeed, type FeedProblem as TabProblem, type FeedSource } from '@/lib/feedStatus'
 import { fmtCompactUsd, fmtPct, fmtPrice, fmtPrize, fmtTimeAgo, isFiniteNum } from '@/lib/format'
 
 const REFRESH_MS = 5 * 60 * 1000
 const MOVERS_VISIBLE = 6
 
-type TabKey = 'hot' | 'gainers' | 'losers' | 'listings' | 'airdrops'
+type TabKey = 'hot' | 'gainers' | 'losers'
 
 interface HubState {
   hot: TrendingCoin[]
   gainers: TrendingCoin[]
   losers: TrendingCoin[]
-  listings: NewListing[]
-  airdrops: Airdrop[]
   metrics: GlobalMetrics | null
   loading: boolean
   /** Tabs whose source failed, with the reason. A tab that is simply empty is not here. */
@@ -42,8 +40,6 @@ const TABS: Array<{ key: TabKey; label: string; hint: string }> = [
   { key: 'hot', label: 'Hot', hint: 'Most visited right now' },
   { key: 'gainers', label: 'Gainers', hint: 'Top movers up 24h' },
   { key: 'losers', label: 'Losers', hint: 'Deepest drops 24h' },
-  { key: 'listings', label: 'Listings', hint: 'Just added on CMC' },
-  { key: 'airdrops', label: 'Airdrops', hint: 'Active campaigns' },
 ]
 
 /**
@@ -134,73 +130,12 @@ function MoverRow({ coin, index }: { coin: TrendingCoin; index: number }) {
     </motion.div>
   )
 }
-function ListingChip({ coin, index }: { coin: NewListing; index: number }) {
-  const addedDate = coin.date_added
-    ? new Date(coin.date_added).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : ''
-  const quote = Array.isArray(coin.quote) ? coin.quote[0] : undefined
-  const change = isFiniteNum(quote?.percent_change_24h) ? (quote!.percent_change_24h as number) : null
-  const up = change != null && change >= 0
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: index * 0.04 }}
-      className="flex items-center justify-between gap-3 px-3 py-1 rounded-md hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 h-9"
-    >
-      <div className="flex items-baseline gap-2 min-w-0 flex-1">
-        <Rocket size={12} className="text-violet-300 shrink-0 self-center" weight="duotone" />
-        <span className="font-bold text-sm text-foreground shrink-0">{coin.symbol}</span>
-        <span className="text-[10px] text-gray-300 truncate hidden md:inline">{coin.name}</span>
-      </div>
-      <div className="flex items-center gap-3 shrink-0">
-        {change != null && (
-          <span className={`text-[12px] font-mono font-bold tabular-nums ${up ? 'text-emerald-400 text-terminal-glow-up' : 'text-rose-400 text-terminal-glow-down'}`}>
-            {up ? '▲ +' : '▼ '}{Math.abs(change).toFixed(1)}%
-          </span>
-        )}
-        <span className="text-[10px] text-muted-foreground/80 font-mono tabular-nums">{addedDate}</span>
-      </div>
-    </motion.div>
-  )
-}
-function AirdropRow({ airdrop, index }: { airdrop: Airdrop; index: number }) {
-  const symbol = airdrop.coin?.symbol ?? airdrop.name?.split(' ')[0] ?? '?'
-  const daysLeft = airdrop.end_date
-    ? Math.max(0, Math.ceil((new Date(airdrop.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-    : null
-  const status = airdrop.status ?? 'ONGOING'
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04 }}
-      className="flex items-center justify-between gap-3 px-3 py-1 rounded-md hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 h-9"
-    >
-      <div className="flex items-baseline gap-2 min-w-0 flex-1">
-        <Gift size={13} className="text-amber-300 shrink-0 self-center" weight="duotone" />
-        <span className="font-semibold text-sm shrink-0">{symbol}</span>
-        <span className="text-[9px] font-mono text-muted-foreground/60 uppercase">{status.toLowerCase()}</span>
-        <span className="text-[10px] text-muted-foreground tabular-nums truncate hidden md:inline">
-          {isFiniteNum(airdrop.total_prize) ? fmtPrize(airdrop.total_prize, airdrop.prize_currency ?? '') : 'Learn more'}
-        </span>
-      </div>
-      {daysLeft != null && daysLeft > 0 && (
-        <span className="text-[10px] font-mono font-semibold text-amber-300 tabular-nums shrink-0">
-          {daysLeft}d
-        </span>
-      )}
-    </motion.div>
-  )
-}
 
 export function MarketIntelligenceHub() {
   const [state, setState] = useState<HubState>({
     hot: [],
     gainers: [],
     losers: [],
-    listings: [],
-    airdrops: [],
     metrics: null,
     loading: true,
     problems: {},
@@ -217,28 +152,22 @@ export function MarketIntelligenceHub() {
         cloudRunService.getMostVisited(8),
         cloudRunService.getTrendingGainersLosers('24h', 8, 'desc'),
         cloudRunService.getTrendingGainersLosers('24h', 8, 'asc'),
-        cloudRunService.getNewListings(6),
-        cloudRunService.getAirdrops(4),
         cloudRunService.getGlobalMetrics(),
       ])
       if (cancelled) return
-      const [h, g, l, n, a, m] = settled
+      const [h, g, l, m] = settled
       settled.forEach((r, i) => {
         if (r.status === 'rejected') console.warn(`[MarketHub] source ${i} failed:`, r.reason)
       })
       const hot = readFeed<TrendingCoin>(h)
       const gainers = readFeed<TrendingCoin>(g)
       const losers = readFeed<TrendingCoin>(l)
-      const listings = readFeed<NewListing>(n)
-      const airdrops = readFeed<Airdrop>(a)
       const problems: HubState['problems'] = {}
       if (hot.problem) problems.hot = hot.problem
       if (gainers.problem) problems.gainers = gainers.problem
       if (losers.problem) problems.losers = losers.problem
-      if (listings.problem) problems.listings = listings.problem
-      if (airdrops.problem) problems.airdrops = airdrops.problem
       const sources: HubState['sources'] = {}
-      for (const [k, f] of [['hot', hot], ['gainers', gainers], ['losers', losers], ['listings', listings], ['airdrops', airdrops]] as const) {
+      for (const [k, f] of [['hot', hot], ['gainers', gainers], ['losers', losers]] as const) {
         if (f.source) sources[k] = f.source
       }
       setState(prev => ({
@@ -249,8 +178,6 @@ export function MarketIntelligenceHub() {
         hot: hot.rows,
         gainers: gainers.rows,
         losers: losers.rows,
-        listings: listings.rows,
-        airdrops: airdrops.rows,
         metrics: m.status === 'fulfilled' ? m.value.metrics ?? null : null,
         lastUpdated: Date.now(),
       }))
@@ -260,13 +187,11 @@ export function MarketIntelligenceHub() {
     return () => { cancelled = true; clearInterval(iv) }
   }, [])
 
-  const current: Array<TrendingCoin | NewListing | Airdrop> = useMemo(() => {
+  const current: TrendingCoin[] = useMemo(() => {
     switch (tab) {
       case 'hot': return state.hot
       case 'gainers': return state.gainers
       case 'losers': return state.losers
-      case 'listings': return state.listings
-      case 'airdrops': return state.airdrops
     }
   }, [tab, state])
 
@@ -444,16 +369,6 @@ export function MarketIntelligenceHub() {
                   {visible.map((c, i) => <MoverRow key={`${tab}-${i}`} coin={c as TrendingCoin} index={i} />)}
                 </div>
               )}
-              {tab === 'listings' && (
-                <div>
-                  {visible.map((c, i) => <ListingChip key={`l-${i}`} coin={c as NewListing} index={i} />)}
-                </div>
-              )}
-              {tab === 'airdrops' && (
-                <div>
-                  {visible.map((a, i) => <AirdropRow key={`a-${i}`} airdrop={a as Airdrop} index={i} />)}
-                </div>
-              )}
             </motion.div>
           </AnimatePresence>
         )}
@@ -471,13 +386,12 @@ export function MarketIntelligenceHub() {
 
       <p className="text-[9px] text-muted-foreground/60 px-4 py-2 border-t border-white/5 flex items-center gap-1.5">
         <span className={`w-1 h-1 rounded-full ${standIn ? 'bg-amber-400' : 'bg-cyan-400'}`} />
+        {/* Name the source only; provider plans and outages are for /market/status, not users. */}
         {standIn === 'coingecko'
-          ? 'CoinMarketCap is not answering — CoinGecko is standing in · refreshes every 5 min'
+          ? 'Data: CoinGecko · refreshes every 5 min'
           : standIn === 'cache'
-            ? "CoinMarketCap is not answering — showing its last good data · refreshes every 5 min"
-            : standIn === 'cmc_listings'
-              ? 'From CoinMarketCap listings (this feed is not in the current plan) · refreshes every 5 min'
-              : 'CoinMarketCap · refreshes every 5 min'}
+            ? 'Data: CoinMarketCap (last update) · refreshes every 5 min'
+            : 'Data: CoinMarketCap · refreshes every 5 min'}
       </p>
     </Card>
   )

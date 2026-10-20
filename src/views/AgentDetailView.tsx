@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Agent, Event, NFT } from '@/lib/types'
-import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
@@ -14,6 +13,8 @@ import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
 import { AutoScoutCard } from '@/components/AutoScoutCard'
+import { AgentGrowthCard } from '@/components/AgentGrowthCard'
+import { ScoutActivityCard } from '@/components/ScoutActivityCard'
 import { TermHint } from '@/components/TermHint'
 import { NetworkMismatchBanner } from '@/components/NetworkMismatchBanner'
 import { GLOSSARY } from '@/lib/glossary'
@@ -69,7 +70,6 @@ export function AgentDetailView({
   onListMarketplace,
   onDeleteAgent,
 }: AgentDetailViewProps) {
-  const avatar = useMemo(() => getAgentAvatar(agent.id, agent.name), [agent.id, agent.name])
   const rarityTier = calculateRarityTier(agent)
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)
@@ -262,6 +262,8 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
       {/* Living pulse — the agent's real knowledge + market intake streams. */}
       <AgentPulse agent={agent} />
 
+      <AgentGrowthCard agent={agent} videosAnalyzed={agentEvents.length} />
+
       {/* Quick actions bar — destructive action kept out of this grid so it
           doesn't share visual weight with routine actions like Configure. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -359,6 +361,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
       {/* Auto-Scout and the mandate that lets it run unattended. The
           dashboard's "enable Auto-Scout" banner links here. */}
       {onToggleScout && <AutoScoutCard agent={agent} onToggleScout={onToggleScout} />}
+      {agent.level >= 2 && <ScoutActivityCard agent={agent} />}
 
       {/* Wisdom timeline */}
       <Card className="glass-card-hover p-6 border border-primary/20">

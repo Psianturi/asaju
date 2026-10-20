@@ -181,6 +181,22 @@ async def test_server_owned_fields_are_not_writable(env):
         assert field not in stored
 
 
+async def test_owner_can_pick_an_avatar(env):
+    db, owner = env
+    ch = await _challenge(db, "update_config")
+    req = UpdateAgentStateRequest(avatar_seed=42, auth_nonce=ch["nonce"], auth_signature=_sign(ch["message"], owner))
+    res = await update_agent_state("agent-1", req)
+
+    assert res["updated_fields"] == ["avatar_seed"]
+    assert db.agents["agent-1"]["avatar_seed"] == 42
+
+
+@pytest.mark.parametrize("seed", [-1, 1_000_001])
+async def test_avatar_seed_out_of_range_is_rejected(seed):
+    with pytest.raises(ValidationError):
+        UpdateAgentStateRequest(avatar_seed=seed, auth_nonce="n", auth_signature="s")
+
+
 # ── DELETE ─────────────────────────────────────────────────────────────────
 
 

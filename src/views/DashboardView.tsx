@@ -2,6 +2,7 @@
 import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { StatTile, type StatTone } from '@/components/StatTile'
 import { Card } from '@/components/ui/card'
 import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Badge } from '@/components/ui/badge'
@@ -315,36 +316,33 @@ export function DashboardView({
           !dataLoaded ? (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               {Array.from({ length: 4 }).map((_, i) => (
-                <Card key={i} className="p-3">
-                  <div className="h-2.5 w-16 rounded bg-muted/40 mb-2 animate-pulse" />
-                  <div className="h-6 w-12 rounded bg-muted/40 animate-pulse" />
-                </Card>
+                <StatTile key={i} label="Loading" value="" icon={null} tone="slate" loading />
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-              <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={14} />} tone="primary" />
+              <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={20} weight="duotone" />} tone="primary" />
               {AUTO_SCOUT_AVAILABLE ? (
-                <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
+                <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={20} weight="duotone" />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
               ) : (
                 <CompactStat
                   label="Last learned"
                   value={lastLearned ? fmtTimeAgo(lastLearned.at) : '—'}
-                  icon={<Lightning size={14} />}
+                  icon={<Lightning size={20} weight="duotone" />}
                   tone="emerald"
                   sublabel={lastLearned?.agent ? lastLearned.agent.name : 'submit a video to start'}
                 />
               )}
-              <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={14} />} tone="accent" />
-              <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={14} />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
+              <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={20} weight="duotone" />} tone="accent" />
+              <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={20} weight="duotone" />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
             </div>
           )
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-            <VisitorStat label="Platform agents" value={publicMetrics?.total_agents ?? null} icon={<Robot size={14} />} loading={visitorStatsLoading} tone="primary" />
-            <VisitorStat label="Videos analyzed" value={publicMetrics?.total_events_attended ?? null} icon={<FileText size={14} />} loading={visitorStatsLoading} tone="accent" />
-            <VisitorStat label="Wisdom NFTs" value={publicMetrics?.total_wisdom_nfts ?? null} icon={<Medal size={14} />} loading={visitorStatsLoading} tone="emerald" />
-            <VisitorStat label="Avg agent level" value={publicMetrics != null ? Math.round(publicMetrics.average_agent_level * 10) / 10 : null} icon={<GlobeHemisphereEast size={14} />} loading={visitorStatsLoading} tone="amber" decimals={1} />
+            <VisitorStat label="Platform agents" value={publicMetrics?.total_agents ?? null} icon={<Robot size={20} weight="duotone" />} loading={visitorStatsLoading} tone="primary" />
+            <VisitorStat label="Videos analyzed" value={publicMetrics?.total_events_attended ?? null} icon={<FileText size={20} weight="duotone" />} loading={visitorStatsLoading} tone="accent" />
+            <VisitorStat label="Wisdom NFTs" value={publicMetrics?.total_wisdom_nfts ?? null} icon={<Medal size={20} weight="duotone" />} loading={visitorStatsLoading} tone="emerald" />
+            <VisitorStat label="Avg agent level" value={publicMetrics != null ? Math.round(publicMetrics.average_agent_level * 10) / 10 : null} icon={<GlobeHemisphereEast size={20} weight="duotone" />} loading={visitorStatsLoading} tone="amber" decimals={1} />
           </div>
         )}
       </section>
@@ -705,83 +703,30 @@ type UrgentAction =
   | { kind: 'paused-agent'; agent?: Agent; paused: { agent_id: string; agent_name: string; reason: string }; cta: string }
   | { kind: 'low-gas'; agent?: Agent; gas: { agent_id: string; agent_name: string; agent_gas_balance: number }; cta: string }
 
-function CompactStat({
-  label,
-  value,
-  icon,
-  tone,
-  sublabel,
-}: {
+function CompactStat({ label, value, icon, tone, sublabel }: {
   label: string
   value: number | string
   icon: React.ReactNode
-  tone: 'primary' | 'emerald' | 'accent' | 'amber' | 'slate'
+  tone: StatTone
   sublabel?: string
 }) {
-  const toneClass = {
-    primary: 'text-primary border-primary/25',
-    emerald: 'text-emerald-400 border-emerald-500/25',
-    accent: 'text-accent border-accent/25',
-    amber: 'text-amber-400 border-amber-500/25',
-    slate: 'text-muted-foreground border-border/30',
-  }[tone]
-  return (
-    <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
-      <div className="flex items-start justify-between mb-1">
-        <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-300">
-          {label}
-        </p>
-        {icon}
-      </div>
-      <p className={`${typeof value === 'string' ? 'text-2xl' : 'text-3xl'} font-bold font-mono tabular-nums text-foreground leading-none`}>{value}</p>
-      {sublabel && (
-        <p className="text-[10px] text-muted-foreground mt-1.5">{sublabel}</p>
-      )}
-    </Card>
-  )
+  return <StatTile label={label} value={value} icon={icon} tone={tone} sublabel={sublabel} />
 }
 
-function VisitorStat({
-  label,
-  value,
-  icon,
-  loading,
-  tone,
-  decimals = 0,
-}: {
+function VisitorStat({ label, value, icon, loading, tone, decimals = 0 }: {
   label: string
   value: number | null
   icon: React.ReactNode
   loading: boolean
-  tone: 'primary' | 'emerald' | 'accent' | 'amber'
+  tone: StatTone
   decimals?: number
 }) {
-  const toneClass = {
-    primary: 'text-primary border-primary/25',
-    emerald: 'text-emerald-400 border-emerald-500/25',
-    accent: 'text-accent border-accent/25',
-    amber: 'text-amber-400 border-amber-500/25',
-  }[tone]
   const display = value == null
     ? '—'
     : decimals > 0
       ? value.toFixed(decimals)
       : Math.round(value).toLocaleString('en-US')
-  return (
-    <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
-      <div className="flex items-start justify-between mb-1">
-        <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">
-          {label}
-        </p>
-        {icon}
-      </div>
-      {loading ? (
-        <div className="h-7 w-16 rounded bg-muted/40 animate-pulse" />
-      ) : (
-        <p className="text-xl font-bold font-mono tabular-nums">{display}</p>
-      )}
-    </Card>
-  )
+  return <StatTile label={label} value={display} icon={icon} tone={tone} loading={loading} />
 }
 
 function InboxBody({

@@ -35,7 +35,6 @@ import { TopUpGasDialog } from '@/components/TopUpGasDialog'
 import { MarketplaceListingDialog } from '@/components/MarketplaceListingDialog'
 import { GenesisMintConfirmation } from '@/components/GenesisMintConfirmation'
 import { AgentBreedingDialog } from '@/components/AgentBreedingDialog'
-import { ProactiveScoutingPanel } from '@/components/ProactiveScoutingPanel'
 import { ProposalModal } from '@/components/ProposalModal'
 import { WisdomTimeline } from '@/components/WisdomTimeline'
 import { ActivityLog } from '@/components/ActivityLog'
@@ -870,16 +869,16 @@ function App() {
     setConfigDialogOpen(true)
   }
 
-  const handleSaveAgentConfig = async (agentId: string, instructions: string, customAgenda: string) => {
+  const handleSaveAgentConfig = async (agentId: string, instructions: string, customAgenda: string, avatarSeed: number) => {
     const agent = (agents ?? []).find((a) => a.id === agentId)
     if (!agent) throw new Error('Agent not found')
     // Instructions feed the agent's prompts, so the backend only accepts them
     // with the current owner's signature. Update local state after it agrees.
     const auth = await signAgentAction(agent, 'update_config')
-    await cloudRunService.updateAgentState(agentId, { customInstructions: instructions, customAgenda }, auth)
+    await cloudRunService.updateAgentState(agentId, { customInstructions: instructions, customAgenda, avatarSeed }, auth)
     setAgents((current) =>
       (current ?? []).map((a) =>
-        a.id === agentId ? { ...a, customInstructions: instructions, customAgenda } : a
+        a.id === agentId ? { ...a, customInstructions: instructions, customAgenda, avatarSeed } : a
       )
     )
   }
@@ -1015,22 +1014,6 @@ function App() {
       setScoutingAgentId(null)
       clearTasks()
     }
-  }
-
-  const handleApproveScoutedEvent = (agentId: string, eventId: string) => {
-    setAgents((current) =>
-      (current ?? []).map((a) => {
-        if (a.id === agentId && a.scoutedOpportunities) {
-          return {
-            ...a,
-            scoutedOpportunities: a.scoutedOpportunities.map((evt) =>
-              evt.id === eventId ? { ...evt, approved: true } : evt
-            )
-          }
-        }
-        return a
-      })
-    )
   }
 
   const handleSaveCustomAgenda = async (agentId: string, agenda: string) => {
@@ -1356,8 +1339,7 @@ function App() {
               onListMarketplace={(agent) => setListingDialogAgent(agent)}
               onDeleteAgent={handleDeleteAgent}
               onRetrySpawn={handleRetrySpawn}
-              onToggleScout={handleToggleScout}
-              onApproveEvent={handleApproveScoutedEvent}
+              onTopUpGas={(a) => { setSelectedAgentForTopUp(a); setTopUpDialogOpen(true) }}
               proposalCounts={proposalCounts}
               userBalance={userBalance ?? 0}
               onInitiateFusion={() => setBreedingDialogOpen(true)}
@@ -1467,6 +1449,7 @@ function App() {
             agent={selectedAgent}
           />
           <AgentConfigDialog
+            key={selectedAgent.id}
             open={configDialogOpen}
             onOpenChange={setConfigDialogOpen}
             agent={selectedAgent}
