@@ -72,6 +72,7 @@ export interface MarkAgentFundedResponse {
 export interface UpdateAgentStateRequest {
   customInstructions?: string
   customAgenda?: string
+  avatarSeed?: number
 }
 
 /** A signed agent-auth challenge, proving the caller is the current owner. */
@@ -565,6 +566,7 @@ export const cloudRunService = {
         custom_instructions?: string
         auto_scout_enabled?: boolean
         custom_agenda?: string
+        avatar_seed?: number | null
         generation?: number
         parent_ids?: string[]
         parent_names?: { parent_1: string; parent_2: string }
@@ -619,6 +621,7 @@ export const cloudRunService = {
         customInstructions: r.custom_instructions,
         autoScoutEnabled: r.auto_scout_enabled,
         customAgenda: r.custom_agenda,
+        avatarSeed: r.avatar_seed ?? undefined,
         autonomousSignatures: r.autonomous_signatures ?? 0,
         generation: r.generation,
         parentIds: r.parent_ids,
@@ -722,6 +725,7 @@ export const cloudRunService = {
     const backendPayload = {
       custom_instructions: state.customInstructions,
       custom_agenda: state.customAgenda,
+      avatar_seed: state.avatarSeed,
       auth_nonce: auth.nonce,
       auth_signature: auth.signature,
     }
@@ -1371,6 +1375,7 @@ export const cloudRunService = {
         createdAt: Date.now(),
         gasSpent: l.gas_spent != null ? Number(l.gas_spent) : undefined,
         generation: l.generation != null ? Number(l.generation) : undefined,
+        avatarSeed: l.avatar_seed != null ? Number(l.avatar_seed) : undefined,
       }))
     } catch (error) {
       console.warn('[cloudRunService] getMarketplaceListings failed:', error)
@@ -1530,6 +1535,7 @@ export interface RoomParticipant {
   level: number
   events: number
   chain_id: number
+  avatar_seed?: number | null
   is_mentor?: boolean
 }
 

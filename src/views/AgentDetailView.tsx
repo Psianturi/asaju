@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Agent, Event, NFT } from '@/lib/types'
-import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
 import { getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
@@ -69,7 +68,6 @@ export function AgentDetailView({
   onListMarketplace,
   onDeleteAgent,
 }: AgentDetailViewProps) {
-  const avatar = useMemo(() => getAgentAvatar(agent.id, agent.name), [agent.id, agent.name])
   const rarityTier = calculateRarityTier(agent)
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)

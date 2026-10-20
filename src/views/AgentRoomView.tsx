@@ -41,7 +41,7 @@ const SEAT_STYLES = [
 ]
 const seatStyle = (i: number) => SEAT_STYLES[((i % SEAT_STYLES.length) + SEAT_STYLES.length) % SEAT_STYLES.length]
 
-const asAvatar = (p: RoomParticipant) => ({ id: p.agent_id, name: p.name, niche: p.niche as Agent['niche'] })
+const asAvatar = (p: RoomParticipant) => ({ id: p.agent_id, name: p.name, niche: p.niche as Agent['niche'], avatarSeed: p.avatar_seed })
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong')
 

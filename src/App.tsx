@@ -870,16 +870,16 @@ function App() {
     setConfigDialogOpen(true)
   }
 
-  const handleSaveAgentConfig = async (agentId: string, instructions: string, customAgenda: string) => {
+  const handleSaveAgentConfig = async (agentId: string, instructions: string, customAgenda: string, avatarSeed: number) => {
     const agent = (agents ?? []).find((a) => a.id === agentId)
     if (!agent) throw new Error('Agent not found')
     // Instructions feed the agent's prompts, so the backend only accepts them
     // with the current owner's signature. Update local state after it agrees.
     const auth = await signAgentAction(agent, 'update_config')
-    await cloudRunService.updateAgentState(agentId, { customInstructions: instructions, customAgenda }, auth)
+    await cloudRunService.updateAgentState(agentId, { customInstructions: instructions, customAgenda, avatarSeed }, auth)
     setAgents((current) =>
       (current ?? []).map((a) =>
-        a.id === agentId ? { ...a, customInstructions: instructions, customAgenda } : a
+        a.id === agentId ? { ...a, customInstructions: instructions, customAgenda, avatarSeed } : a
       )
     )
   }
@@ -1467,6 +1467,7 @@ function App() {
             agent={selectedAgent}
           />
           <AgentConfigDialog
+            key={selectedAgent.id}
             open={configDialogOpen}
             onOpenChange={setConfigDialogOpen}
             agent={selectedAgent}

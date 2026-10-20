@@ -6,25 +6,26 @@ import { Label } from '@/components/ui/label'
 import { Agent } from '@/lib/types'
 import { GearSix, FloppyDisk } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { motion } from 'framer-motion'
+import { AvatarPicker } from '@/components/AvatarPicker'
 
 interface AgentConfigDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   agent: Agent
   /** Signs and persists; rejects if the owner declines or the save fails. */
-  onSave: (agentId: string, instructions: string, customAgenda: string) => Promise<void>
+  onSave: (agentId: string, instructions: string, customAgenda: string, avatarSeed: number) => Promise<void>
 }
 
 export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentConfigDialogProps) {
   const [instructions, setInstructions] = useState(agent.customInstructions || '')
   const [customAgenda, setCustomAgenda] = useState(agent.customAgenda || '')
+  const [avatarSeed, setAvatarSeed] = useState(agent.avatarSeed ?? 0)
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      await onSave(agent.id, instructions, customAgenda)
+      await onSave(agent.id, instructions, customAgenda, avatarSeed)
       onOpenChange(false)
       toast.success('Agent Configuration Updated!', {
         description: `${agent.name} has been reconfigured`
@@ -68,6 +69,11 @@ export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentCo
         </DialogHeader>
 
         <div className="space-y-6 mt-4 overflow-y-auto flex-1 pr-1">
+          <div className="space-y-3">
+            <Label className="text-sm font-semibold">Avatar</Label>
+            <AvatarPicker agent={agent} value={avatarSeed} onChange={setAvatarSeed} />
+          </div>
+
           <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>

@@ -41,7 +41,7 @@ AGENTS_COLLECTION = "agents"
 _SNAPSHOT_FIELDS = (
     "agent_name", "niche", "personality", "level", "total_events",
     "wisdom_unlocked", "generation", "gas_spent", "agent_gas_balance",
-    "chain_id", "agent_wallet",
+    "chain_id", "agent_wallet", "avatar_seed",
 )
 
 

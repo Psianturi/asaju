@@ -11,7 +11,6 @@ import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK
 import { GasStatusBadge } from './GasStatusBadge'
 import { ChainBadge } from './ChainBadge'
 import { DEFAULT_CHAIN_ID, getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
-import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from './NicheAvatar'
 import { TermHint } from '@/components/TermHint'
 import { useGasStatus } from '@/hooks/useGasStatus'
@@ -91,7 +90,6 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
   }
   const PersonalityIcon = personalityIcons[agent.personality]
   const progress = Math.min((videosAnalyzed / WISDOM_UNLOCK_THRESHOLD) * 100, 100)
-  const avatar = getAgentAvatar(agent.id, agent.name)
 
   const rarityTier = calculateRarityTier(agent)
   const rarityStyles = getRarityStyles(rarityTier)

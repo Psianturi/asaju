@@ -62,6 +62,8 @@ export interface Agent {
   lastScoutReason?: string
   topFeedbackTags?: Array<{ tag: string; score: number }>
   customAgenda?: string
+  /** Which generated avatar the owner picked (lib/agentAvatar); 0/absent = default. */
+  avatarSeed?: number
   scoutedOpportunities?: ScoutedEvent[]
   autonomousSignatures?: number
   wisdomHeritageScore?: number

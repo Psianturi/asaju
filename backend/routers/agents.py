@@ -20,7 +20,7 @@ import uuid
 from eth_account import Account
 from fastapi import APIRouter, HTTPException, Query, Request
 from google.cloud.firestore_v1.base_query import FieldFilter
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from web3 import Web3
 
 from core.agent_auth import require_agent_owner
@@ -196,6 +196,7 @@ class SpawnResponse(BaseModel):
     custom_instructions: str | None = None
     auto_scout_enabled: bool | None = None
     custom_agenda: str | None = None
+    avatar_seed: int | None = None
     generation: int | None = None
     parent_ids: list[str] | None = None
     parent_names: dict | None = None
@@ -284,6 +285,7 @@ async def _build_agent_response(data: dict, needs_funding: bool) -> SpawnRespons
         scout_interval_hours=data.get("scout_interval_hours", 6),
         last_scout_at=data.get("last_scout_at"),
         custom_agenda=data.get("custom_agenda"),
+        avatar_seed=data.get("avatar_seed"),
         generation=data.get("generation"),
         parent_ids=data.get("parent_ids"),
         parent_names=data.get("parent_names"),
@@ -339,6 +341,7 @@ def _to_response(
         scout_interval_hours=data.get("scout_interval_hours", 6),
         last_scout_at=data.get("last_scout_at"),
         custom_agenda=data.get("custom_agenda"),
+        avatar_seed=data.get("avatar_seed"),
         generation=data.get("generation"),
         parent_ids=data.get("parent_ids"),
         parent_names=data.get("parent_names"),
@@ -387,6 +390,8 @@ class UpdateAgentStateRequest(BaseModel):
     # is accepted here.
     custom_instructions: str | None = None
     custom_agenda: str | None = None
+    # Which generated avatar the owner picked (see frontend lib/agentAvatar).
+    avatar_seed: int | None = Field(default=None, ge=0, le=1_000_000)
     auth_nonce: str
     auth_signature: str
 
