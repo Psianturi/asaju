@@ -396,48 +396,51 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     if not req.event_title:
         req.event_title = "YouTube Event"
 
+    # ── Owner authorisation (both modes) ──────────────────────────────────
+    # Every attend spends a model call, and on Mantle mode A mints with gas
+    # paid by the platform's MINTER_SERVICE wallet; mode B decrypts the agent's
+    # own key. So both need proof that the wallet owning the agent *on-chain
+    # right now* asked for it. After a marketplace sale the previous owner's
+    # signature stops working here, which is the whole point.
+    #
+    # Two ways to be authorised:
+    #   - a per-run signature (what a person in the UI provides), or
+    #   - a standing mandate the owner granted earlier, which is how the
+    #     Auto Scout scheduler runs without holding a wallet.
+    if req.auth_nonce and req.auth_signature:
+        await require_agent_owner(
+            db,
+            agent_id=req.agent_id,
+            agent_wallet=req.agent_wallet,
+            action="attend_event",
+            chain_id=req.chain_id,
+            nonce=req.auth_nonce,
+            signature=req.auth_signature,
+        )
+    else:
+        try:
+            mandate = await consume_mandate_run(
+                db,
+                agent_id=req.agent_id,
+                chain_id=req.chain_id,
+                action="attend_event",
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"code": "NO_MANDATE", "message": str(exc)}) from exc
+        logger.info(
+            "Attend via mandate (mode %s): agent %s acting under a mandate owned by %s "
+            "(%d/%d runs used today)",
+            "B" if req.mode_b else "A",
+            req.agent_id,
+            mandate.get("owner_wallet"),
+            mandate.get("runs_used_today"),
+            mandate.get("max_runs_per_day"),
+        )
+
     # ── Mode B: load agent private key for true autonomous signing ────────
     agent_private_key: str | None = None
     agent_is_funded = False
     if req.mode_b:
-        # Owner authorisation. The backend is about to decrypt this agent's
-        # private key and sign on its behalf, so we must first prove the caller
-        # is the wallet that owns the agent *on-chain right now*. After a
-        # marketplace sale the previous owner's signature stops working here,
-        # which is the whole point: ownership transfer has to be instant.
-        #
-        # Two ways to be authorised:
-        #   - a per-run signature (what a person in the UI provides), or
-        #   - a standing mandate the owner granted earlier, which is how the
-        #     Auto Scout scheduler runs without holding a wallet.
-        if req.auth_nonce and req.auth_signature:
-            await require_agent_owner(
-                db,
-                agent_id=req.agent_id,
-                agent_wallet=req.agent_wallet,
-                action="attend_event",
-                chain_id=req.chain_id,
-                nonce=req.auth_nonce,
-                signature=req.auth_signature,
-            )
-        else:
-            try:
-                mandate = await consume_mandate_run(
-                    db,
-                    agent_id=req.agent_id,
-                    chain_id=req.chain_id,
-                    action="attend_event",
-                )
-            except PermissionError as exc:
-                raise HTTPException(status_code=403, detail={"code": "NO_MANDATE", "message": str(exc)}) from exc
-            logger.info(
-                "Mode B via mandate: agent %s acting under a mandate owned by %s "
-                "(%d/%d runs used today)",
-                req.agent_id,
-                mandate.get("owner_wallet"),
-                mandate.get("runs_used_today"),
-                mandate.get("max_runs_per_day"),
-            )
         try:
             agent_is_funded = bool(agent_data.get("funded", False))
             stored_key = agent_data.get("private_key_enc") or agent_data.get("private_key")

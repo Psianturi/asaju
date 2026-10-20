@@ -655,8 +655,14 @@ function App() {
 
       toast.info('Processing event...', { description: 'Gemini AI is analyzing. This takes 15-40s.' })
 
-      // Mode B (Autonomous Signing): Agent signs with its own private key
-      // Fallback to Mode A if Mode B fails (network error, KMS timeout, etc.)
+      // Every attend needs the current owner's signature (or a mandate).
+      const challenge = await cloudRunService.requestAgentAuthChallenge({
+        agentId: agent.id,
+        agentWallet: agent.walletAddress,
+        action: 'attend_event',
+        chainId: agentChainId,
+      })
+      const signed = await mantleService.signMessage(challenge.message)
       const result = await cloudRunService.attendEvent({
         agentId: agent.id,
         agentWallet: agent.walletAddress,
@@ -667,6 +673,8 @@ function App() {
         niche: agent.niche,
         chainId: agentChainId,
         modeB: true,  // Enable autonomous signing by default for demo impact
+        authNonce: challenge.nonce,
+        authSignature: signed.signature,
       })
 
       const resolvedTitle = eventTitle

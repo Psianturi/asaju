@@ -34,6 +34,12 @@ async def client(monkeypatch):
         "routers.events.classify_event_niche",
         AsyncMock(return_value="Blockchain/DeFi"),
     )
+    # Every attend needs the owner's signature or mandate; these tests are about
+    # milestone minting, so they run under a stand-in mandate.
+    monkeypatch.setattr(
+        "routers.events.consume_mandate_run",
+        AsyncMock(return_value={"owner_wallet": "0xowner", "runs_used_today": 1, "max_runs_per_day": 5}),
+    )
 
     from main import app
 
@@ -158,3 +164,20 @@ async def test_stats_advance_across_several_non_milestone_videos(client):
         assert r2.json()["new_level"] == 3
 
     assert mock_mint.await_count == 1  # only the second call crossed a milestone
+
+
+async def test_mode_a_without_signature_or_mandate_is_refused(client, monkeypatch):
+    """Mode A mints with the platform's gas on Mantle and always calls the model,
+    so it needs the owner too — not just mode B."""
+    ac, db = client
+    await db.collection("agents").document("agent-noauth").set(
+        {"agent_id": "agent-noauth", "agent_wallet": "0x" + "ab" * 20, "chain_id": CHAIN_ID, "total_events": 0}
+    )
+
+    async def no_mandate(*_a, **_k):
+        raise PermissionError("No active mandate authorises 'attend_event' for agent agent-noauth.")
+
+    monkeypatch.setattr("routers.events.consume_mandate_run", no_mandate)
+    resp = await _attend(ac, "agent-noauth", "0x" + "ab" * 20)
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["code"] == "NO_MANDATE"
