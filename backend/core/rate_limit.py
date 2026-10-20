@@ -43,6 +43,25 @@ def reset_state() -> None:
         _hits.clear()
 
 
+def client_ip(request: Request) -> str:
+    """The caller's real IP.
+
+    On Cloud Run every connection reaches uvicorn from the same internal proxy
+    (169.254.169.126 in the access logs), so request.client.host would put all
+    users in one bucket. Cloud Run appends the true client IP as the *last*
+    X-Forwarded-For entry; earlier entries are whatever the caller sent and can
+    be spoofed, so only the last one is trusted. If a load balancer is ever put
+    in front, the client becomes the second-to-last entry instead.
+    """
+    headers = getattr(request, "headers", None)
+    forwarded = headers.get("x-forwarded-for") if headers else None
+    if forwarded:
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
+    return request.client.host if request.client else "unknown"
+
+
 def enforce(
     request: Request,
     bucket: str,
@@ -55,7 +74,7 @@ def enforce(
     Keyed by client host so one noisy integration behind a single IP does not
     lock out everyone behind that NAT.
     """
-    host = request.client.host if request.client else "unknown"
+    host = client_ip(request)
     key = f"{bucket}:{host}"
     now = time.time()
     cutoff = now - window_seconds

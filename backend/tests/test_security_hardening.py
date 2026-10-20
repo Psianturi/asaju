@@ -222,6 +222,37 @@ def test_rate_limit_is_per_host():
     reset_state()
 
 
+class _ProxiedRequest:
+    """What Cloud Run hands uvicorn: one proxy address, real IP in X-Forwarded-For."""
+
+    def __init__(self, forwarded_for):
+        self.client = _FakeClient("169.254.169.126")
+        self.headers = {"x-forwarded-for": forwarded_for}
+
+
+def test_rate_limit_keys_on_forwarded_client_not_the_proxy():
+    from core.rate_limit import enforce
+
+    reset_state()
+    # Two users behind Cloud Run's single proxy address must not share a bucket.
+    enforce(_ProxiedRequest("198.51.100.1"), "proxied", limit=1, window_seconds=60)
+    enforce(_ProxiedRequest("198.51.100.2"), "proxied", limit=1, window_seconds=60)
+    reset_state()
+
+
+def test_rate_limit_ignores_spoofed_forwarded_entries():
+    from fastapi import HTTPException as FastAPIHTTPException
+    from core.rate_limit import client_ip, enforce
+
+    reset_state()
+    # The caller controls everything left of what Cloud Run appended.
+    assert client_ip(_ProxiedRequest("6.6.6.6, 198.51.100.1")) == "198.51.100.1"
+    enforce(_ProxiedRequest("1.1.1.1, 198.51.100.1"), "spoof", limit=1, window_seconds=60)
+    with pytest.raises(FastAPIHTTPException):
+        enforce(_ProxiedRequest("2.2.2.2, 198.51.100.1"), "spoof", limit=1, window_seconds=60)
+    reset_state()
+
+
 def test_rate_limit_window_slides(monkeypatch):
     import time as time_module
     from core import rate_limit as rl
