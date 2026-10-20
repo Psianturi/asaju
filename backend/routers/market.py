@@ -21,6 +21,7 @@ from services.market_data_service import (
     get_ohlc,
     get_trending_gainers_losers,
     get_trending_latest,
+    market_status,
     symbol_to_cmc_id,
 )
 
@@ -96,6 +97,13 @@ async def market_airdrops(limit: int = Query(5, ge=1, le=50)) -> dict:
     """Active airdrops â€” unique to CMC. Compact list, ready for pre-connect surfacing."""
     results = await get_airdrops(limit)
     return {"results": results, **cmc_feed_status("airdrops")}
+
+
+@router.get("/status")
+async def market_provider_status() -> dict:
+    """Is the CoinMarketCap key working, what plan/credits does it have, is
+    CoinGecko reachable, and why did each feed last fail. Never returns a key."""
+    return await market_status()
 
 
 @router.get("/global-metrics")

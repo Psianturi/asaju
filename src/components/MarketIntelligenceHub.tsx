@@ -476,7 +476,7 @@ export function MarketIntelligenceHub() {
           : standIn === 'cache'
             ? "CoinMarketCap is not answering — showing its last good data · refreshes every 5 min"
             : standIn === 'cmc_listings'
-              ? 'Movers from CoinMarketCap listings (the trending feed is not in the current plan) · refreshes every 5 min'
+              ? 'From CoinMarketCap listings (this feed is not in the current plan) · refreshes every 5 min'
               : 'CoinMarketCap · refreshes every 5 min'}
       </p>
     </Card>

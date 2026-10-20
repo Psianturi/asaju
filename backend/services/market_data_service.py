@@ -366,19 +366,27 @@ async def _cg_movers(limit: int, sort_dir: str) -> list:
                     c.get("market_cap"), c.get("total_volume")) for c in coins[:limit]]
 
 
-async def _cmc_listing_movers(limit: int, sort_dir: str) -> list:
-    """Biggest 24h movers from CMC's listings endpoint, which every plan has.
-    Coins under $1M daily volume are left out so thin tokens don't top the list."""
+async def _cmc_listings_top200() -> list:
+    """Top 200 by market cap from CMC's listings endpoint, which every plan has
+    (free included). One call (1 credit) feeds movers and the Hot stand-in."""
     async def fetch():
         data = await _cmc_get("/v1/cryptocurrency/listings/latest",
                               {"limit": 200, "sort": "market_cap", "convert": "USD"})
         return data.get("data", [])
 
-    coins = await _cached("cmc_listings_top200", _TTL_LISTINGS_MOVERS, fetch, normalize=True) or []
+    return await _cached("cmc_listings_top200", _TTL_LISTINGS_MOVERS, fetch, normalize=True) or []
 
-    def usd(c: dict) -> dict:
-        q = c.get("quote")
-        return (q[0] if isinstance(q, list) and q else {}) if not isinstance(q, dict) else q.get("USD", {})
+
+def _usd_quote(c: dict) -> dict:
+    q = c.get("quote")
+    return (q[0] if isinstance(q, list) and q else {}) if not isinstance(q, dict) else q.get("USD", {})
+
+
+async def _cmc_listing_movers(limit: int, sort_dir: str) -> list:
+    """Biggest 24h movers from CMC listings.
+    Coins under $1M daily volume are left out so thin tokens don't top the list."""
+    coins = await _cmc_listings_top200()
+    usd = _usd_quote
 
     liquid = [c for c in coins if isinstance(usd(c).get("percent_change_24h"), (int, float))
               and (usd(c).get("volume_24h") or 0) >= 1_000_000]
@@ -386,15 +394,42 @@ async def _cmc_listing_movers(limit: int, sort_dir: str) -> list:
     return liquid[:limit]
 
 
+def _listings_worth_trying(feed: str) -> bool:
+    """CMC listings can stand in only when the feed failed for being outside
+    the plan. A key-wide refusal (limit, bad key, lapsed plan) would refuse
+    listings too, and asking again only spends the rate limit."""
+    failure = _FEED_FAILURES.get(feed)
+    return failure is None or failure.get("reason") == "plan_unsupported"
+
+
 async def _movers_fallback(limit: int, sort_dir: str) -> tuple[list, str]:
     """CMC listings first (same provider, any plan), then CoinGecko."""
-    try:
-        rows = await _cmc_listing_movers(limit, sort_dir)
-        if rows:
-            return rows, "cmc_listings"
-    except Exception as exc:
-        logger.warning("CMC listings movers failed: %s", exc.__class__.__name__)
+    if _listings_worth_trying("gainers" if sort_dir == "desc" else "losers"):
+        try:
+            rows = await _cmc_listing_movers(limit, sort_dir)
+            if rows:
+                return rows, "cmc_listings"
+        except Exception as exc:
+            logger.warning("CMC listings movers failed: %s", exc.__class__.__name__)
     return await _cg_movers(limit, sort_dir), "coingecko"
+
+
+async def _hot_fallback(limit: int) -> tuple[list, str]:
+    """Stand-in for CMC "most visited" (not in the free plan): CoinGecko's
+    trending searches, else the most traded coins from CMC listings.
+    CoinGecko's keyless API often refuses shared cloud IPs, so the second
+    step keeps the tab filled on the free CMC plan."""
+    try:
+        rows = await _cg_trending(limit)
+        if rows:
+            return rows, "coingecko"
+    except Exception as exc:
+        logger.warning("CoinGecko trending failed: %s", exc.__class__.__name__)
+    if not _listings_worth_trying("most_visited"):
+        return [], "coingecko"
+    coins = [c for c in await _cmc_listings_top200() if isinstance(_usd_quote(c).get("volume_24h"), (int, float))]
+    coins.sort(key=lambda c: _usd_quote(c)["volume_24h"], reverse=True)
+    return coins[:limit], "cmc_listings"
 
 
 async def _alt_fear_greed() -> dict | None:
@@ -589,7 +624,7 @@ async def get_most_visited(limit: int = 10) -> list:
     return await _cmc_feed(
         "most_visited", f"most_visited:{limit}", _TTL_MOST_VISITED,
         "/v1/cryptocurrency/trending/most-visited", {"limit": limit},
-        fallback=lambda: _cg_trending(limit),
+        fallback=lambda: _hot_fallback(limit),
     )
 
 
@@ -767,3 +802,65 @@ async def get_market_snapshot(coin_ids: list[str] | None = None) -> dict:
         "news": news,
         "generated_at": time.time(),
     }
+
+
+# ── Provider status (diagnostics) ─────────────────────────────────────────────
+
+_STATUS_CACHE: dict = {}
+_STATUS_TTL = 120
+_FEEDS = ("most_visited", "gainers", "losers", "new_listings", "airdrops", "trending_latest")
+
+_STATUS_HINTS = {
+    "ok": "CoinMarketCap answers with this key.",
+    "not_configured": "No COINMARKETCAP_API_KEY on this service: add it as an env var or a Secret Manager secret, then redeploy.",
+    "auth": "CoinMarketCap rejected the key: check it was copied whole (no spaces), or create a new key at pro.coinmarketcap.com.",
+    "plan_expired": "The key's plan has expired: renew it, or create a key on the free Basic plan.",
+    "rate_limited": "Credit or rate limit reached: wait for the reset shown under usage, or upgrade the plan.",
+    "upstream_error": "CoinMarketCap did not answer: usually temporary, try again in a few minutes.",
+}
+
+
+async def market_status() -> dict:
+    """What each market provider says right now, without exposing any key.
+
+    `cmc.key_info` comes from CMC's /v1/key/info (no credit cost). Feed
+    entries reflect the last attempt on this instance only.
+    """
+    cached = _STATUS_CACHE.get("v")
+    if cached and time.time() - cached["at"] < _STATUS_TTL:
+        return cached["data"]
+
+    cmc: dict = {"configured": bool(get_coinmarketcap_api_key())}
+    if not cmc["configured"]:
+        cmc["state"] = "not_configured"
+    else:
+        try:
+            info = (await _cmc_get("/v1/key/info")).get("data") or {}
+            plan, usage = info.get("plan") or {}, info.get("usage") or {}
+            cmc["state"] = "ok"
+            cmc["key_info"] = {
+                "credit_limit_daily": plan.get("credit_limit_daily"),
+                "credit_limit_monthly": plan.get("credit_limit_monthly"),
+                "rate_limit_minute": plan.get("rate_limit_minute"),
+                "credits_left_today": (usage.get("current_day") or {}).get("credits_left"),
+                "credits_left_month": (usage.get("current_month") or {}).get("credits_left"),
+            }
+        except Exception as exc:
+            failure = _describe_cmc_failure(exc)
+            cmc["state"], cmc["detail"] = failure["reason"], failure["detail"]
+    cmc["hint"] = _STATUS_HINTS.get(cmc["state"], _STATUS_HINTS["upstream_error"])
+
+    coingecko: dict = {"key_configured": bool(get_coingecko_api_key())}
+    try:
+        await _coingecko_get("/ping")
+        coingecko["state"] = "ok"
+    except httpx.HTTPStatusError as exc:
+        coingecko["state"] = "rate_limited" if exc.response.status_code == 429 else "upstream_error"
+        coingecko["detail"] = f"HTTP {exc.response.status_code}"
+    except Exception as exc:
+        coingecko["state"], coingecko["detail"] = "upstream_error", exc.__class__.__name__
+
+    data = {"coinmarketcap": cmc, "coingecko": coingecko,
+            "feeds": {f: cmc_feed_status(f) for f in _FEEDS}, "checked_at": int(time.time())}
+    _STATUS_CACHE["v"] = {"at": time.time(), "data": data}
+    return data
