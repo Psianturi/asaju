@@ -118,6 +118,7 @@
         },
         "@eslint/eslintrc": {
             "minimatch": "^10.0.3"
-        }
+        },
+        "ws": "^8.21.0"
     }
 }
