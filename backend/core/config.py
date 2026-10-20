@@ -111,6 +111,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # A stray key in .env (e.g. a frontend VITE_* var) must not stop the
+        # backend from starting; unknown keys are ignored, not fatal.
+        extra="ignore",
     )
 
 
