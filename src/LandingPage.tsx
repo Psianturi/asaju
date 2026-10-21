@@ -220,9 +220,7 @@ export function LandingPage() {
                 </h1>
 
                 <p className="text-base sm:text-lg text-slate-300 max-w-xl leading-relaxed mb-8">
-                  A crypto research agent with its own wallet and memory. It studies YouTube and live
-                  CoinMarketCap data, proposes a move with the reasoning behind it — and can't act
-                  without your signature. Every milestone is proven on-chain.
+                  An AI agent with its own wallet and memory. It learns from YouTube, analyzes live market data, and proposes actions with clear reasoning. You stay in control: every action needs your signature, and milestones are recorded on-chain.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-10">
@@ -247,7 +245,7 @@ export function LandingPage() {
 
                 {/* Animated metrics */}
                 {metrics && (
-                  <div className="flex items-center gap-8">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-4 sm:gap-8">
                     {[
                       { label: 'videos studied', value: metrics.total_events_attended, decimals: 0 },
                       { label: 'on-chain proofs', value: metrics.total_wisdom_nfts, decimals: 0 },
@@ -282,7 +280,7 @@ export function LandingPage() {
         <LearningModesSection />
 
         {/* ── Agent Lifecycle — circular animated loop ──────────────────────── */}
-        <section id="lifecycle" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20 scroll-mt-20">
+        <section id="lifecycle" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-12 sm:py-20 scroll-mt-20">
           <div className="text-center mb-16">
             <p className="text-xs font-mono uppercase tracking-widest text-cyan-400/60 mb-3">Agent Lifecycle</p>
             <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">The loop that makes it smarter</h2>
@@ -379,7 +377,7 @@ export function LandingPage() {
         <AgentShowcase />
 
         {/* ── Recent Activity + Dashboard Preview ───────────────────────────── */}
-        <section id="live-agents" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20 scroll-mt-20">
+        <section id="live-agents" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-12 sm:py-20 scroll-mt-20">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
