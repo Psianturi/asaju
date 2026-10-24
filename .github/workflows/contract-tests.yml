@@ -1,0 +1,37 @@
+name: Contract Tests
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contract-tests.yml"
+  pull_request:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contract-tests.yml"
+
+jobs:
+  hardhat:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: contracts/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # pretest compiles; includes the V7 unit, attack, migration, governance
+      # and randomised invariant suites.
+      - name: Run contract tests
+        run: npm test
