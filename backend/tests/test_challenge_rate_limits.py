@@ -56,3 +56,27 @@ async def test_room_challenge_is_rate_limited(client, monkeypatch):
         for _ in range(11)
     ]
     assert statuses == [200] * 10 + [429]
+
+
+async def test_proposal_approval_challenge_is_rate_limited(client, monkeypatch):
+    class _Missing:
+        exists = False
+
+    class _Ref:
+        async def get(self):
+            return _Missing()
+
+    class _Db:
+        def collection(self, _name):
+            return self
+
+        def document(self, _id):
+            return _Ref()
+
+    monkeypatch.setattr("routers.proposals.get_db", lambda: _Db())
+    statuses = [
+        (await client.post("/api/v1/proposals/p1/approval-challenge", headers={"x-forwarded-for": "198.51.100.9"})).status_code
+        for _ in range(11)
+    ]
+    # Unknown proposal answers 404, but the 11th call is refused before any read.
+    assert statuses == [404] * 10 + [429]

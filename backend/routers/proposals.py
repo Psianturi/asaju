@@ -883,9 +883,12 @@ async def list_agent_proposals(agent_id: str) -> list[ProposalResponse]:
 )
 async def create_approval_challenge(
     proposal_id: str,
+    request: Request,
     action: str = Query("approve", pattern="^(approve|reject)$"),
 ) -> ApprovalChallengeResponse:
     """Create a short-lived, single-use owner-wallet challenge for approve or reject."""
+    # Every call writes a challenge document.
+    enforce_rate_limit(request, "proposal-approval-challenge", limit=10, window_seconds=60)
     db = get_db()
     proposal_ref = db.collection(PROPOSALS_COLLECTION).document(proposal_id)
 
