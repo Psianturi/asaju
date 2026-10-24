@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # Cloud Run service URL — used as OIDC token audience for Cloud Scheduler auth.
     # Override in Cloud Run env vars if the URL changes.
     cloud_run_url: str = "https://mantle-agentic-event-21898396920.asia-southeast1.run.app"
+    # Service accounts whose OIDC tokens may call scheduler/indexer endpoints
+    # (comma-separated). Default: the one Cloud Scheduler jobs use today.
+    scheduler_service_accounts: str = "21898396920-compute@developer.gserviceaccount.com"
 
     # Option A: Semi-Autonomous Proposal Execution — treasury/vault address
     autonomous_vault_address: str = ""

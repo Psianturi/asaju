@@ -3,16 +3,15 @@ Marketplace router — admin endpoints to trigger or inspect the marketplace
 indexer. Cloud Scheduler calls these on a schedule; admins can trigger
 manually after a transfer for testing.
 
-Auth note: this router lives behind the same MINTER_ROLE / OIDC gate as the
-existing scheduler.py endpoints. We don't expose migration to the public —
-only the marketplace owner sees their own agents migrate, and that
-happens automatically via the poller, not via this API.
+Auth note: /index/poll requires the Cloud Scheduler OIDC token (same gate
+as scheduler.py); /listings and /sync are public reads of on-chain state.
 """
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from core.auth import require_oidc
 from core.rate_limit import enforce as enforce_rate_limit
 from services.marketplace_indexer import poll_all_supported_chains, poll_chain
 from services.marketplace_listings import (
@@ -26,12 +25,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/marketplace", tags=["marketplace"])
 
-# Both endpoints below are unauthenticated by design — /sync only copies what
-# the chain already says, and /index/poll is reachable by anyone who finds it.
-# That makes them the cheapest way to turn up writes and chain RPC load, so
-# they get their own budget.
+# /sync is public (it only copies what the chain already says) and rate
+# limited. /index/poll needs the scheduler's OIDC token.
 SYNC_LIMIT = 30        # per host, per minute
-POLL_LIMIT = 6         # per host, per hour — a full poll is expensive
 
 
 @router.get("/listings")
@@ -67,14 +63,13 @@ async def post_sync_listing(agent_id: str = Query(...), request: Request = None)
 @router.post("/index/poll")
 async def trigger_poll(
     chain_id: int | None = Query(None, description="Poll just this chain, or all if omitted"),
-    request: Request = None,
+    _claims: dict = Depends(require_oidc),
 ) -> dict:
     """Force a poll of the AgentOwnershipTransferred event log.
 
     Used by the Cloud Scheduler job `marketplace-indexer` (every 5 minutes)
     and by admins after manually triggering a transfer for testing.
     """
-    enforce_rate_limit(request, "marketplace-poll", limit=POLL_LIMIT, window_seconds=3600)
     try:
         if chain_id is not None:
             result = await poll_chain(chain_id)

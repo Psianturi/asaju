@@ -73,4 +73,15 @@ async def require_oidc(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Any Google account can mint an ID token for our audience; only the
+    # scheduler's own service account may call these endpoints.
+    allowed = {e.strip().lower() for e in settings.scheduler_service_accounts.split(",") if e.strip()}
+    email = str(claims.get("email") or "").lower()
+    if not claims.get("email_verified") or email not in allowed:
+        logger.warning("OIDC token rejected: caller is not an allowed service account")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Caller not allowed",
+        )
+
     return claims
