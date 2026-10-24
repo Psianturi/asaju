@@ -8,19 +8,37 @@
  * silently resolve to the zero address.
  */
 
+// Static keys only: a computed import.meta.env[...] makes Vite inline the whole
+// env object, which once shipped VITE_PRIVY_APP_SECRET to every browser.
+const ENV_CONTRACT: Record<number, string | undefined> = {
+  5003: import.meta.env.VITE_CONTRACT_ADDRESS_5003,
+  11155111: import.meta.env.VITE_CONTRACT_ADDRESS_11155111,
+  97: import.meta.env.VITE_CONTRACT_ADDRESS_97,
+  46630: import.meta.env.VITE_CONTRACT_ADDRESS_46630,
+}
+const ENV_MARKETPLACE: Record<number, string | undefined> = {
+  5003: import.meta.env.VITE_MARKETPLACE_ADDRESS_5003,
+  11155111: import.meta.env.VITE_MARKETPLACE_ADDRESS_11155111,
+  97: import.meta.env.VITE_MARKETPLACE_ADDRESS_97,
+  46630: import.meta.env.VITE_MARKETPLACE_ADDRESS_46630,
+}
+const ENV_PAYMENT_TOKEN: Record<number, string | undefined> = {
+  5003: import.meta.env.VITE_PAYMENT_TOKEN_5003,
+  11155111: import.meta.env.VITE_PAYMENT_TOKEN_11155111,
+  97: import.meta.env.VITE_PAYMENT_TOKEN_97,
+  46630: import.meta.env.VITE_PAYMENT_TOKEN_46630,
+}
+
 function contractFor(chainId: number, fallback: string): string {
-  const fromEnv = import.meta.env[`VITE_CONTRACT_ADDRESS_${chainId}`] as string | undefined
-  return fromEnv?.trim() || fallback
+  return ENV_CONTRACT[chainId]?.trim() || fallback
 }
 
 function marketplaceFor(chainId: number, fallback: string): string {
-  const fromEnv = import.meta.env[`VITE_MARKETPLACE_ADDRESS_${chainId}`] as string | undefined
-  return fromEnv?.trim() || fallback
+  return ENV_MARKETPLACE[chainId]?.trim() || fallback
 }
 
 function paymentTokenFor(chainId: number, fallback: string): string {
-  const fromEnv = import.meta.env[`VITE_PAYMENT_TOKEN_${chainId}`] as string | undefined
-  return fromEnv?.trim() || fallback
+  return ENV_PAYMENT_TOKEN[chainId]?.trim() || fallback
 }
 
 export interface ChainConfig {
