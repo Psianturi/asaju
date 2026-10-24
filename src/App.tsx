@@ -684,7 +684,7 @@ function App() {
       // that didn't happen.
       if (result.minted) {
 
-        const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Health #Wellness #Web3'
+        const nicheTag = agent.niche === 'Blockchain/DeFi' ? '#DeFi #Web3' : agent.niche === 'Trading/Investment' ? '#Trading #Crypto #DeFi' : agent.niche === 'Technology' ? '#Tech #AI #Web3' : '#Security #Audit #Web3'
         const shortWisdom = result.wisdomSummary.length > 110 ? result.wisdomSummary.slice(0, 110) + 'â€¦' : result.wisdomSummary
         const socialPostText = `My AI agent ${agent.name} just analyzed "${resolvedTitle}" and minted a learning proof NFT!\n\nKey insight: "${shortWisdom}"\n\nNFT #${result.tokenId} ${nicheTag} #ASAJU`
         setLastSocialPost({ agentId: agent.id, text: socialPostText, eventTitle: resolvedTitle })

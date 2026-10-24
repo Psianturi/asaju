@@ -510,7 +510,7 @@ export const cloudRunService = {
       onchain_offspring_key?: string
     }>(response)
 
-    const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+    const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
     const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
 
     return {
@@ -599,7 +599,7 @@ export const cloudRunService = {
         }>
       }>>(response)
 
-      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
       const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
 
       return raw.map(r => ({
@@ -1005,7 +1005,7 @@ export const cloudRunService = {
         total_events: number
         needs_funding: boolean
       }>(response)
-      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
       const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
       return {
         success: true,
@@ -1353,7 +1353,7 @@ export const cloudRunService = {
         : `${GCP_BACKEND_URL}/api/v1/marketplace/listings`
       const response = await fetchWithTimeout(url, { method: 'GET' })
       const raw = await handleAPIResponse<{ listings: Array<Record<string, unknown>> }>(response)
-      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
       const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
       return (raw.listings ?? []).map(l => ({
         id: String(l.agent_id),

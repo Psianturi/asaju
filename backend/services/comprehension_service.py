@@ -52,11 +52,11 @@ _NICHE_KEYWORDS = {
     "ml": "Technology",
     "tech": "Technology",
     "code": "Technology",
-    "fitness": "Health/Wellness",
-    "health": "Health/Wellness",
-    "wellness": "Health/Wellness",
-    "meditation": "Health/Wellness",
-    "yoga": "Health/Wellness",
+    "security": "Security",
+    "exploit": "Security",
+    "audit": "Security",
+    "vulnerability": "Security",
+    "hack": "Security",
 }
 
 _NEXT_MINT_MILESTONES = [20, 40, 60, 80, 100]

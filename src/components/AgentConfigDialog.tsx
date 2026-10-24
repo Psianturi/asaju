@@ -44,7 +44,7 @@ export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentCo
     'Blockchain/DeFi': 'Focus exclusively on Layer 2 scaling solutions and cross-chain bridges. Prioritize technical analysis over market sentiment.',
     'Trading/Investment': 'Emphasize quantitative analysis and risk management strategies. Track institutional money flows and whale activity.',
     'Technology': 'Monitor AI/ML breakthroughs, dev tools, and infrastructure innovations. Highlight security vulnerabilities and patches.',
-    'Health/Wellness': 'Focus on evidence-based research and clinical trials. Track FDA approvals and regulatory changes in healthcare tech.'
+    'Security': 'Track new exploits and their root causes. Flag risky approvals, bridges and key-management mistakes; cite the incident behind every warning.'
   }
 
   const loadExample = () => {

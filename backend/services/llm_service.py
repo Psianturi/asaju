@@ -162,7 +162,7 @@ Return ONLY the wisdom summary text. No bullet points, no preamble, no labels.\
 """
 
 _PROMPT_METADATA_ONLY = """\
-You are an autonomous AI agent that just attended a Web3/tech or wellness event.
+You are an autonomous AI agent that just attended a Web3/tech or security event.
 Generate a concise "Wisdom Summary" — exactly 2-3 sentences — capturing the most \
 valuable insights a blockchain AI agent would gain from this event.
 Focus on: Web3 concepts, AI/agentic systems, DeFi, NFTs, or developer tools mentioned.
@@ -1220,7 +1220,7 @@ Respond ONLY with valid JSON in this exact format:
 # classification is forced-choice-free, so events that genuinely don't fit
 # land here instead of Gemini guessing a wrong category.
 SKILL_TAXONOMY: list[str] = [
-    "Blockchain/DeFi", "Trading/Investment", "Technology", "Health/Wellness", "Other",
+    "Blockchain/DeFi", "Trading/Investment", "Technology", "Security", "Other",
 ]
 
 
@@ -1244,6 +1244,7 @@ _DATA_FETCH_HINTS = (
     "liquidat", "ohlcv", "candlestick", "historical price",
     "ambil data", "fetch", "data terbaru", "current price",
     "ticker", "spot price", "market cap", "volume",
+    "exploit", "hacked", "dibobol", "kena hack", "breach", "rug pull", "drained",
 )
 
 _SCHEDULE_HINTS = (

@@ -105,3 +105,64 @@ async def test_youtube_preview_includes_query_in_data():
     result = await fetch_youtube_search_preview(query="solana anchor", niche="Technology")
     assert result["status"] == "ok"
     assert result["data"]["query"] == "solana anchor"
+
+
+def test_each_niche_routes_data_questions_to_its_own_tool():
+    """Chat used to call the Trading derivatives tool for every niche, so DeFi,
+    Tech and Security agents always got 'tool not available'."""
+    from services.tools_registry import NICHE_TOOLS, data_tool_for
+
+    for niche in ("Trading/Investment", "Blockchain/DeFi", "Technology", "Security"):
+        name, _args = data_tool_for(niche, "what happened this week?")
+        assert name in NICHE_TOOLS[niche], niche
+    assert data_tool_for("Security")[0] == "fetch_recent_exploits"
+    assert "Health/Wellness" not in NICHE_TOOLS
+
+
+async def test_recent_exploits_are_trimmed_and_newest_first(monkeypatch):
+    from services import tools_registry
+    from services import market_data_service as mds
+    from tests.fake_firestore import FakeFirestoreClient
+
+    monkeypatch.setattr(mds, "get_db", lambda: FakeFirestoreClient())
+    raw = [
+        {"date": 100, "name": "Old", "amount": 1, "chain": ["Ethereum"], "technique": "Phishing"},
+        {"date": 300, "name": "Newest", "amount": 2_600_000, "chain": ["Initia"], "technique": "Infinite Mint",
+         "classification": "Protocol Logic", "targetType": "Protocol", "returnedFunds": None},
+        {"date": 200, "name": "Middle", "amount": 90_500, "chain": ["Solana"], "technique": "Missing Input Validation"},
+    ]
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return raw
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            assert url == tools_registry._HACKS_URL
+            return _Resp()
+
+    monkeypatch.setattr(tools_registry.httpx, "AsyncClient", _Client)
+    out = await tools_registry.fetch_recent_exploits(limit=2)
+    assert out["status"] == "ok" and out["source"] == "defillama:hacks"
+    assert [r["name"] for r in out["data"]] == ["Newest", "Middle"]
+    assert out["data"][0]["amount_usd"] == 2_600_000 and out["data"][0]["technique"] == "Infinite Mint"
+
+
+def test_youtube_preview_uses_the_scout_queries():
+    import asyncio
+    from services.tools_registry import fetch_youtube_search_preview
+
+    out = asyncio.run(fetch_youtube_search_preview("audits", niche="Security"))
+    assert any("security" in q for q in out["data"]["suggested_searches"])

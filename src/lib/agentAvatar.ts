@@ -20,7 +20,7 @@ const PALETTES: Record<string, Palette> = {
   trading: { bg: ['#020A14', '#0A2C44'], accents: ['#3FD8EA', '#34D399', '#FBBF24', '#60A5FA', '#F472B6'] },
   defi: { bg: ['#06021A', '#2A1060'], accents: ['#A78BFA', '#E879F9', '#22D3EE', '#818CF8', '#F0ABFC'] },
   tech: { bg: ['#12030F', '#43103F'], accents: ['#F472B6', '#FB923C', '#38BDF8', '#FACC15', '#C084FC'] },
-  health: { bg: ['#020F0B', '#0B3B2D'], accents: ['#4ADE80', '#2DD4BF', '#A3E635', '#67E8F9', '#F9A8D4'] },
+  security: { bg: ['#140306', '#3D0A12'], accents: ['#F87171', '#FB923C', '#FACC15', '#22D3EE', '#F43F5E'] },
   general: { bg: ['#03060F', '#1B2152'], accents: ['#3FD8EA', '#A78BFA', '#FBBF24', '#F472B6', '#34D399'] },
 }
 
@@ -37,7 +37,7 @@ export function paletteKey(niche: string | undefined): keyof typeof PALETTES {
   if (n.includes('trading') || n.includes('invest')) return 'trading'
   if (n.includes('defi') || n.includes('blockchain')) return 'defi'
   if (n.includes('tech')) return 'tech'
-  if (n.includes('health') || n.includes('wellness')) return 'health'
+  if (n.includes('security')) return 'security'
   return 'general'
 }
 

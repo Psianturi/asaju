@@ -26,7 +26,7 @@ interface SpawnAgentDialogProps {
   bredAgentCount?: number      // Neural Fusion offspring (does NOT count toward limit)
 }
 
-const niches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+const niches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
 const personalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
 
 type SpawnPhase = 'form' | 'spawning' | 'deploying' | 'success' | 'error'

@@ -26,7 +26,7 @@ interface MarketplaceFiltersProps {
   defaultOpen?: boolean
 }
 
-const niches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+const niches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
 const generations = [1, 2, 3, 4, 5]
 const rarityTiers: RarityTier[] = ['common', 'rare', 'epic', 'legendary', 'mythic']
 

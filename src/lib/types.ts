@@ -1,4 +1,4 @@
-export type Niche = 'Blockchain/DeFi' | 'Trading/Investment' | 'Technology' | 'Health/Wellness'
+export type Niche = 'Blockchain/DeFi' | 'Trading/Investment' | 'Technology' | 'Security'
 export type Personality = 'Aggressive' | 'Analytical' | 'Creative'
 export type AgentStatus = 'idle' | 'active' | 'processing' | 'error'
 export type SubAgentType = 'secretary' | 'scribe' | 'social-lite' | 'mint-master'

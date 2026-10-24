@@ -43,9 +43,9 @@ interface MyAgentsViewProps {
 type StatusFilter = 'all' | Agent['status']
 type SortKey = 'newest' | 'level' | 'videos' | 'name'
 
-const niches: Array<'all' | Niche> = ['all', 'Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+const niches: Array<'all' | Niche> = ['all', 'Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Security']
 const NICHE_SHORT: Record<string, string> = {
-  all: 'All', 'Blockchain/DeFi': 'DeFi', 'Trading/Investment': 'Trading', Technology: 'Tech', 'Health/Wellness': 'Health',
+  all: 'All', 'Blockchain/DeFi': 'DeFi', 'Trading/Investment': 'Trading', Technology: 'Tech', 'Security': 'Security',
 }
 
 const pill = (on: boolean) => cn(

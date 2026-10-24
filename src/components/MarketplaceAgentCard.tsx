@@ -26,7 +26,7 @@ const NICHE_ICON: Record<string, string> = {
   'Blockchain/DeFi': '⛓️',
   'Trading/Investment': '📈',
   'Technology': '💻',
-  'Health/Wellness': '🧘',
+  'Security': '🛡️',
 }
 
 const PERSONALITY_GRADIENT: Record<string, string> = {

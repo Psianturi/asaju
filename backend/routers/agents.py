@@ -1570,17 +1570,13 @@ async def agent_chat(agent_id: str, req: ChatRequest, request: Request) -> dict:
     tool_result: dict | None = None
     if intent == "data_fetch":
         try:
-            from services.tools_registry import run_niche_tool
+            from services.tools_registry import data_tool_for, run_niche_tool
 
             niche_value = data.get("niche", "Blockchain/DeFi")
-            # TODO: parse symbol from message text instead of hardcoded "BTC"
-            # The derivatives tool now resolves CMC id internally (best practice).
-            symbol_hint = "BTC"
-            tool_result = await run_niche_tool(
-                niche=niche_value,
-                tool_name="fetch_cmc_derivatives",
-                args={"symbol": symbol_hint, "limit": 5},
-            )
+            # Each niche has its own data tool; the derivatives tool used to be
+            # called for every niche and failed outside Trading.
+            tool_name, tool_args = data_tool_for(niche_value, req.message)
+            tool_result = await run_niche_tool(niche=niche_value, tool_name=tool_name, args=tool_args)
         except Exception as exc:
             logger.warning("Tool execution failed for agent %s: %s", agent_id, exc.__class__.__name__)
 

@@ -4,7 +4,7 @@ export const NICHE_SCOUT_KEYWORDS: Record<Niche, string[]> = {
   'Blockchain/DeFi': ['blockchain', 'defi', 'mantle', 'layer 2', 'rollup', 'smart contract', 'on-chain'],
   'Trading/Investment': ['trading', 'investment', 'market', 'portfolio', 'analysis', 'quant', 'risk'],
   'Technology': ['technology', 'ai', 'agent', 'developer', 'infrastructure', 'architecture', 'automation'],
-  'Health/Wellness': ['health', 'wellness', 'fitness', 'preventive', 'lifestyle', 'mental', 'nutrition'],
+  'Security': ['security', 'exploit', 'hack', 'audit', 'vulnerability', 'phishing', 'postmortem'],
 }
 
 export function tokenizeScoutText(input: string): string[] {

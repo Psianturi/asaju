@@ -33,7 +33,7 @@ describe('agentAvatar', () => {
   it('follows the niche palette, with a general fallback', () => {
     expect(paletteKey('Trading/Investment')).toBe('trading')
     expect(paletteKey('Blockchain/DeFi')).toBe('defi')
-    expect(paletteKey('Health/Wellness')).toBe('health')
+    expect(paletteKey('Security')).toBe('security')
     expect(paletteKey(undefined)).toBe('general')
   })
 

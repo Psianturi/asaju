@@ -33,9 +33,9 @@ _NICHE_QUERIES: dict[str, list[str]] = {
         "AI technology developer conference 2026",
         "software engineering summit workshop",
     ],
-    "Health/Wellness": [
-        "health wellness innovation summit 2026",
-        "mental health conference workshop",
+    "Security": [
+        "web3 security smart contract audit 2026",
+        "crypto hack exploit postmortem analysis",
     ],
     "General": [
         "technology innovation summit webinar 2026",

@@ -91,7 +91,7 @@ def _compute_comprehension_inline(events: list[dict]) -> dict:
     text = " ".join(sample_narratives)
     niche_hits = sum(1 for kw in ("bitcoin", "ethereum", "defi", "crypto", "trading",
                                   "invest", "stock", "ai", "ml", "tech", "machine learning",
-                                  "yoga", "wellness", "fitness", "meditation")
+                                  "security", "exploit", "audit", "vulnerability")
                     if kw in text)
     depth = min(niche_hits // 2, 4)
     density = 0

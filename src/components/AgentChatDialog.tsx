@@ -42,11 +42,11 @@ const NICHE_PROMPTS: Record<string, string[]> = {
     'Summary teknologi baru minggu ini',
     'Roadmap belajar AI + Web3',
   ],
-  'Health/Wellness': [
-    'Jadwal workout mingguan',
-    'Meal plan dari video YouTube',
-    'Mindfulness routine harian',
-    'Recovery protocol setelah latihan',
+  'Security': [
+    'Exploit crypto apa saja minggu ini?',
+    'Teknik serangan paling sering bulan ini',
+    'Cek risiko sebelum approve token',
+    'Checklist audit smart contract',
   ],
   'Community': [
     'Event Web3 bulan ini',

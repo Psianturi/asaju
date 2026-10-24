@@ -238,9 +238,9 @@ async def fetch_youtube_search_preview(query: str, niche: str | None = None) -> 
         # Best-effort: derive a small list of likely channels from niche keywords.
         # This is intentionally a stub — full implementation will integrate with the
         # existing scout pipeline once per-niche tool calling is wired into chat.
-        from services.scout_service import NICHE_QUERIES  # may not exist yet
+        from services.scout_service import _NICHE_QUERIES
 
-        base = NICHE_QUERIES.get(niche or "", NICHE_QUERIES.get("Blockchain/DeFi", []))
+        base = _NICHE_QUERIES.get(niche or "", _NICHE_QUERIES.get("General", []))
         return {
             "status": "ok",
             "source": "asaju:niche-curated",
@@ -259,6 +259,45 @@ async def fetch_youtube_search_preview(query: str, niche: str | None = None) -> 
                 ],
             },
         }
+
+
+# ── Security tools ───────────────────────────────────────────────────────────
+
+_HACKS_URL = "https://api.llama.fi/hacks"  # DefiLlama, public and keyless
+_HACKS_TTL = 3600
+_HACKS_KEEP = 50
+
+
+async def fetch_recent_exploits(limit: int = 8) -> dict:
+    """Most recent crypto hacks/exploits (DefiLlama): protocol, loss, chains,
+    attack technique, and whether funds came back."""
+    from services.market_data_service import _cached
+
+    async def fetch() -> list:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(_HACKS_URL)
+            resp.raise_for_status()
+            rows = resp.json()
+        rows = sorted((r for r in rows if isinstance(r, dict)), key=lambda r: r.get("date") or 0, reverse=True)
+        return [
+            {
+                "date": r.get("date"),
+                "name": r.get("name"),
+                "amount_usd": r.get("amount"),
+                "chains": r.get("chain") or [],
+                "technique": r.get("technique"),
+                "classification": r.get("classification"),
+                "target": r.get("targetType"),
+                "returned_usd": r.get("returnedFunds"),
+            }
+            for r in rows[:_HACKS_KEEP]
+        ]
+
+    try:
+        rows = await _cached("defillama_hacks", _HACKS_TTL, fetch)
+        return {"status": "ok", "source": "defillama:hacks", "data": (rows or [])[:limit]}
+    except Exception as exc:
+        return {"status": "error", "source": "defillama:hacks", "message": exc.__class__.__name__}
 
 
 # ── Blockchain/DeFi tools ────────────────────────────────────────────────────
@@ -300,13 +339,25 @@ NICHE_TOOLS: dict[str, dict[str, Callable[..., Any]]] = {
     "Technology": {
         "fetch_youtube_search_preview": fetch_youtube_search_preview,
     },
-    "Health/Wellness": {
+    "Security": {
+        "fetch_recent_exploits": fetch_recent_exploits,
         "fetch_youtube_search_preview": fetch_youtube_search_preview,
     },
     "Other": {
         "fetch_youtube_search_preview": fetch_youtube_search_preview,
     },
 }
+
+
+# The tool a data_fetch chat question runs for each niche (name, args).
+def data_tool_for(niche: str, message: str = "") -> tuple[str, dict]:
+    if niche == "Trading/Investment":
+        return "fetch_cmc_derivatives", {"symbol": "BTC", "limit": 5}
+    if niche == "Blockchain/DeFi":
+        return "fetch_mantle_dex_pools", {"limit": 5}
+    if niche == "Security":
+        return "fetch_recent_exploits", {"limit": 8}
+    return "fetch_youtube_search_preview", {"query": message[:200], "niche": niche}
 
 
 async def run_niche_tool(niche: str, tool_name: str, *, args: dict | None = None) -> dict:
