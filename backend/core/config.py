@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Multi-chain configuration — mirrors src/lib/blockchain/chains.ts
@@ -107,9 +108,17 @@ class Settings(BaseSettings):
     # Option A: Semi-Autonomous Proposal Execution — treasury/vault address
     autonomous_vault_address: str = ""
 
-    # CORS — comma-separated origins or "*"
-    # "*" is safe here because allow_credentials=False (no cookies/sessions)
-    allowed_origins_raw: str = "*"
+    # CORS — comma-separated origins, or "*". Read from ALLOWED_ORIGINS_RAW or
+    # ALLOWED_ORIGINS (the name .env.example used to document, silently ignored).
+    allowed_origins_raw: str = Field(
+        default=(
+            "https://asaju.vercel.app,https://asaju-dev.vercel.app,"
+            "http://localhost:5173,http://localhost:5174,http://localhost:4173"
+        ),
+        validation_alias=AliasChoices("ALLOWED_ORIGINS_RAW", "ALLOWED_ORIGINS"),
+    )
+    # Vercel deployment and branch URLs of this project (previews, PR builds).
+    allowed_origin_regex: str = r"https://mantle-agentic-event-[a-z0-9-]+-psianturis-projects\.vercel\.app"
 
     @property
     def allowed_origins(self) -> list[str]:
