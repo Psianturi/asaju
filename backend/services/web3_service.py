@@ -570,6 +570,57 @@ class Web3Service:
             logger.debug("V7 isAgentSpawned read failed for %s on chain %s: %s", agent_wallet, chain_id, exc.__class__.__name__)
             return None
 
+    async def record_v7_lesson(
+        self, agent_wallet: str, agent_private_key: str, event_url: str, summary: str, chain_id: int
+    ) -> dict[str, Any]:
+        """recordLesson on V7, signed and paid by the agent itself (no minter)."""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._sync_record_v7_lesson, agent_wallet, agent_private_key, event_url, summary, chain_id
+        )
+
+    def _sync_record_v7_lesson(
+        self, agent_wallet: str, agent_private_key: str, event_url: str, summary: str, chain_id: int
+    ) -> dict[str, Any]:
+        contract = self._init_v7_contract(chain_id)
+        if contract is None:
+            raise PermissionError(f"V7 is not deployed on chain {chain_id}")
+        w3 = self._init_w3(chain_id)
+        signer = Account.from_key(agent_private_key)
+        wallet = Web3.to_checksum_address(agent_wallet)
+        if signer.address != wallet:
+            raise PermissionError("Agent key does not match the agent wallet")
+
+        content_hash = Web3.keccak(text=event_url + "|" + summary)
+        fn_call = contract.functions.recordLesson(wallet, content_hash, event_url)
+        try:
+            gas_limit = int(fn_call.estimate_gas({"from": wallet}) * 1.2)
+        except Exception as exc:
+            msg = str(exc)
+            if "insufficient funds" in msg.lower():
+                raise RuntimeError("Agent wallet out of gas. Top up the agent wallet and retry.") from exc
+            raise RuntimeError(f"recordLesson rejected ({msg[:180]})") from exc
+
+        raw_tx = fn_call.build_transaction({
+            "chainId": chain_id,
+            "from": wallet,
+            "nonce": w3.eth.get_transaction_count(wallet, "pending"),
+            "gas": gas_limit,
+            "gasPrice": w3.eth.gas_price,
+        })
+        signed = w3.eth.account.sign_transaction(raw_tx, private_key=agent_private_key)
+        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        return {
+            "tx_hash": Web3.to_hex(tx_hash),
+            # The Passport id is the agent wallet as uint256.
+            "token_id": str(int(wallet, 16)),
+            "gas_used": str(receipt["gasUsed"]),
+            "block_number": receipt["blockNumber"],
+            "status": "success" if receipt["status"] == 1 else "failed",
+            "level_up": False,
+            "signing_mode": "B",
+        }
+
     async def is_spawned_for(self, data: dict) -> bool | None:
         """isAgentSpawned on the contract this agent record belongs to."""
         from core.contract_version import is_v7

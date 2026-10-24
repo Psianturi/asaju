@@ -26,6 +26,7 @@ from pydantic import BaseModel, field_validator
 from web3 import Web3
 
 from core.config import settings
+from core.contract_version import is_v7
 from core.database import get_db
 from core.agent_auth import issue_agent_auth_challenge, require_agent_owner
 from core.agent_mandate import (
@@ -458,6 +459,11 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
             mandate.get("max_runs_per_day"),
         )
 
+    # V7 has no minter: the agent always signs its own lessons.
+    v7_agent = is_v7(agent_data)
+    if v7_agent:
+        req.mode_b = True
+
     # ── Mode B: load agent private key for true autonomous signing ────────
     agent_private_key: str | None = None
     agent_is_funded = False
@@ -516,7 +522,8 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     current_events = agent_data.get("total_events", 0)
     current_level = agent_data.get("level", 1)
     prospective_level = max(current_level, ((current_events + 1) // 2) + 1)
-    should_mint = prospective_level > current_level
+    # V7 records every video as a lesson; the contract derives the level.
+    should_mint = v7_agent or prospective_level > current_level
 
     # ── Steps B + C: Mint on Mantle (milestone videos only) ─────────────────
     # Mode B: agent signs with own key, agent pays gas (no fallback to minter).
@@ -524,18 +531,23 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     mint_result: dict = {}
     if should_mint:
         try:
-            mint_result = await web3_service.mint_attendance_nft(
-                agent_wallet=req.agent_wallet,
-                event_title=req.event_title,
-                event_url=req.event_url,
-                platform=req.platform,
-                agent_name=req.agent_name,
-                summary=wisdom_summary,
-                niche=req.niche,
-                agent_private_key=agent_private_key,
-                allow_mode_b_fallback=False,  # strict: agent must pay own gas, no silent minter fallback
-                chain_id=req.chain_id,
-            )
+            if v7_agent:
+                mint_result = await web3_service.record_v7_lesson(
+                    req.agent_wallet, agent_private_key, req.event_url, wisdom_summary, req.chain_id
+                )
+            else:
+                mint_result = await web3_service.mint_attendance_nft(
+                    agent_wallet=req.agent_wallet,
+                    event_title=req.event_title,
+                    event_url=req.event_url,
+                    platform=req.platform,
+                    agent_name=req.agent_name,
+                    summary=wisdom_summary,
+                    niche=req.niche,
+                    agent_private_key=agent_private_key,
+                    allow_mode_b_fallback=False,  # strict: agent must pay own gas, no silent minter fallback
+                    chain_id=req.chain_id,
+                )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except PermissionError as exc:

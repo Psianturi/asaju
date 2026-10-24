@@ -203,3 +203,27 @@ async def test_attend_refuses_an_agent_never_spawned_on_chain(client):
     resp = await _attend(ac, "agent-pending", "0x" + "ab" * 20)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "AGENT_NOT_ACTIVATED"
+
+
+async def test_v7_agent_records_every_video_as_a_self_signed_lesson(client):
+    ac, fake_db = client
+    wallet = make_wallet()
+    agent = make_agent("agent7", wallet, user_wallet=make_wallet(), level=1, total_events=0, chain_id=5003)
+    agent["contract_version"] = 7
+    await fake_db.collection("agents").document("agent7").set(agent)
+
+    lesson = {"status": "success", "tx_hash": "0xl35", "token_id": "1", "gas_used": "60000",
+              "block_number": 9, "level_up": False, "signing_mode": "B"}
+    with patch("routers.events.web3_service.record_v7_lesson", new=AsyncMock(return_value=lesson)) as rec, \
+         patch("routers.events.web3_service.mint_attendance_nft", new=AsyncMock()) as mint:
+        res = await ac.post("/api/v1/event/attend", json={
+            "agent_id": "agent7", "agent_wallet": wallet, "agent_name": "V7",
+            "event_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "event_title": "T",
+            "niche": "Blockchain/DeFi", "mode_b": False, "chain_id": 5003,
+        })
+
+    assert res.status_code == 200, res.text
+    assert res.json()["tx_hash"] == "0xl35"  # below a milestone, still on-chain
+    mint.assert_not_called()
+    args = rec.call_args.args
+    assert args[0] == wallet and args[1] == agent["private_key_enc"] and args[4] == 5003

@@ -133,6 +133,19 @@ async def test_cross_chain_parents_are_rejected(client, fake_db):
     assert "same chain" in resp.json()["detail"]
 
 
+async def test_v7_parents_cannot_breed_yet(client, fake_db):
+    user_wallet = make_wallet()
+    p1 = make_agent("agent-alpha", make_wallet(), user_wallet=user_wallet)
+    p2 = {**make_agent("agent-beta", make_wallet(), user_wallet=user_wallet), "contract_version": 7}
+    fake_db.seed("agents", "agent-alpha", p1)
+    fake_db.seed("agents", "agent-beta", p2)
+
+    resp = await client.post(BREED_URL, json=_breed_payload(user_wallet))
+
+    assert resp.status_code == 422
+    assert "V7" in resp.json()["detail"]
+
+
 # ── 4. Wisdom unlock gate ────────────────────────────────────────────────────
 
 

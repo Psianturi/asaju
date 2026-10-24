@@ -779,6 +779,9 @@ async def breed_agents(req: BreedRequest) -> SpawnResponse:
             status_code=422,
             detail="Both parents must be on the same chain to breed",
         )
+    # Breeding on V7 needs its own flow (breeder-signed spawnBredAgent + consent).
+    if is_v7(p1) or is_v7(p2):
+        raise HTTPException(status_code=422, detail="Breeding Passport (V7) agents is not available yet")
 
     # Wisdom unlock: level >= 3 or total_events >= 5
     for p_id, p_data in [(p1_id, p1), (p2_id, p2)]:
