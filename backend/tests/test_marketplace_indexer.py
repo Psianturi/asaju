@@ -233,18 +233,26 @@ async def test_poll_chain_calls_get_event_logs_and_persists_block():
     with patch("services.marketplace_indexer.get_db", return_value=firestore), \
          patch("services.marketplace_indexer.web3_service") as mock_web3:
         mock_web3.get_event_logs = fake_get_event_logs
+        mock_web3.get_block_number = _block_number(101)
         summary = await poll_chain(97)
 
     assert captured["call"]["event_name"] == "AgentOwnershipTransferred"
     assert captured["call"]["chain_id"] == 97
-    assert captured["call"]["from_block"] == 100
+    assert captured["call"]["from_block"] == 101
     assert summary["logs"] == 1
     assert summary["migrated_agent"] == 1
     # High-water mark should advance
     assert firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"] == 101
 
 
-async def test_poll_chain_handles_no_events():
+def _block_number(n):
+    async def get_block_number(chain_id):
+        return n
+    return get_block_number
+
+
+async def test_poll_chain_advances_through_empty_blocks():
+    """No events must still move the watermark, or every poll rescans the same range."""
     firestore = FakeFirestore()
     firestore.collection("marketplace_indexer_state").add_doc(
         FakeDoc({"last_processed_block": 100}, doc_id="chain_97")
@@ -256,11 +264,11 @@ async def test_poll_chain_handles_no_events():
     with patch("services.marketplace_indexer.get_db", return_value=firestore), \
          patch("services.marketplace_indexer.web3_service") as mock_web3:
         mock_web3.get_event_logs = fake_get_event_logs
+        mock_web3.get_block_number = _block_number(150)
         summary = await poll_chain(97)
 
     assert summary["logs"] == 0
-    # High-water mark should NOT advance
-    assert firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"] == 100
+    assert firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"] == 150
 
 
 async def test_poll_chain_skips_zero_address_new_owner():
@@ -289,6 +297,7 @@ async def test_poll_chain_skips_zero_address_new_owner():
     with patch("services.marketplace_indexer.get_db", return_value=firestore), \
          patch("services.marketplace_indexer.web3_service") as mock_web3:
         mock_web3.get_event_logs = fake_get_event_logs
+        mock_web3.get_block_number = _block_number(101)
         summary = await poll_chain(97)
 
     assert summary["logs"] == 1
@@ -401,3 +410,53 @@ async def test_listing_scan_skips_chain_without_escrow():
         summary = await mi.poll_marketplace_listings(5003)
     assert summary == {"skipped": 1}
     assert chain.ranges == []
+
+
+async def test_poll_chain_first_run_scans_bounded_chunks_from_lookback():
+    """Never asked for logs from genesis: public RPCs refuse that range, and the
+    indexer had never once completed in production."""
+    from services.marketplace_indexer import (
+        LISTING_SCAN_CHUNK,
+        LISTING_SCAN_LOOKBACK,
+        LISTING_SCAN_MAX_CHUNKS_PER_POLL,
+    )
+
+    firestore = FakeFirestore()
+    calls = []
+
+    async def fake_get_event_logs(event_name, *, chain_id, from_block, to_block, argument_filters):
+        calls.append((from_block, to_block))
+        return []
+
+    latest = 10_000_000
+    with patch("services.marketplace_indexer.get_db", return_value=firestore),          patch("services.marketplace_indexer.web3_service") as mock_web3:
+        mock_web3.get_event_logs = fake_get_event_logs
+        mock_web3.get_block_number = _block_number(latest)
+        await poll_chain(97)
+
+    assert calls[0][0] == latest - LISTING_SCAN_LOOKBACK
+    assert all(end - start + 1 <= LISTING_SCAN_CHUNK for start, end in calls)
+    assert len(calls) == LISTING_SCAN_MAX_CHUNKS_PER_POLL
+    saved = firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"]
+    assert saved == calls[-1][1]
+
+
+async def test_poll_chain_keeps_progress_when_a_chunk_fails():
+    firestore = FakeFirestore()
+    firestore.collection("marketplace_indexer_state").add_doc(FakeDoc({"last_processed_block": 1000}, doc_id="chain_97"))
+    n = {"i": 0}
+
+    async def flaky(event_name, *, chain_id, from_block, to_block, argument_filters):
+        n["i"] += 1
+        if n["i"] == 2:
+            raise RuntimeError("rpc")
+        return []
+
+    with patch("services.marketplace_indexer.get_db", return_value=firestore),          patch("services.marketplace_indexer.web3_service") as mock_web3:
+        mock_web3.get_event_logs = flaky
+        mock_web3.get_block_number = _block_number(1_000_000)
+        summary = await poll_chain(97)
+
+    assert summary["errors"] == 1
+    saved = firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"]
+    assert saved == 1000 + 5_000  # the first chunk is kept, the failed one is retried next poll

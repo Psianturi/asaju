@@ -174,23 +174,40 @@ async def poll_chain(chain_id: int) -> dict[str, int]:
     each one. Safe to run repeatedly: state is persisted, migrations are
     idempotent, and an unknown event (e.g. contract upgrade) is skipped.
     """
-    since_block = await _latest_processed_block(chain_id)
+    # Bounded chunks from a lookback start: one getLogs from block 0 to latest
+    # is refused by public RPCs, and the cursor then never moved.
     try:
-        logs = await web3_service.get_event_logs(
-            event_name="AgentOwnershipTransferred",
-            chain_id=chain_id,
-            from_block=since_block,
-            to_block="latest",
-            argument_filters=None,
-        )
+        latest = await web3_service.get_block_number(chain_id)
     except Exception as exc:
-        logger.warning("marketplace_indexer: get_logs failed chain %s from %s: %s", chain_id, since_block, exc.__class__.__name__)
+        logger.warning("marketplace_indexer: block number read failed chain %s: %s", chain_id, exc.__class__.__name__)
         return {"logs": 0, "errors": 1}
+    since_block = await _latest_processed_block(chain_id)
+    if since_block <= 0:
+        cfg = CHAIN_CONFIGS.get(chain_id, {})
+        since_block = int(cfg.get("marketplace_start_block") or max(0, latest - LISTING_SCAN_LOOKBACK)) - 1
 
-    if not logs:
-        return {"logs": 0}
+    logs: list[dict] = []
+    scanned_to = since_block
+    errors = 0
+    for _ in range(LISTING_SCAN_MAX_CHUNKS_PER_POLL):
+        if scanned_to >= latest:
+            break
+        start, end = scanned_to + 1, min(scanned_to + LISTING_SCAN_CHUNK, latest)
+        try:
+            logs.extend(await web3_service.get_event_logs(
+                event_name="AgentOwnershipTransferred",
+                chain_id=chain_id,
+                from_block=start,
+                to_block=end,
+                argument_filters=None,
+            ))
+        except Exception as exc:
+            logger.warning("marketplace_indexer: get_logs failed chain %s [%s, %s]: %s", chain_id, start, end, exc.__class__.__name__)
+            errors += 1
+            break
+        scanned_to = end
 
-    summary = {"logs": len(logs), "migrated_agent": 0, "migrated_proposals": 0, "skipped": 0}
+    summary = {"logs": len(logs), "migrated_agent": 0, "migrated_proposals": 0, "skipped": 0, "errors": errors}
     latest_block = since_block
 
     for log in logs:
@@ -223,6 +240,8 @@ async def poll_chain(chain_id: int) -> dict[str, int]:
 
         latest_block = max(latest_block, log.get("blockNumber", latest_block))
 
+    # Every scanned chunk is done, logs or not.
+    latest_block = max(latest_block, scanned_to)
     if latest_block > since_block:
         await _set_latest_processed_block(chain_id, latest_block)
 
