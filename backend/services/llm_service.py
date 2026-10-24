@@ -1311,7 +1311,8 @@ async def classify_chat_intent(message: str, niche: str) -> str:
     )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 20, "topP": 0.1},
+        # thinkingBudget 0: on 2.5-flash thinking eats the 20 tokens and the label comes back empty.
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 20, "topP": 0.1, "thinkingConfig": {"thinkingBudget": 0}},
     }
     try:
         data = await _call_gemini_with_retry(
@@ -1356,7 +1357,8 @@ async def classify_event_niche(summary_text: str) -> str:
     )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 20, "topP": 0.1},
+        # thinkingBudget 0: on 2.5-flash thinking eats the 20 tokens and the label comes back empty.
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 20, "topP": 0.1, "thinkingConfig": {"thinkingBudget": 0}},
     }
     try:
         data = await _call_gemini_with_retry(

@@ -94,3 +94,23 @@ async def test_classify_handles_no_api_key(monkeypatch):
     monkeypatch.setattr("services.llm_service.get_llm_api_key", no_key)
     intent = await classify_chat_intent("anything", niche="Technology")
     assert intent == "general_chat"
+
+
+async def test_classifiers_turn_thinking_off(monkeypatch):
+    """On gemini-2.5-flash, thinking spent the whole 20-token budget and the
+    label came back empty (finishReason MAX_TOKENS, verified live 24 Oct), so
+    every chat fell to general_chat and every skill to Other."""
+    from services import llm_service
+
+    sent = []
+
+    async def fake_call(api_key, payload, timeout, context="request"):
+        sent.append(payload["generationConfig"])
+        return {"candidates": [{"content": {"parts": [{"text": "analysis"}]}}]}
+
+    monkeypatch.setattr(llm_service, "get_llm_api_key", lambda: "k")
+    monkeypatch.setattr(llm_service, "_call_gemini_with_retry", fake_call)
+    await classify_chat_intent("hmm, thoughts on where this ecosystem is heading?", niche="Technology")
+    await llm_service.classify_event_niche("A long talk about validator economics and staking yields.")
+    assert len(sent) == 2
+    assert all(cfg.get("thinkingConfig") == {"thinkingBudget": 0} for cfg in sent)
