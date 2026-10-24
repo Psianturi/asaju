@@ -232,6 +232,26 @@ MARKETPLACE_ABI: list[dict] = [
     },
 ]
 
+# AsajuAgentV7 (Agent Passport) — the surface the backend reads and signs for.
+V7_AGENT_ABI: list[dict] = [
+    {"inputs": [{"name": "agentWallet", "type": "address"}], "name": "agentOwner",
+     "outputs": [{"name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"name": "", "type": "address"}], "name": "isAgentSpawned",
+     "outputs": [{"name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"name": "", "type": "address"}], "name": "migrated",
+     "outputs": [{"name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"name": "agentWallet", "type": "address"}], "name": "lessonCount",
+     "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "migrationSigner",
+     "outputs": [{"name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "migrationDeadline",
+     "outputs": [{"name": "", "type": "uint64"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"name": "agentWallet", "type": "address"}, {"name": "contentHash", "type": "bytes32"},
+                {"name": "uri", "type": "string"}],
+     "name": "recordLesson", "outputs": [{"name": "index", "type": "uint256"}],
+     "stateMutability": "nonpayable", "type": "function"},
+]
+
 
 class Web3Service:
     # Chains still running the legacy V4 contract, where the six live Mantle
@@ -246,7 +266,7 @@ class Web3Service:
     def __init__(self) -> None:
         # Per-chain caches — keyed by chain_id (e.g. 5003, 11155111)
         self._w3_cache: dict[int, Web3] = {}
-        self._contract_cache: dict[int, Any] = {}
+        self._contract_cache: dict[Any, Any] = {}  # chain_id, or ("v7", chain_id)
         self._is_v5_cache: dict[int, bool] = {}
         self._is_v6_cache: dict[int, bool] = {}
 
@@ -505,6 +525,50 @@ class Web3Service:
         return await loop.run_in_executor(
             None, self._sync_agent_owner, agent_wallet, chain_id
         )
+
+    # ── ASAJU V7 (Agent Passport) ────────────────────────────────────────────
+
+    def _init_v7_contract(self, chain_id: int) -> Any | None:
+        from core.config import v7_deployment
+
+        dep = v7_deployment(chain_id)
+        if not dep:
+            return None
+        key = ("v7", chain_id)
+        if key not in self._contract_cache:
+            w3 = self._init_w3(chain_id)
+            self._contract_cache[key] = w3.eth.contract(
+                address=Web3.to_checksum_address(dep["agent"]), abi=V7_AGENT_ABI
+            )
+        return self._contract_cache[key]
+
+    async def get_v7_agent_owner(self, agent_wallet: str, chain_id: int) -> str | None:
+        """ownerOf the agent's Passport on V7. None when unreadable or not minted."""
+        def read() -> str | None:
+            contract = self._init_v7_contract(chain_id)
+            if contract is None:
+                return None
+            owner = contract.functions.agentOwner(Web3.to_checksum_address(agent_wallet)).call()
+            return None if int(owner, 16) == 0 else Web3.to_checksum_address(owner)
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, read)
+        except Exception as exc:
+            logger.debug("V7 agentOwner read failed for %s on chain %s: %s", agent_wallet, chain_id, exc.__class__.__name__)
+            return None
+
+    async def is_v7_agent_spawned(self, agent_wallet: str, chain_id: int) -> bool | None:
+        def read() -> bool | None:
+            contract = self._init_v7_contract(chain_id)
+            if contract is None:
+                return None
+            return bool(contract.functions.isAgentSpawned(Web3.to_checksum_address(agent_wallet)).call())
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, read)
+        except Exception as exc:
+            logger.debug("V7 isAgentSpawned read failed for %s on chain %s: %s", agent_wallet, chain_id, exc.__class__.__name__)
+            return None
 
     async def is_agent_spawned(self, agent_wallet: str, chain_id: int = 5003) -> bool | None:
         """Live-read isAgentSpawned(agentWallet). None when the chain can't be read."""

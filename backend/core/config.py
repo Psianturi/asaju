@@ -58,6 +58,20 @@ def mantle_contract_address() -> str:
     return (settings.contract_address or "").strip() or MANTLE_CONTRACT_DEFAULT
 
 
+# ASAJU V7 (Agent Passport) per chain — contracts/deployments/v7-<chainId>.json.
+V7_DEPLOYMENTS: dict[int, dict[str, str]] = {
+    5003: {
+        "agent": "0x0fE75B47bFE360A305F5D56607d976448fF7c9e7",
+        "market": "0x39a483ac0aa62A4AdF7Db8CfAeEa6f06F5a3A802",
+        "timelock": "0x976A7dF8c74A4aaD9EEB9Fe2231C2C6c62867719",
+    },
+}
+
+
+def v7_deployment(chain_id: int) -> dict[str, str] | None:
+    return V7_DEPLOYMENTS.get(chain_id)
+
+
 def get_chain_config(chain_id: int) -> dict:
     """Return chain config or raise ValueError for unsupported chain_id."""
     cfg = CHAIN_CONFIGS.get(chain_id)

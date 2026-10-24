@@ -38,6 +38,8 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi import HTTPException
 
+from core.contract_version import is_v7
+
 logger = logging.getLogger(__name__)
 
 AGENT_AUTH_CHALLENGES_COLLECTION = "agent_auth_challenges"
@@ -112,11 +114,21 @@ async def current_owner_of(db, agent_id: str, agent_wallet: str, chain_id: int) 
     have no ownership-transfer primitive, so their owner can never change and a
     stale mirror is harmless.
     """
+    doc = await db.collection("agents").document(agent_id).get()
+    if doc.exists and is_v7(doc.to_dict() or {}):
+        # V7 Passports move like any ERC-721, on every chain — Mantle included.
+        # Never fall back to the Firestore mirror for them.
+        v7_owner = await _read_v7_owner_on_chain(agent_wallet, chain_id)
+        if v7_owner:
+            return v7_owner
+        raise HTTPException(
+            status_code=503,
+            detail="Could not verify the agent's Passport owner on-chain. Try again in a moment.",
+        )
+
     chain_owner = await _read_agent_owner_on_chain(agent_wallet, chain_id)
     if chain_owner:
         return chain_owner
-
-    doc = await db.collection("agents").document(agent_id).get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
     data = doc.to_dict() or {}
@@ -163,6 +175,12 @@ _IMMUTABLE_OWNERSHIP_CHAINS = frozenset({5003})
 
 def _ownership_is_immutable(chain_id: int) -> bool:
     return chain_id in _IMMUTABLE_OWNERSHIP_CHAINS
+
+
+async def _read_v7_owner_on_chain(agent_wallet: str, chain_id: int) -> str | None:
+    from services.web3_service import web3_service
+
+    return await web3_service.get_v7_agent_owner(agent_wallet, chain_id)
 
 
 async def _read_agent_owner_on_chain(agent_wallet: str, chain_id: int) -> str | None:
