@@ -97,3 +97,46 @@ async def test_status_without_a_key(monkeypatch):
     monkeypatch.setattr(mds, "_coingecko_get", cg_ok)
     out = await mds.market_status()
     assert out["coinmarketcap"] == {"configured": False, "state": "not_configured", "hint": mds._STATUS_HINTS["not_configured"]}
+
+
+async def test_a_cached_empty_list_does_not_block_the_fallback(monkeypatch):
+    """An older build cached [] while CMC was failing; that must not hide Hot."""
+    import time
+    db = FakeFirestoreClient()
+    monkeypatch.setattr(mds, "get_db", lambda: db)
+    await db.collection(mds._CACHE_COLLECTION).document("most_visited:3").set({"payload": [], "fetched_at": time.time()})
+
+    async def hot(limit):
+        return [_coin("GEK", 1e9)], "coingecko"
+
+    monkeypatch.setattr(mds, "_hot_fallback", hot)
+    rows = await mds.get_most_visited(limit=3)
+    assert [r["symbol"] for r in rows] == ["GEK"]
+    assert mds.cmc_feed_status("most_visited")["source"] == "coingecko"
+
+
+async def test_status_reports_an_expired_plan_even_when_key_info_answers(monkeypatch):
+    """CMC's /v1/key/info still answers on an expired plan (seen live, 24 Oct)."""
+    monkeypatch.setattr(mds, "get_coinmarketcap_api_key", lambda: "k")
+    monkeypatch.setattr(mds, "get_coingecko_api_key", lambda: None)
+
+    async def fake_cmc_get(path, params=None):
+        if path == "/v1/key/info":
+            return {"data": {"plan": {}, "usage": {}}}
+        req = httpx.Request("GET", f"https://pro-api.coinmarketcap.com{path}")
+        resp = httpx.Response(402, json={"status": {"error_code": 1004, "error_message": "Your API Key's subscription plan has expired."}}, request=req)
+        raise httpx.HTTPStatusError("402", request=req, response=resp)
+
+    async def cg_ok(path, params=None):
+        return {}
+
+    async def hot(limit):
+        return [], "coingecko"
+
+    monkeypatch.setattr(mds, "_cmc_get", fake_cmc_get)
+    monkeypatch.setattr(mds, "_coingecko_get", cg_ok)
+    monkeypatch.setattr(mds, "_hot_fallback", hot)
+    await mds.get_most_visited(limit=2)
+    out = await mds.market_status()
+    assert out["coinmarketcap"]["state"] == "plan_expired"
+    assert out["coinmarketcap"]["hint"] == mds._STATUS_HINTS["plan_expired"]

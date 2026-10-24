@@ -245,9 +245,9 @@ def cmc_feed_status(feed: str) -> dict:
     or None when nothing could be shown — then `reason`/`detail` say why.
     """
     failure = _FEED_FAILURES.get(feed)
-    if not failure:
-        return {"available": True, "reason": None, "detail": None, "source": "coinmarketcap"}
     served = _FEED_SERVED.get(feed)
+    if not failure:
+        return {"available": True, "reason": None, "detail": None, "source": served or "coinmarketcap"}
     if served:
         return {"available": True, "reason": failure["reason"], "detail": failure.get("detail"), "source": served}
     return {"available": False, "reason": failure["reason"], "detail": failure.get("detail"), "source": None}
@@ -312,6 +312,9 @@ async def _cmc_feed(feed: str, key: str, ttl_seconds: int, path: str, params: di
         failure = _describe_cmc_failure(exc)
         _FEED_FAILURES[feed] = {"at": time.time(), **failure}
         logger.warning("CMC %s fetch failed (%s): %s", feed, failure["reason"], failure["detail"])
+        return await degrade()
+    if isinstance(result, list) and not result:
+        # An empty cached list is no answer (an older build cached [] on failure).
         return await degrade()
     _FEED_FAILURES.pop(feed, None)
     _FEED_SERVED.pop(feed, None)
@@ -860,7 +863,15 @@ async def market_status() -> dict:
     except Exception as exc:
         coingecko["state"], coingecko["detail"] = "upstream_error", exc.__class__.__name__
 
+    feeds = {f: cmc_feed_status(f) for f in _FEEDS}
+    # /v1/key/info still answers on an expired plan; trust the data feeds instead.
+    if cmc.get("state") == "ok":
+        key_wide = next((s for s in feeds.values() if s.get("reason") in ("plan_expired", "auth")), None)
+        if key_wide:
+            cmc["state"], cmc["detail"] = key_wide["reason"], key_wide.get("detail")
+            cmc["hint"] = _STATUS_HINTS.get(cmc["state"], _STATUS_HINTS["upstream_error"])
+
     data = {"coinmarketcap": cmc, "coingecko": coingecko,
-            "feeds": {f: cmc_feed_status(f) for f in _FEEDS}, "checked_at": int(time.time())}
+            "feeds": feeds, "checked_at": int(time.time())}
     _STATUS_CACHE["v"] = {"at": time.time(), "data": data}
     return data
