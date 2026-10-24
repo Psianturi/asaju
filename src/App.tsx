@@ -75,7 +75,7 @@ function App() {
   const [selectedChainId, setSelectedChainId] = useState(DEFAULT_CHAIN_ID)
   const [walletChainId, setWalletChainId] = useState<number | undefined>()
   type MainView = 'dashboard' | 'my-agents' | 'room' | 'vault' | 'marketplace'
-  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', 'agent-room': 'room', 'nft-vault': 'vault', marketplace: 'marketplace' }
+  const HASH_TO_VIEW: Record<string, MainView> = { 'my-agents': 'my-agents', 'agent-room': 'room', arena: 'room', 'nft-vault': 'vault', marketplace: 'marketplace' }
   const VIEW_TO_HASH: Record<MainView, string> = { dashboard: '', 'my-agents': 'my-agents', room: 'agent-room', vault: 'nft-vault', marketplace: 'marketplace' }
   const [mainView, setMainView] = useState<MainView>(() => {
     const hashView = HASH_TO_VIEW[window.location.hash.slice(1)]

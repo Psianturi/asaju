@@ -1,6 +1,7 @@
 import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
 import { decodeEntities } from '@/lib/agentRoom'
+import type { ArenaConfig, ArenaDuel, ArenaRating, Horizon } from '@/lib/arena'
 
 // Dev-only override first, so pointing a preview branch at the tagged Cloud Run
 // revision never requires editing the variable that Production also uses.
@@ -1769,5 +1770,64 @@ export const mandateService = {
       throw new Error(message)
     }
     return res.json() as Promise<ScoutRunResult>
+  },
+}
+
+// ── Arena (Agent Duel) ───────────────────────────────────────────────────────
+// Spectating is public; starting a duel needs the owner's signature. A duel
+// only produces text and a rating: nothing is traded or signed on-chain.
+
+
+async function arenaRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/arena${path}`, init, 40000)
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // keep the status message
+    }
+    throw new CloudRunAPIError(detail, response.status)
+  }
+  return response.json()
+}
+
+export interface ArenaChallenge { nonce: string; message: string; expires_at: number; max_llm_calls: number; duels_left_today: number }
+
+export const arenaService = {
+  config() {
+    return arenaRequest<ArenaConfig>('/config', { method: 'GET' })
+  },
+  leaderboard(limit = 50) {
+    return arenaRequest<{ agents: ArenaRating[] }>(`/leaderboard?limit=${limit}`, { method: 'GET' })
+  },
+  openAgents() {
+    return arenaRequest<{ agents: ArenaRating[] }>('/open-agents', { method: 'GET' })
+  },
+  duels(status?: 'live' | 'finished', limit = 20) {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (status) q.set('status', status)
+    return arenaRequest<{ duels: ArenaDuel[] }>(`/duels?${q}`, { method: 'GET' })
+  },
+  duel(duelId: string) {
+    return arenaRequest<ArenaDuel>(`/duels/${encodeURIComponent(duelId)}`, { method: 'GET' })
+  },
+  requestChallenge(params: { owner: string; agentId: string; opponentId: string; rounds: number; horizon: Horizon; openToChallenges: boolean }) {
+    return arenaRequest<ArenaChallenge>('/challenge', {
+      method: 'POST',
+      body: JSON.stringify({
+        owner: params.owner, agent_id: params.agentId, opponent_id: params.opponentId,
+        rounds: params.rounds, horizon: params.horizon, open_to_challenges: params.openToChallenges,
+      }),
+    })
+  },
+  open(nonce: string, signature: string) {
+    return arenaRequest<ArenaDuel & { duels_left_today: number }>('/duels', {
+      method: 'POST', body: JSON.stringify({ nonce, signature }),
+    })
+  },
+  advance(duelId: string) {
+    return arenaRequest<ArenaDuel>(`/duels/${encodeURIComponent(duelId)}/advance`, { method: 'POST' })
   },
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   UsersThree, BookOpen, ArrowRight, Play, Pause, FlagCheckered, PaperPlaneRight, Warning,
-  CheckCircle, Sparkle, ArrowsLeftRight, PencilLine, ClockCounterClockwise, SignOut, Lightning, ShieldCheck,
+  CheckCircle, Sparkle, ArrowsLeftRight, PencilLine, ClockCounterClockwise, SignOut, Lightning, ShieldCheck, Sword,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -13,11 +13,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { RoomWhiteboard } from '@/components/RoomWhiteboard'
 import { RoomIntro } from '@/components/RoomIntro'
+import { ArenaView } from '@/views/ArenaView'
+import type { ArenaConfig } from '@/lib/arena'
 import { Agent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import {
-  agentRoomService, type AgentRoom, type RoomClaimCheck, type RoomMessage, type RoomMode, type RoomParticipant, type RoomCitation,
+  agentRoomService, arenaService, type AgentRoom, type RoomClaimCheck, type RoomMessage, type RoomMode, type RoomParticipant, type RoomCitation,
 } from '@/services/cloudRunService'
 import {
   OWNER_SEAT, ROOM_LIMITS, ROOM_MODES, decodeEntities, limitsFromConfig, loadSavedRooms, saveRoom, seatPositions, transferKey,
@@ -45,7 +47,64 @@ const asAvatar = (p: RoomParticipant) => ({ id: p.agent_id, name: p.name, niche:
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong')
 
-export function AgentRoomView({ agents, walletAddress, walletConnected, onConnectWallet }: AgentRoomViewProps) {
+type HubTab = 'room' | 'arena'
+
+/** Agent Room page: the Room (your agents talk) and, when the server has it
+ *  switched on, the Arena (agents duel, open to everyone). */
+export function AgentRoomView(props: AgentRoomViewProps) {
+  const [arenaCfg, setArenaCfg] = useState<ArenaConfig | null>(null)
+  const [tab, setTab] = useState<HubTab>(() => (typeof window !== 'undefined' && window.location.hash === '#arena' ? 'arena' : 'room'))
+
+  useEffect(() => {
+    let cancelled = false
+    arenaService.config()
+      .then(cfg => { if (!cancelled) setArenaCfg(cfg) })
+      .catch(() => { if (!cancelled) setArenaCfg(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  const arenaOn = !!arenaCfg?.enabled
+  useEffect(() => { if (!arenaOn && tab === 'arena' && arenaCfg !== null) setTab('room') }, [arenaOn, tab, arenaCfg])
+
+  const pick = (t: HubTab) => {
+    setTab(t)
+    if (typeof window !== 'undefined') window.location.hash = t === 'arena' ? 'arena' : 'agent-room'
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="p-2 rounded-lg bg-primary/10 border border-primary/30">
+            {tab === 'arena' ? <Sword size={22} weight="duotone" className="text-primary" /> : <UsersThree size={22} weight="duotone" className="text-primary" />}
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">{tab === 'arena' ? 'Arena' : 'Agent Room'}</h2>
+            <p className="text-sm text-muted-foreground">
+              {tab === 'arena'
+                ? 'Agents duel by calling the market. Sealed picks, real price moves, K.O. — open to every owner, watchable by anyone.'
+                : 'Seat your agents at one table. They speak from what each has actually learned, cite it, and hand useful lessons to each other. Pull up a chair whenever you want.'}
+            </p>
+          </div>
+        </div>
+        {arenaOn && (
+          <div className="inline-flex rounded-lg border border-border/60 p-0.5 bg-black/20" role="tablist" aria-label="Agent Room sections">
+            {(['room', 'arena'] as HubTab[]).map(t => (
+              <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => pick(t)}
+                className={cn('px-3 py-1.5 text-xs font-semibold rounded-md transition-all inline-flex items-center gap-1.5',
+                  tab === t ? 'bg-primary/15 text-primary shadow-[0_0_14px_rgba(0,243,255,0.15)]' : 'text-muted-foreground hover:text-foreground')}>
+                {t === 'room' ? <UsersThree size={14} /> : <Sword size={14} />}{t === 'room' ? 'Room' : 'Arena'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {tab === 'arena' && arenaOn ? <ArenaView {...props} config={arenaCfg ?? undefined} /> : <RoomTab {...props} />}
+    </div>
+  )
+}
+
+function RoomTab({ agents, walletAddress, walletConnected, onConnectWallet }: AgentRoomViewProps) {
   const [active, setActive] = useState<{ room: AgentRoom; key: string } | null>(null)
   const [limits, setLimits] = useState<RoomLimits>(ROOM_LIMITS)
 
@@ -58,52 +117,24 @@ export function AgentRoomView({ agents, walletAddress, walletConnected, onConnec
   }, [])
 
   if (!walletConnected || !walletAddress) {
-    return (
-      <RoomShell>
-        <RoomIntro onConnectWallet={onConnectWallet} />
-      </RoomShell>
-    )
+    return <RoomIntro onConnectWallet={onConnectWallet} />
   }
 
-  return (
-    <RoomShell>
-      {active ? (
-        <RoomStage
-          room={active.room}
-          roomKey={active.key}
-          limits={limits}
-          onRoomChange={(room) => setActive(a => (a ? { ...a, room } : a))}
-          onLeave={() => setActive(null)}
-        />
-      ) : (
-        <RoomSetup
-          agents={agents}
-          owner={walletAddress}
-          limits={limits}
-          onOpened={(room, key) => setActive({ room, key })}
-        />
-      )}
-    </RoomShell>
-  )
-}
-
-function RoomShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="space-y-5">
-      <div className="flex items-start gap-3">
-        <div className="p-2 rounded-lg bg-primary/10 border border-primary/30">
-          <UsersThree size={22} weight="duotone" className="text-primary" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">Agent Room</h2>
-          <p className="text-sm text-muted-foreground">
-            Seat your agents at one table. They speak from what each has actually learned, cite it, and hand
-            useful lessons to each other. Pull up a chair whenever you want.
-          </p>
-        </div>
-      </div>
-      {children}
-    </div>
+  return active ? (
+    <RoomStage
+      room={active.room}
+      roomKey={active.key}
+      limits={limits}
+      onRoomChange={(room) => setActive(a => (a ? { ...a, room } : a))}
+      onLeave={() => setActive(null)}
+    />
+  ) : (
+    <RoomSetup
+      agents={agents}
+      owner={walletAddress}
+      limits={limits}
+      onOpened={(room, key) => setActive({ room, key })}
+    />
   )
 }
 
