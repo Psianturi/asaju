@@ -444,11 +444,8 @@ async def test_poll_chain_first_run_scans_bounded_chunks_from_lookback():
 async def test_poll_chain_keeps_progress_when_a_chunk_fails():
     firestore = FakeFirestore()
     firestore.collection("marketplace_indexer_state").add_doc(FakeDoc({"last_processed_block": 1000}, doc_id="chain_97"))
-    n = {"i": 0}
-
     async def flaky(event_name, *, chain_id, from_block, to_block, argument_filters):
-        n["i"] += 1
-        if n["i"] == 2:
+        if from_block > 6000:  # this range keeps failing, even at the smallest window
             raise RuntimeError("rpc")
         return []
 
@@ -460,3 +457,26 @@ async def test_poll_chain_keeps_progress_when_a_chunk_fails():
     assert summary["errors"] == 1
     saved = firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"]
     assert saved == 1000 + 5_000  # the first chunk is kept, the failed one is retried next poll
+
+
+async def test_poll_chain_narrows_the_window_for_a_strict_rpc():
+    """Some public RPCs refuse wide getLogs ranges; the scan halves and goes on."""
+    firestore = FakeFirestore()
+    firestore.collection("marketplace_indexer_state").add_doc(FakeDoc({"last_processed_block": 1000}, doc_id="chain_97"))
+    spans = []
+
+    async def strict(event_name, *, chain_id, from_block, to_block, argument_filters):
+        if to_block - from_block + 1 > 1250:
+            raise ValueError("block range too large")
+        spans.append(to_block - from_block + 1)
+        return []
+
+    with patch("services.marketplace_indexer.get_db", return_value=firestore),          patch("services.marketplace_indexer.web3_service") as mock_web3:
+        mock_web3.get_event_logs = strict
+        mock_web3.get_block_number = _block_number(1000 + 3 * 1250)
+        summary = await poll_chain(97)
+
+    assert summary["errors"] == 0
+    assert spans == [1250, 1250, 1250]
+    saved = firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"]
+    assert saved == 1000 + 3 * 1250

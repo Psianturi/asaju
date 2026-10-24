@@ -46,6 +46,7 @@ MARKETPLACE_COLLECTION = "marketplace_indexer_state"
 # seen for the first time starts LISTING_SCAN_LOOKBACK blocks back (or at the
 # chain's `marketplace_start_block` when configured) rather than at genesis.
 LISTING_SCAN_CHUNK = 5_000
+LISTING_SCAN_MIN_CHUNK = 500  # some public RPCs refuse wide getLogs ranges
 LISTING_SCAN_MAX_CHUNKS_PER_POLL = 20
 LISTING_SCAN_LOOKBACK = 200_000
 
@@ -169,6 +170,24 @@ async def _migrate_transfer(agent_wallet: str, new_owner: str, previous_owner_ev
     }
 
 
+async def _fetch_window(fetch, chain_id: int, start: int, latest: int, label: str):
+    """Logs from `start` with the widest window the RPC accepts: halves on
+    failure down to LISTING_SCAN_MIN_CHUNK, then raises. Returns (logs, end)."""
+    span = LISTING_SCAN_CHUNK
+    while True:
+        end = min(start + span - 1, latest)
+        try:
+            return await fetch(start, end), end
+        except Exception as exc:
+            if span <= LISTING_SCAN_MIN_CHUNK:
+                logger.warning(
+                    "marketplace_indexer: %s failed chain %s [%s, %s]: %s: %s",
+                    label, chain_id, start, end, exc.__class__.__name__, str(exc)[:160],
+                )
+                raise
+            span //= 2
+
+
 async def poll_chain(chain_id: int) -> dict[str, int]:
     """Read all AgentOwnershipTransferred events since the last poll and migrate
     each one. Safe to run repeatedly: state is persisted, migrations are
@@ -192,19 +211,18 @@ async def poll_chain(chain_id: int) -> dict[str, int]:
     for _ in range(LISTING_SCAN_MAX_CHUNKS_PER_POLL):
         if scanned_to >= latest:
             break
-        start, end = scanned_to + 1, min(scanned_to + LISTING_SCAN_CHUNK, latest)
         try:
-            logs.extend(await web3_service.get_event_logs(
-                event_name="AgentOwnershipTransferred",
-                chain_id=chain_id,
-                from_block=start,
-                to_block=end,
-                argument_filters=None,
-            ))
-        except Exception as exc:
-            logger.warning("marketplace_indexer: get_logs failed chain %s [%s, %s]: %s", chain_id, start, end, exc.__class__.__name__)
+            chunk, end = await _fetch_window(
+                lambda a, b: web3_service.get_event_logs(
+                    event_name="AgentOwnershipTransferred", chain_id=chain_id,
+                    from_block=a, to_block=b, argument_filters=None,
+                ),
+                chain_id, scanned_to + 1, latest, "ownership scan",
+            )
+        except Exception:
             errors += 1
             break
+        logs.extend(chunk)
         scanned_to = end
 
     summary = {"logs": len(logs), "migrated_agent": 0, "migrated_proposals": 0, "skipped": 0, "errors": errors}
@@ -274,16 +292,14 @@ async def poll_marketplace_listings(chain_id: int) -> dict:
     for _ in range(LISTING_SCAN_MAX_CHUNKS_PER_POLL):
         if since >= latest:
             break
-        start, end = since + 1, min(since + LISTING_SCAN_CHUNK, latest)
         try:
-            logs = await web3_service.get_marketplace_event_logs(
-                "AgentListed", chain_id=chain_id, from_block=start, to_block=end
+            logs, end = await _fetch_window(
+                lambda a, b: web3_service.get_marketplace_event_logs(
+                    "AgentListed", chain_id=chain_id, from_block=a, to_block=b
+                ),
+                chain_id, since + 1, latest, "AgentListed scan",
             )
-        except Exception as exc:
-            logger.warning(
-                "marketplace_indexer: AgentListed scan failed chain %s [%s, %s]: %s",
-                chain_id, start, end, exc.__class__.__name__,
-            )
+        except Exception:
             summary["errors"] += 1
             break
         for log in logs:
