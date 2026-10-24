@@ -25,10 +25,12 @@ from web3 import Web3
 
 from core.agent_auth import require_agent_owner
 from core.agent_mandate import active_mandate, revoke_mandate
-from core.config import get_chain_config
+from core.config import get_chain_config, v7_deployment, v7_spawn_enabled
+from core.contract_version import V7, is_v7
 from core.database import get_db
 from core.pending_spawn import archive_abandoned, confirm_on_chain, is_direct, is_pending
 from core.rate_limit import enforce as enforce_rate_limit
+from core.v7_spawn import sign_spawn_consent
 from core.kms_service import decrypt_private_key, encrypt_private_key
 from services.comprehension_service import build_live_scout_log, compute_comprehension
 from services.llm_service import chat_with_agent, generate_lineage_biography, generate_wisdom_report
@@ -233,6 +235,10 @@ class SpawnResponse(BaseModel):
     onchain_offspring_key: str | None = None
     comprehension_sampled_niches: list[str] = []
     recent_scout_log: list[dict] = []
+    contract_version: int | None = None
+    # V7 only: the agent wallet's SpawnConsent and the contract to call.
+    spawn_consent: str | None = None
+    spawn_contract: str | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -302,6 +308,7 @@ async def _build_agent_response(data: dict, needs_funding: bool) -> SpawnRespons
         ownership_status=data.get("ownership_status"),
         agent_gas_balance=data.get("agent_gas_balance"),
         chain_id=data.get("chain_id", 5003),
+        contract_version=data.get("contract_version"),
         skill_scores=data.get("skill_scores"),
         # Comprehension + scout log — see comprehension_service.py for scoring.
         comprehension_score=comprehension["score"],
@@ -358,6 +365,7 @@ def _to_response(
         ownership_status=data.get("ownership_status"),
         agent_gas_balance=data.get("agent_gas_balance"),
         chain_id=data.get("chain_id", 5003),
+        contract_version=data.get("contract_version"),
         skill_scores=data.get("skill_scores"),
     )
 
@@ -425,6 +433,20 @@ class ScoutLogResponse(BaseModel):
     minted: bool | None = None
 
 
+def _with_spawn_consent(response: SpawnResponse, data: dict, private_key: str | None = None) -> SpawnResponse:
+    """Attach the V7 SpawnConsent while the agent still awaits its spawn tx."""
+    if not is_v7(data) or data.get("funded"):
+        return response
+    chain_id = int(data.get("chain_id") or 5003)
+    dep = v7_deployment(chain_id)
+    if not dep:
+        raise HTTPException(status_code=503, detail="V7 is not configured for this network")
+    key = private_key or decrypt_private_key(data["private_key_enc"])
+    response.spawn_contract = dep["agent"]
+    response.spawn_consent = sign_spawn_consent(key, data["user_wallet"], chain_id, dep["agent"])
+    return response
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -457,7 +479,7 @@ async def spawn_agent(req: SpawnRequest, request: Request) -> SpawnResponse:
     if doc.exists:
         logger.info("Returning existing agent %s from Firestore", agent_id)
         data = doc.to_dict()
-        return _to_response(data, needs_funding=not data.get("funded", False))
+        return _with_spawn_consent(_to_response(data, needs_funding=not data.get("funded", False)), data)
 
     # Per-wallet, per-chain limit applies only to directly spawned agents that
     # exist on-chain. An attempt whose spawnAgent() never landed is not an
@@ -513,6 +535,8 @@ async def spawn_agent(req: SpawnRequest, request: Request) -> SpawnResponse:
         "scout_interval_hours": 6,
         "last_scout_at": None,
     }
+    if v7_spawn_enabled(req.chain_id):
+        agent_data["contract_version"] = V7
 
     try:
         await doc_ref.set(agent_data)
@@ -525,7 +549,7 @@ async def spawn_agent(req: SpawnRequest, request: Request) -> SpawnResponse:
         agent_id,
         agent_account.address,
     )
-    return _to_response(agent_data, needs_funding=True)
+    return _with_spawn_consent(_to_response(agent_data, needs_funding=True), agent_data, private_key)
 
 
 async def _generate_and_save_biography(
@@ -1340,10 +1364,9 @@ async def mark_agent_funded(agent_id: str) -> dict:
         # Trust the contract, not the caller. A few retries cover RPC nodes
         # that lag the receipt the browser just saw.
         wallet = data.get("agent_wallet", "")
-        chain_id = int(data.get("chain_id", 5003))
         spawned = None
         for attempt in range(MARK_FUNDED_READ_ATTEMPTS):
-            spawned = await web3_service.is_agent_spawned(wallet, chain_id) if wallet else False
+            spawned = await web3_service.is_spawned_for(data) if wallet else False
             if spawned:
                 break
             if attempt + 1 < MARK_FUNDED_READ_ATTEMPTS:

@@ -18,6 +18,17 @@ const MARKETPLACE_ABI = [
   'event AgentSold(address indexed agentWallet, address indexed seller, address indexed buyer, uint256 price, uint256 fee)',
 ] as const
 
+/** AsajuAgentV7 spawn: the agent wallet's consent is signed by the backend. */
+const V7_SPAWN_ABI = [
+  'function spawnFee() view returns (uint256)',
+  'function spawnAgent(address agentWallet, bytes agentSig) payable returns (uint256)',
+] as const
+
+export interface V7SpawnConsent {
+  contract: string
+  consent: string
+}
+
 /** Minimal ERC-20 surface for the allowance grant before an ERC-20 buy. */
 const ERC20_MIN_ABI = [
   'function approve(address spender, uint256 amount) returns (bool)',
@@ -244,8 +255,13 @@ export class MantleBlockchainService {
     return this.getChainConfig(chainId).contractAddress
   }
 
-  async spawnAgent(agentWallet: string, chainId = this.currentChainId): Promise<SpawnAgentOnChainResult> {
+  async spawnAgent(
+    agentWallet: string,
+    chainId = this.currentChainId,
+    v7?: V7SpawnConsent,
+  ): Promise<SpawnAgentOnChainResult> {
     await this.activateChain(chainId)
+    if (v7) return this.spawnAgentV7(agentWallet, chainId, v7)
     if (!this.contract) {
       return {
         success: false,
@@ -278,6 +294,30 @@ export class MantleBlockchainService {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       }
+    }
+  }
+
+  private async spawnAgentV7(agentWallet: string, chainId: number, v7: V7SpawnConsent): Promise<SpawnAgentOnChainResult> {
+    if (!this.signer) {
+      return { success: false, error: 'Wallet signer is not initialized. Please reconnect your wallet.' }
+    }
+    try {
+      const passport = new Contract(v7.contract, V7_SPAWN_ABI, this.signer)
+      // Fee read live: the timelock can change it, chains.ts cannot follow.
+      const fee: bigint = await passport.spawnFee()
+      const tx = await passport.spawnAgent(agentWallet, v7.consent, { value: fee })
+      const receipt: TransactionReceipt = await tx.wait()
+      const gasCost = (Number(receipt.gasUsed) * Number(receipt.gasPrice || BigInt(0))) / 1e18
+      return {
+        success: true,
+        transactionHash: receipt.hash,
+        contractAddress: v7.contract,
+        provisionAmount: getChain(chainId)?.agentProvision ?? '0',
+        gasUsed: gasCost.toFixed(6),
+      }
+    } catch (error) {
+      console.error('V7 spawn transaction error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error occurred' }
     }
   }
 

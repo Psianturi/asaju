@@ -118,7 +118,7 @@ export function SpawnAgentDialog({ open, onOpenChange, onAgentCreated, userWalle
 
       if (response.success) {
         const fundingTx = response.needsFunding
-            ? await mantleService.spawnAgent(response.mantleAddress, chainId)
+            ? await mantleService.spawnAgent(response.mantleAddress, chainId, response.v7Spawn)
           : {
               success: true,
               contractAddress: mantleService.getContractAddress(chainId),

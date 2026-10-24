@@ -58,6 +58,8 @@ export interface SpawnAgentResponse {
   needsFunding: boolean
   chainId: number
   message: string
+  /** V7 only: contract + agent-signed SpawnConsent for spawnAgent(wallet, sig). */
+  v7Spawn?: { contract: string; consent: string }
   error?: string
 }
 
@@ -438,6 +440,8 @@ export const cloudRunService = {
         total_events: number
         needs_funding: boolean
         chain_id?: number
+        spawn_contract?: string | null
+        spawn_consent?: string | null
       }>(response)
 
       // Map backend snake_case → frontend camelCase
@@ -449,6 +453,9 @@ export const cloudRunService = {
         needsFunding: raw.needs_funding,
         chainId: raw.chain_id ?? request.chainId,
         message: `Agent ${raw.agent_name} spawned successfully`,
+        v7Spawn: raw.spawn_contract && raw.spawn_consent
+          ? { contract: raw.spawn_contract, consent: raw.spawn_consent }
+          : undefined,
       }
     } catch (error) {
       if (error instanceof CloudRunAPIError) {

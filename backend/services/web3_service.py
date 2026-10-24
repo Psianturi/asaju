@@ -570,6 +570,16 @@ class Web3Service:
             logger.debug("V7 isAgentSpawned read failed for %s on chain %s: %s", agent_wallet, chain_id, exc.__class__.__name__)
             return None
 
+    async def is_spawned_for(self, data: dict) -> bool | None:
+        """isAgentSpawned on the contract this agent record belongs to."""
+        from core.contract_version import is_v7
+
+        wallet = data.get("agent_wallet") or ""
+        chain_id = int(data.get("chain_id") or 5003)
+        if is_v7(data):
+            return await self.is_v7_agent_spawned(wallet, chain_id)
+        return await self.is_agent_spawned(wallet, chain_id)
+
     async def is_agent_spawned(self, agent_wallet: str, chain_id: int = 5003) -> bool | None:
         """Live-read isAgentSpawned(agentWallet). None when the chain can't be read."""
         loop = asyncio.get_event_loop()

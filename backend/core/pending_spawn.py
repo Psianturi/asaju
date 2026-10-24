@@ -39,7 +39,7 @@ async def confirm_on_chain(db, collection: str, data: dict, timeout: float = 4.0
         return False
     try:
         spawned = await asyncio.wait_for(
-            web3_service.is_agent_spawned(wallet, int(data.get("chain_id") or 5003)), timeout=timeout
+            web3_service.is_spawned_for(data), timeout=timeout
         )
     except Exception:
         return None

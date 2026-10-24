@@ -72,6 +72,12 @@ def v7_deployment(chain_id: int) -> dict[str, str] | None:
     return V7_DEPLOYMENTS.get(chain_id)
 
 
+def v7_spawn_enabled(chain_id: int) -> bool:
+    """New direct spawns on this chain go to V7 (env V7_SPAWN_CHAINS)."""
+    ids = {c.strip() for c in settings.v7_spawn_chains.split(",") if c.strip()}
+    return str(chain_id) in ids and v7_deployment(chain_id) is not None
+
+
 def get_chain_config(chain_id: int) -> dict:
     """Return chain config or raise ValueError for unsupported chain_id."""
     cfg = CHAIN_CONFIGS.get(chain_id)
@@ -121,6 +127,9 @@ class Settings(BaseSettings):
     # Service accounts whose OIDC tokens may call scheduler/indexer endpoints
     # (comma-separated). Default: the one Cloud Scheduler jobs use today.
     scheduler_service_accounts: str = "21898396920-compute@developer.gserviceaccount.com"
+
+    # Chains whose new direct spawns go to V7, comma-separated ids. Empty = off.
+    v7_spawn_chains: str = ""
 
     # Option A: Semi-Autonomous Proposal Execution — treasury/vault address
     autonomous_vault_address: str = ""
