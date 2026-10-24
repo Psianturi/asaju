@@ -1,18 +1,23 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Robot } from '@phosphor-icons/react'
+import { ArrowLeft, Brain, Lightning, GearSix, Wallet, Sparkle, ChartLine, CalendarBlank, Pulse, ShieldCheck, Download, FilePdf, Trash, YoutubeLogo, Lightning as LightningIcon, Storefront } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Agent, Event, NFT } from '@/lib/types'
-import { getAgentAvatar } from '@/lib/avatarUtils'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
-import { getChain, autoReplenish } from '@/lib/blockchain/chains'
+import { getChain, autoReplenish, supportsMarketplace } from '@/lib/blockchain/chains'
 import { AgentLineageTree } from '@/components/AgentLineageTree'
 import { AgentPulse } from '@/components/AgentPulse'
 import { YouTubeSubmitDialog } from '@/components/YouTubeSubmitDialog'
+import { AutoScoutCard } from '@/components/AutoScoutCard'
+import { AgentGrowthCard } from '@/components/AgentGrowthCard'
+import { ScoutActivityCard } from '@/components/ScoutActivityCard'
+import { TermHint } from '@/components/TermHint'
+import { NetworkMismatchBanner } from '@/components/NetworkMismatchBanner'
+import { GLOSSARY } from '@/lib/glossary'
 
 interface AgentDetailViewProps {
   agent: Agent
@@ -20,6 +25,9 @@ interface AgentDetailViewProps {
   nfts: NFT[]
   /** All agents — needed for lineage tree to resolve parent agents by id. */
   allAgents?: Agent[]
+  /** Network the wallet is on, to flag an agent that lives on another chain. */
+  currentChainId?: number
+  onSwitchNetwork?: (chainId: number) => void
   onBack: () => void
   onConfigure?: (agent: Agent) => void
   onChat?: (agent: Agent) => void
@@ -30,6 +38,7 @@ interface AgentDetailViewProps {
   onToggleScout?: (agentId: string, enabled: boolean) => void
   pendingProposalCount?: number
   onOpenProposals?: (agent: Agent) => void
+  onListMarketplace?: (agent: Agent) => void
   onDeleteAgent?: (agent: Agent) => void
 }
 
@@ -46,6 +55,8 @@ export function AgentDetailView({
   events,
   nfts,
   allAgents = [],
+  currentChainId,
+  onSwitchNetwork,
   onBack,
   onConfigure,
   onChat,
@@ -56,9 +67,9 @@ export function AgentDetailView({
   onToggleScout,
   pendingProposalCount,
   onOpenProposals,
+  onListMarketplace,
   onDeleteAgent,
 }: AgentDetailViewProps) {
-  const avatar = useMemo(() => getAgentAvatar(agent.id, agent.name), [agent.id, agent.name])
   const rarityTier = calculateRarityTier(agent)
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)
@@ -136,6 +147,13 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
         Back to dashboard
       </button>
 
+      <NetworkMismatchBanner
+        agentName={agent.name}
+        agentChainId={agent.chainId ?? 5003}
+        currentChainId={currentChainId}
+        onSwitchNetwork={onSwitchNetwork}
+      />
+
       {/* Header card */}
       <Card className={cn(
         'glass-card-hover p-6 relative overflow-hidden border-primary/20',
@@ -179,16 +197,21 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 <p className="text-xl font-bold font-mono mt-1">{agentEvents.length}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">NFTs Minted</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1">NFTs Minted <TermHint term="milestoneNft" /></p>
                 <p className="text-xl font-bold font-mono mt-1">{agentNfts.length}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Heritage</p>
-                <p className="text-xl font-bold font-mono mt-1">{agent.breedingCount ?? 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1">Heritage <TermHint term="heritage" /></p>
+                {/* Heritage is the on-chain reputation score; this card used to show
+                    the breeding count under that name. Offspring stay visible below. */}
+                <p className="text-xl font-bold font-mono mt-1">{agent.wisdomHeritageScore ?? 0}</p>
+                {(agent.breedingCount ?? 0) > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{agent.breedingCount} offspring</p>
+                )}
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1">
-                  <Wallet size={9} /> Gas Balance
+                  <Wallet size={9} /> Gas Balance <TermHint term="gas" />
                 </p>
                 <p className={cn(
                   'text-xl font-bold font-mono mt-1 flex items-center gap-2',
@@ -203,7 +226,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
 
           <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto">
             {agent.wisdomUnlocked && onViewEvolution && (
-              <Button onClick={() => onViewEvolution(agent)} className="bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25">
+              <Button onClick={() => onViewEvolution(agent)} title={GLOSSARY.evolution} className="bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25">
                 <Sparkle className="mr-2" weight="duotone" size={16} />
                 Evolution
               </Button>
@@ -238,6 +261,8 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
 
       {/* Living pulse — the agent's real knowledge + market intake streams. */}
       <AgentPulse agent={agent} />
+
+      <AgentGrowthCard agent={agent} videosAnalyzed={agentEvents.length} />
 
       {/* Quick actions bar — destructive action kept out of this grid so it
           doesn't share visual weight with routine actions like Configure. */}
@@ -275,6 +300,16 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
                 {pendingProposalCount}
               </span>
             )}
+          </Button>
+        )}
+        {onListMarketplace && agent.ownershipStatus === 'original-creator' && supportsMarketplace(agent.chainId ?? 0) && (
+          <Button
+            onClick={() => onListMarketplace(agent)}
+            variant="outline"
+            className="border-border/40 hover:border-secondary/50 justify-start text-secondary"
+          >
+            <Storefront className="mr-2" weight="duotone" size={16} />
+            Sell / Transfer
           </Button>
         )}
       </div>
@@ -323,36 +358,10 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
         </Card>
       )}
 
-      {/* Auto-Scout toggle — the only place this control actually lives.
-          The dashboard's "enable Auto-Scout" banner links here; before this,
-          it landed on a page with no way to act on it. Milestone-based
-          minting means gas is only spent at level-ups, not per video, so
-          this is safe to leave on. */}
-      {onToggleScout && (
-        <Card className="glass-card-hover p-4 border border-border/30">
-          <div className="flex items-center gap-3">
-            <Robot
-              size={18}
-              className={agent.autoScoutEnabled ? 'text-emerald-500' : 'text-muted-foreground'}
-              weight="fill"
-            />
-            <div className="flex-1">
-              <p className="text-sm font-semibold">Auto-Scout</p>
-              <p className="text-[10px] text-muted-foreground">
-                {agent.autoScoutEnabled
-                  ? 'The agent searches YouTube on its own and mints when it hits a milestone.'
-                  : 'Off — the agent only learns when you submit a video manually.'}
-              </p>
-            </div>
-            <Switch
-              checked={agent.autoScoutEnabled || false}
-              onCheckedChange={(checked) => onToggleScout(agent.id, checked)}
-              aria-label={agent.autoScoutEnabled ? 'Disable auto-scout' : 'Enable auto-scout'}
-              className="data-[state=checked]:bg-emerald-500"
-            />
-          </div>
-        </Card>
-      )}
+      {/* Auto-Scout and the mandate that lets it run unattended. The
+          dashboard's "enable Auto-Scout" banner links here. */}
+      {onToggleScout && <AutoScoutCard agent={agent} onToggleScout={onToggleScout} />}
+      {agent.level >= 2 && <ScoutActivityCard agent={agent} />}
 
       {/* Wisdom timeline */}
       <Card className="glass-card-hover p-6 border border-primary/20">
@@ -361,7 +370,7 @@ ${event.url ? `<p><strong>Source:</strong> <a href="${event.url}" target="_blank
             <ChartLine className="text-primary" weight="duotone" size={20} />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-bold">Wisdom timeline</h3>
+            <h3 className="text-base font-bold flex items-center gap-1.5">Wisdom timeline <TermHint term="wisdom" /></h3>
             <p className="text-xs text-muted-foreground">{agentEvents.length} videos analyzed</p>
           </div>
         </div>

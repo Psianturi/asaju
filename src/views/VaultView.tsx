@@ -13,7 +13,7 @@ interface VaultViewProps {
   displayedNFTs: NFT[]
   selectedChainId: number
   verificationData: ContractVerificationData[] | null
-  setMainView: (view: 'dashboard' | 'analytics' | 'vault' | 'marketplace') => void
+  setMainView: (view: 'dashboard' | 'vault' | 'marketplace') => void
   onOpenMetadata: (nft: NFT) => void
   startTransition: React.TransitionStartFunction
 }

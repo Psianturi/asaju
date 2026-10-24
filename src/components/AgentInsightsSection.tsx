@@ -54,8 +54,8 @@ export function AgentInsightsSection({
   if (!isConnected) {
     return (
       <Card className="border border-cyan-400/30 bg-gradient-to-br from-cyan-400/[0.06] via-transparent to-violet-400/[0.04] p-4 shadow-lg shadow-cyan-500/5">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+          <div className="hidden sm:flex w-10 h-10 rounded-lg bg-cyan-400/15 border border-cyan-400/30 items-center justify-center shrink-0">
             <Robot size={18} className="text-cyan-300" weight="duotone" />
           </div>
           <div className="flex-1 min-w-0">
@@ -63,7 +63,7 @@ export function AgentInsightsSection({
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
               Live insight grounded in real CoinMarketCap data, tailored to your agent's niche.
             </p>
-            <div className="mt-2.5 grid grid-cols-3 gap-2">
+            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
               <PreviewPill icon={Eye} label="Watching" hint="Live prices & sentiment" color="cyan" />
               <PreviewPill icon={Lightbulb} label="Suggested" hint="One human-approved action" color="amber" />
               <PreviewPill icon={Database} label="Grounded" hint="Raw data you can audit" color="violet" />
@@ -165,7 +165,7 @@ function PreviewPill({ icon: Icon, label, hint, color }: PreviewPillProps) {
                 <span className="text-amber-300 font-semibold uppercase tracking-wider text-[10px] mr-1.5">Suggested:</span>{insight.suggested_action}
               </p>
               <p className="text-[10px] text-muted-foreground/70 font-mono mt-2">
-                Sources: {insight.sources.join(' · ')}
+                Sources: {(insight.sources ?? []).join(' · ') || '—'}
               </p>
             </motion.div>
           ) : (

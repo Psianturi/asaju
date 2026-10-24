@@ -23,10 +23,12 @@ function sentimentColor(value: number): string {
 interface MarketContextPanelProps {
   snapshot: MarketSnapshot
   pools?: DexPool[]
+  /** Network the pools come from, shown in the section title. */
+  poolsNetworkName?: string
   compact?: boolean
 }
 
-export function MarketContextPanel({ snapshot, pools = [], compact = false }: MarketContextPanelProps) {
+export function MarketContextPanel({ snapshot, pools = [], poolsNetworkName = 'Mantle', compact = false }: MarketContextPanelProps) {
   const generatedAtMs = snapshot.generated_at * 1000
   const lastUpdated = new Date(generatedAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const sentimentValue = snapshot.fear_greed ? Number(snapshot.fear_greed.value) : null
@@ -97,7 +99,7 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
       {!compact && pools.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Mantle liquidity watch</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">{poolsNetworkName} liquidity watch</p>
             <span className="text-[9px] text-muted-foreground/60">On-chain</span>
           </div>
           <div className="space-y-1">
@@ -133,7 +135,18 @@ export function MarketContextPanel({ snapshot, pools = [], compact = false }: Ma
   )
 }
 
-export function MarketSnapshotCard() {
+// Liquidity is read from the mainnet DEXes of the family the selected testnet
+// belongs to (testnet pools have no meaningful prices). Robinhood Chain is an
+// Arbitrum Orbit chain, so it reads Arbitrum.
+const DEX_NETWORK_FOR_CHAIN: Record<number, { network: string; name: string }> = {
+  5003: { network: 'mantle', name: 'Mantle' },
+  97: { network: 'bsc', name: 'BNB Chain' },
+  11155111: { network: 'eth', name: 'Ethereum' },
+  46630: { network: 'arbitrum', name: 'Arbitrum' },
+}
+
+export function MarketSnapshotCard({ chainId }: { chainId?: number }) {
+  const dex = DEX_NETWORK_FOR_CHAIN[chainId ?? 5003] ?? DEX_NETWORK_FOR_CHAIN[5003]
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [pools, setPools] = useState<DexPool[]>([])
   const [error, setError] = useState(false)
@@ -142,13 +155,13 @@ export function MarketSnapshotCard() {
     let cancelled = false
     const load = async () => {
       try {
-        const [snap, dex] = await Promise.all([
+        const [snap, dexPools] = await Promise.all([
           cloudRunService.getMarketSnapshot(),
-          cloudRunService.getMantleDexPools(),
+          cloudRunService.getDexPools(dex.network),
         ])
         if (cancelled) return
         setSnapshot(snap)
-        setPools(dex.pools.slice(0, 3))
+        setPools(dexPools.pools.slice(0, 3))
         setError(false)
       } catch (err) {
         console.error('Failed to load market snapshot:', err)
@@ -158,14 +171,14 @@ export function MarketSnapshotCard() {
     load()
     const interval = setInterval(load, REFRESH_MS)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [])
+  }, [dex.network])
 
   if (error || !snapshot) return null
 
   return (
     <Card className="overflow-hidden border-cyan-400/15 bg-white/[0.02]">
       <div className="p-4">
-        <MarketContextPanel snapshot={snapshot} pools={pools} />
+        <MarketContextPanel snapshot={snapshot} pools={pools} poolsNetworkName={dex.name} />
         <p className="text-[10px] text-muted-foreground/60 mt-3 pt-2.5 border-t border-border/20">
           Research context only. The agent may use this evidence in a proposal; it does not execute a trade automatically.
         </p>

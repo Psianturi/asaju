@@ -1,11 +1,15 @@
-import { Agent, BackendProposal, Event, Niche, Personality, SubAgentType } from '@/lib/types'
+import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
+import { decodeEntities } from '@/lib/agentRoom'
 
+// Dev-only override first, so pointing a preview branch at the tagged Cloud Run
+// revision never requires editing the variable that Production also uses.
 export const GCP_BACKEND_URL =
+  import.meta.env.VITE_GCP_BACKEND_URL_DEV ||
   import.meta.env.VITE_GCP_BACKEND_URL ||
   'https://mantle-agentic-event-21898396920.asia-southeast1.run.app'
 
-if (!import.meta.env.VITE_GCP_BACKEND_URL) {
+if (!import.meta.env.VITE_GCP_BACKEND_URL_DEV && !import.meta.env.VITE_GCP_BACKEND_URL) {
   console.warn('VITE_GCP_BACKEND_URL is not set. Using production Cloud Run fallback URL.')
 }
 const REQUEST_TIMEOUT = 55000
@@ -63,17 +67,18 @@ export interface MarkAgentFundedResponse {
   funded: boolean
 }
 
+// Only owner-editable text. Auto-Scout on/off follows the signed mandate and
+// breeding fields are written by the server, so neither is sent from here.
 export interface UpdateAgentStateRequest {
   customInstructions?: string
-  autoScoutEnabled?: boolean
   customAgenda?: string
-  generation?: number
-  parentIds?: string[]
-  breedingCount?: number
-  maxBreedings?: number
-  geneticTraits?: string[]
-  lastBreedingTime?: number
-  breedingCooldownHours?: number
+  avatarSeed?: number
+}
+
+/** A signed agent-auth challenge, proving the caller is the current owner. */
+export interface AgentAuth {
+  nonce: string
+  signature: string
 }
 
 export interface AssignEventRequest {
@@ -127,6 +132,20 @@ export interface AttendEventRequest {
   niche: string
   chainId: number
   modeB?: boolean  // If true, agent signs autonomously with its own private key (Mode B); else backend signs (Mode A)
+  /** Owner authorisation for Mode B. The backend decrypts the agent key and
+   * signs with it, so it first verifies this signature belongs to the wallet
+   * that owns the agent on-chain right now. Obtained from
+   * requestAgentAuthChallenge() then signed with the connected wallet. */
+  authNonce?: string
+  authSignature?: string
+}
+
+export interface AgentAuthChallenge {
+  nonce: string
+  /** Exact text the owner must sign. Persisted server-side so the signature
+   *  is verified against the same bytes that were issued. */
+  message: string
+  expires_at: number
 }
 
 export interface AttendEventResponse {
@@ -212,6 +231,28 @@ export interface DexPool {
   }
 }
 
+/**
+ * Why a market feed is empty. The backend sets `available: false` when the data
+ * provider refused or failed the call, so the UI can say so instead of showing
+ * an empty "live" table. Absent on older backends — treat as available.
+ */
+export type FeedUnavailableReason =
+  | 'plan_unsupported'
+  | 'rate_limited'
+  | 'auth'
+  | 'not_configured'
+  | 'upstream_error'
+  | 'plan_expired'
+
+export interface FeedAvailability {
+  available?: boolean
+  reason?: FeedUnavailableReason | null
+  /** Raw cause from the provider (e.g. "HTTP 503", "ReadTimeout"), for diagnosis. */
+  detail?: string | null
+  /** Where the rows came from: CMC, its last good answer, or the CoinGecko stand-in. */
+  source?: 'coinmarketcap' | 'cache' | 'coingecko' | 'cmc_listings' | null
+}
+
 export interface TrendingCoin {
   id: number
   name: string
@@ -273,6 +314,7 @@ export interface GlobalMetrics {
   defi_volume_24h?: number
   stablecoin_volume_24h?: number
   last_updated?: string
+  source?: 'coingecko'
 }
 
 export interface CmcAiSummary {
@@ -524,6 +566,7 @@ export const cloudRunService = {
         custom_instructions?: string
         auto_scout_enabled?: boolean
         custom_agenda?: string
+        avatar_seed?: number | null
         generation?: number
         parent_ids?: string[]
         parent_names?: { parent_1: string; parent_2: string }
@@ -578,6 +621,7 @@ export const cloudRunService = {
         customInstructions: r.custom_instructions,
         autoScoutEnabled: r.auto_scout_enabled,
         customAgenda: r.custom_agenda,
+        avatarSeed: r.avatar_seed ?? undefined,
         autonomousSignatures: r.autonomous_signatures ?? 0,
         generation: r.generation,
         parentIds: r.parent_ids,
@@ -601,7 +645,7 @@ export const cloudRunService = {
         comprehensionNextMilestone: r.comprehension_next_milestone ?? 20,
         comprehensionProgressToNext: r.comprehension_progress_to_next ?? 20,
         comprehensionSampledNiches: r.comprehension_sampled_niches ?? [],
-        recentScoutLog: r.recent_scout_log ?? [],
+        recentScoutLog: (r.recent_scout_log ?? []).map(l => (l.title ? { ...l, title: decodeEntities(l.title) } : l)),
       }))
     } catch (error) {
       // Non-fatal: return empty list if backend is unreachable
@@ -651,7 +695,8 @@ export const cloudRunService = {
         agentId: r.agent_id,
         chainId: r.chain_id ?? 5003,
         eventUrl: r.event_url,
-        eventTitle: r.event_title,
+        // YouTube returns titles HTML-escaped ("&amp;"); older records kept them that way.
+        eventTitle: decodeEntities(r.event_title ?? ''),
         platform: r.platform,
         wisdomSummary: r.wisdom_summary,
         txHash: r.tx_hash ?? '',
@@ -676,18 +721,13 @@ export const cloudRunService = {
     return handleAPIResponse<MarkAgentFundedResponse>(response)
   },
 
-  async updateAgentState(agentId: string, state: UpdateAgentStateRequest): Promise<void> {
+  async updateAgentState(agentId: string, state: UpdateAgentStateRequest, auth: AgentAuth): Promise<void> {
     const backendPayload = {
       custom_instructions: state.customInstructions,
-      auto_scout_enabled: state.autoScoutEnabled,
       custom_agenda: state.customAgenda,
-      generation: state.generation,
-      parent_ids: state.parentIds,
-      breeding_count: state.breedingCount,
-      max_breedings: state.maxBreedings,
-      genetic_traits: state.geneticTraits,
-      last_breeding_time: state.lastBreedingTime,
-      breeding_cooldown_hours: state.breedingCooldownHours,
+      avatar_seed: state.avatarSeed,
+      auth_nonce: auth.nonce,
+      auth_signature: auth.signature,
     }
 
     const response = await fetchWithTimeout(
@@ -737,6 +777,32 @@ export const cloudRunService = {
   },
 
   // ── Real backend: AI summary + Mantle NFT mint (Mode A or B) ───────────────
+  /**
+   * Ask the backend for a message the owner must sign before the platform will
+   * act as their agent. Mode B decrypts the agent key and signs with it, so the
+   * backend needs proof the request comes from the current owner.
+   */
+  async requestAgentAuthChallenge(params: {
+    agentId: string
+    agentWallet: string
+    action?: string
+    chainId: number
+  }): Promise<AgentAuthChallenge> {
+    const query = new URLSearchParams({
+      agent_id: params.agentId,
+      agent_wallet: params.agentWallet,
+      action: params.action ?? 'attend_event',
+      chain_id: String(params.chainId),
+    })
+    // POST, not GET: the backend only registers POST (each call writes a
+    // challenge doc), so a GET here was always a 405.
+    const response = await fetchWithTimeout(
+      `${GCP_BACKEND_URL}/api/v1/event/agent-auth-challenge?${query.toString()}`,
+      { method: 'POST' },
+    )
+    return handleAPIResponse<AgentAuthChallenge>(response)
+  },
+
   async attendEvent(request: AttendEventRequest): Promise<AttendEventResponse> {
     const urlCheck = validateEventUrl(request.eventUrl)
     if (!urlCheck.valid) {
@@ -754,6 +820,8 @@ export const cloudRunService = {
         niche: request.niche,
         chain_id: request.chainId,
         mode_b: request.modeB ?? false,  // Mode B: agent signs autonomously; Mode A: backend signs (default)
+        auth_nonce: request.authNonce ?? '',
+        auth_signature: request.authSignature ?? '',
       }
 
       const response = await fetchWithTimeout(
@@ -969,16 +1037,6 @@ export const cloudRunService = {
     }
   },
 
-  async updateAgentInstructions(agentId: string, instructions: string): Promise<{ success: boolean }> {
-    try {
-      await cloudRunService.updateAgentState(agentId, { customInstructions: instructions })
-      return { success: true }
-    } catch (error) {
-      if (error instanceof CloudRunAPIError) throw error
-      throw new CloudRunAPIError('Failed to update agent instructions', undefined, error)
-    }
-  },
-
   async healthCheck(): Promise<{ status: string; version: string; autonomous_execution_enabled?: boolean }> {
     try {
       const response = await fetchWithTimeout(
@@ -1153,9 +1211,10 @@ export const cloudRunService = {
 
   // ── Agent Management ────────────────────────────────────────────────────────
 
-  async deleteAgent(agentId: string, walletAddress: string): Promise<void> {
+  async deleteAgent(agentId: string, auth: AgentAuth): Promise<void> {
+    const query = new URLSearchParams({ auth_nonce: auth.nonce, auth_signature: auth.signature })
     const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}?wallet=${encodeURIComponent(walletAddress)}`,
+      `${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}?${query.toString()}`,
       { method: 'DELETE' },
     )
     await handleAPIResponse<{ status: string }>(response)
@@ -1287,6 +1346,61 @@ export const cloudRunService = {
     return handleAPIResponse<BackendProposal>(response)
   },
 
+  async getMarketplaceListings(chainId?: number): Promise<MarketplaceAgent[]> {
+    try {
+      const url = chainId != null
+        ? `${GCP_BACKEND_URL}/api/v1/marketplace/listings?chain_id=${chainId}`
+        : `${GCP_BACKEND_URL}/api/v1/marketplace/listings`
+      const response = await fetchWithTimeout(url, { method: 'GET' })
+      const raw = await handleAPIResponse<{ listings: Array<Record<string, unknown>> }>(response)
+      const validNiches: Niche[] = ['Blockchain/DeFi', 'Trading/Investment', 'Technology', 'Health/Wellness']
+      const validPersonalities: Personality[] = ['Aggressive', 'Analytical', 'Creative']
+      return (raw.listings ?? []).map(l => ({
+        id: String(l.agent_id),
+        name: String(l.agent_name ?? 'Agent'),
+        personality: (validPersonalities.includes(l.personality as Personality) ? l.personality : 'Analytical') as Personality,
+        niche: (validNiches.includes(l.niche as Niche) ? l.niche : 'Blockchain/DeFi') as Niche,
+        walletAddress: String(l.agent_wallet ?? ''),
+        eventsAttended: Number(l.total_events ?? 0),
+        level: Number(l.level ?? 1),
+        wisdomUnlocked: Boolean(l.wisdom_unlocked),
+        price: Number(l.price ?? 0),
+        chainId: l.chain_id != null ? Number(l.chain_id) : undefined,
+        seller: String(l.seller_wallet ?? ''),
+        sellerAddress: String(l.seller_wallet ?? ''),
+        listedAt: Number(l.created_at ?? 0) * 1000,
+        agentGasBalance: l.agent_gas_balance != null ? Number(l.agent_gas_balance) : undefined,
+        status: 'idle' as const,
+        subAgents: [],
+        createdAt: Date.now(),
+        gasSpent: l.gas_spent != null ? Number(l.gas_spent) : undefined,
+        generation: l.generation != null ? Number(l.generation) : undefined,
+        avatarSeed: l.avatar_seed != null ? Number(l.avatar_seed) : undefined,
+      }))
+    } catch (error) {
+      console.warn('[cloudRunService] getMarketplaceListings failed:', error)
+      return []
+    }
+  },
+
+  /**
+   * Ask the backend to re-read one agent's listing from the on-chain escrow.
+   * Listing and cancelling are signed on-chain by the owner; this only makes
+   * the shared board reflect it before the next indexer poll.
+   */
+  async syncListing(agentId: string): Promise<{ ok: boolean; status?: string; error?: string }> {
+    try {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/marketplace/sync?agent_id=${encodeURIComponent(agentId)}`,
+        { method: 'POST' },
+      )
+      const body = await handleAPIResponse<{ status: string }>(response)
+      return { ok: true, status: body.status }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to sync listing' }
+    }
+  },
+
   async getMarketSnapshot(coins: string[] = ['bitcoin', 'ethereum', 'mantle']): Promise<MarketSnapshot> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/snapshot?coins=${encodeURIComponent(coins.join(','))}`,
@@ -1296,35 +1410,40 @@ export const cloudRunService = {
   },
 
   async getMantleDexPools(): Promise<{ network: string; page: number; pools: DexPool[] }> {
+    return this.getDexPools('mantle')
+  },
+
+  /** Top DEX pools on one GeckoTerminal network (eth, bsc, arbitrum, mantle, …). */
+  async getDexPools(network: string): Promise<{ network: string; page: number; pools: DexPool[] }> {
     const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/mantle`,
+      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/${encodeURIComponent(network)}`,
       { method: 'GET' },
     )
     return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
   },
 
-  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5, sortDir: 'asc' | 'desc' = 'desc'): Promise<{ time_period: string; sort_dir?: string; results: TrendingCoin[] }> {
+  async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5, sortDir: 'asc' | 'desc' = 'desc'): Promise<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}&sort_dir=${sortDir}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] }>(response)
+    return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability>(response)
   },
 
-  async getNewListings(limit = 5): Promise<{ results: NewListing[] }> {
+  async getNewListings(limit = 5): Promise<{ results: NewListing[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/listings/new?limit=${limit}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ results: NewListing[] }>(response)
+    return handleAPIResponse<{ results: NewListing[] } & FeedAvailability>(response)
   },
 
-  async getAirdrops(limit = 5): Promise<{ results: Airdrop[] }> {
+  async getAirdrops(limit = 5): Promise<{ results: Airdrop[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/airdrops?limit=${limit}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ results: Airdrop[] }>(response)
+    return handleAPIResponse<{ results: Airdrop[] } & FeedAvailability>(response)
   },
 
   async getGlobalMetrics(): Promise<{ metrics: GlobalMetrics | null }> {
@@ -1335,12 +1454,12 @@ export const cloudRunService = {
     return handleAPIResponse<{ metrics: GlobalMetrics | null }>(response)
   },
 
-  async getMostVisited(limit = 5): Promise<{ results: TrendingCoin[] }> {
+  async getMostVisited(limit = 5): Promise<{ results: TrendingCoin[] } & FeedAvailability> {
     const response = await fetchWithTimeout(
       `${GCP_BACKEND_URL}/api/v1/market/most-visited?limit=${limit}`,
       { method: 'GET' },
     )
-    return handleAPIResponse<{ results: TrendingCoin[] }>(response)
+    return handleAPIResponse<{ results: TrendingCoin[] } & FeedAvailability>(response)
   },
 
   /**
@@ -1402,4 +1521,253 @@ export const cloudRunService = {
     return handleAPIResponse(response)
   },
 
+}
+
+// ── Agent Room ───────────────────────────────────────────────────────────────
+
+export type RoomMode = 'exchange' | 'debate' | 'mentor'
+
+export interface RoomParticipant {
+  agent_id: string
+  name: string
+  niche: string
+  personality: string
+  level: number
+  events: number
+  chain_id: number
+  avatar_seed?: number | null
+  is_mentor?: boolean
+}
+
+export interface RoomCitation {
+  event_id: string
+  title: string
+  source: 'own' | 'peer'
+  from_agent_name?: string | null
+}
+
+export interface RoomMessage {
+  id: string
+  /** "sketch" = the owner put the whiteboard on the table. */
+  kind?: 'sketch'
+  speaker: { type: 'agent' | 'owner'; agent_id?: string; name: string }
+  text: string
+  citations: RoomCitation[]
+  flagged: boolean
+  at: number
+}
+
+export interface RoomTransfer {
+  from_agent_id: string
+  from_name: string
+  to_agent_id: string
+  to_name: string
+  event_id: string
+  title: string
+  why: string
+}
+
+export interface RoomClaimCheck {
+  verdict: 'supported' | 'partial' | 'unsupported'
+  refs: Array<{ event_id: string; title: string }>
+}
+
+export interface RoomSynthesis {
+  summary: string
+  key_insights: string[]
+  disagreements: string[]
+  next_steps: string[]
+  transfers: RoomTransfer[]
+  /** Wrap-up fact-check, one per insight / next step. Absent on older rooms. */
+  insight_checks?: RoomClaimCheck[]
+  next_step_checks?: RoomClaimCheck[]
+}
+
+export interface AgentRoom {
+  room_id: string
+  owner: string
+  topic: string
+  mode: RoomMode
+  max_turns: number
+  turns_taken: number
+  owner_messages: number
+  status: 'open' | 'concluded'
+  participants: RoomParticipant[]
+  messages: RoomMessage[]
+  synthesis: RoomSynthesis | null
+  transfers_done: string[]
+  /** When the owner last shared a whiteboard sketch; agents see it from then on. */
+  sketch_at?: number
+  created_at: number
+}
+
+export interface RoomChallenge {
+  nonce: string
+  message: string
+  expires_at: number
+  max_llm_calls: number
+  rooms_left_today: number
+}
+
+/** Room calls surface the backend's own reason (e.g. which cap was hit)
+ *  instead of a generic status message, because the owner can act on it. */
+async function roomRequest<T>(path: string, init: RequestInit = {}, roomKey?: string): Promise<T> {
+  const response = await fetchWithTimeout(
+    `${GCP_BACKEND_URL}/api/v1/rooms${path}`,
+    { ...init, headers: roomKey ? { Authorization: `Bearer ${roomKey}` } : undefined },
+    40000,
+  )
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // keep the status message
+    }
+    // A bare 404 means the route itself is missing: the backend predates Agent Room.
+    if (response.status === 404 && detail === 'Not Found') {
+      detail = 'The server is running an older version without this feature. Redeploy the backend to enable it.'
+    }
+    throw new CloudRunAPIError(detail, response.status)
+  }
+  return response.json()
+}
+
+export interface RoomConfig {
+  min_participants: number
+  max_participants: number
+  default_turns: number
+  max_turns: number
+  max_owner_messages: number
+  rooms_per_day: number
+}
+
+export const agentRoomService = {
+  config() {
+    return roomRequest<RoomConfig>('/config', { method: 'GET' })
+  },
+  requestChallenge(params: { owner: string; agentIds: string[]; topic: string; mode: RoomMode; maxTurns: number }) {
+    return roomRequest<RoomChallenge>('/challenge', {
+      method: 'POST',
+      body: JSON.stringify({
+        owner: params.owner, agent_ids: params.agentIds, topic: params.topic,
+        mode: params.mode, max_turns: params.maxTurns,
+      }),
+    })
+  },
+  open(nonce: string, signature: string) {
+    return roomRequest<AgentRoom & { room_key: string; rooms_left_today: number }>('', {
+      method: 'POST', body: JSON.stringify({ nonce, signature }),
+    })
+  },
+  get(roomId: string, roomKey: string) {
+    return roomRequest<AgentRoom>(`/${encodeURIComponent(roomId)}`, { method: 'GET' }, roomKey)
+  },
+  turn(roomId: string, roomKey: string) {
+    return roomRequest<{ message: RoomMessage; turns_left: number }>(`/${encodeURIComponent(roomId)}/turn`, { method: 'POST' }, roomKey)
+  },
+  say(roomId: string, roomKey: string, text: string) {
+    return roomRequest<{ message: RoomMessage }>(`/${encodeURIComponent(roomId)}/say`, {
+      method: 'POST', body: JSON.stringify({ text }),
+    }, roomKey)
+  },
+  conclude(roomId: string, roomKey: string) {
+    return roomRequest<{ synthesis: RoomSynthesis }>(`/${encodeURIComponent(roomId)}/conclude`, { method: 'POST' }, roomKey)
+  },
+  shareSketch(roomId: string, roomKey: string, image: string, note: string) {
+    return roomRequest<{ message: RoomMessage }>(`/${encodeURIComponent(roomId)}/sketch`, {
+      method: 'POST', body: JSON.stringify({ image, note }),
+    }, roomKey)
+  },
+  getSketch(roomId: string, roomKey: string) {
+    return roomRequest<{ image: string | null; note?: string }>(`/${encodeURIComponent(roomId)}/sketch`, { method: 'GET' }, roomKey)
+  },
+  transfer(roomId: string, roomKey: string, eventId: string, toAgentId: string) {
+    return roomRequest<{ status: string; lesson_id?: string }>(`/${encodeURIComponent(roomId)}/transfer`, {
+      method: 'POST', body: JSON.stringify({ event_id: eventId, to_agent_id: toAgentId }),
+    }, roomKey)
+  },
+}
+
+// ── Auto-Scout mandate ───────────────────────────────────────────────────────
+// A mandate is the owner's one-time signed permission for background learning
+// (attend_event only: no trading, no transfers). The scheduler needs one
+// because it holds no wallet.
+
+export interface AgentMandate {
+  owner_wallet: string
+  chain_id: number
+  scopes: string[]
+  max_runs_per_day: number
+  runs_used_today: number
+  runs_day: string
+  expires_at: number
+  last_used_at?: number
+}
+
+export interface MandateStatus {
+  active: boolean
+  mandate: AgentMandate | null
+  history_count: number
+}
+
+export interface SignChallenge {
+  nonce: string
+  message: string
+  expires_at: number
+}
+
+export interface ScoutRunResult {
+  status: 'attended' | 'no_new_events' | 'skipped' | string
+  message?: string
+  reason_code?: string
+}
+
+const mandateQuery = (params: Record<string, string | number>) =>
+  new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+
+export const mandateService = {
+  async status(agentId: string, chainId: number): Promise<MandateStatus> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate?${mandateQuery({ agent_id: agentId, chain_id: chainId })}`)
+    return handleAPIResponse<MandateStatus>(res)
+  },
+
+  async request(agentId: string, agentWallet: string, chainId: number, maxRunsPerDay: number): Promise<SignChallenge> {
+    const q = mandateQuery({ agent_id: agentId, agent_wallet: agentWallet, chain_id: chainId, scopes: 'attend_event', max_runs_per_day: maxRunsPerDay })
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate?${q}`, { method: 'POST' })
+    return handleAPIResponse<SignChallenge>(res)
+  },
+
+  async confirm(nonce: string, signature: string): Promise<AgentMandate> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate/confirm?${mandateQuery({ nonce, signature })}`, { method: 'POST' })
+    return handleAPIResponse<AgentMandate>(res)
+  },
+
+  async requestRevoke(agentId: string, chainId: number): Promise<SignChallenge> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate/revoke?${mandateQuery({ agent_id: agentId, chain_id: chainId })}`, { method: 'POST' })
+    return handleAPIResponse<SignChallenge>(res)
+  },
+
+  async confirmRevoke(nonce: string, signature: string): Promise<{ revoked: boolean }> {
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/event/agent-mandate/revoke/confirm?${mandateQuery({ nonce, signature })}`, { method: 'POST' })
+    return handleAPIResponse<{ revoked: boolean }>(res)
+  },
+
+  /** One scout cycle now, spending one run of the mandate's daily budget. */
+  async runNow(agentId: string): Promise<ScoutRunResult> {
+    // Discovery + summary + mint can take a while on a cold instance.
+    const res = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/agent/${encodeURIComponent(agentId)}/scout`, { method: 'POST' }, 120_000)
+    if (!res.ok) {
+      // Show the backend's own reason (missing YouTube key, no mandate, out of
+      // gas…) instead of the generic text handleAPIResponse uses for 5xx.
+      let message = `Scout run failed (HTTP ${res.status})`
+      try {
+        const detail = (await res.json())?.detail
+        message = (typeof detail === 'string' ? detail : detail?.message) || message
+      } catch { /* keep the status text */ }
+      throw new Error(message)
+    }
+    return res.json() as Promise<ScoutRunResult>
+  },
 }

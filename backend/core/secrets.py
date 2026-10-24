@@ -65,6 +65,18 @@ def _get_secret(secret_id: str) -> str:
     return _fetch_from_secret_manager(secret_id, settings.gcp_project_id)
 
 
+def _get_env_or_secret(name: str, *, default: str) -> str:
+    """Non-secret setting: an env var, else the default.
+
+    Model names and tuning knobs are not credentials. Looking them up in
+    Secret Manager first logged a 403 ERROR on every cold start whenever no
+    such secret existed (the runtime account may read only real secrets),
+    and added a network round-trip for a constant. Set them as plain Cloud
+    Run env vars instead.
+    """
+    return os.environ.get(name, "").strip() or default
+
+
 @lru_cache(maxsize=None)
 def get_agent_private_key() -> str:
     """Return AGENT_PRIVATE_KEY (the backend minting wallet's private key)."""
@@ -96,6 +108,42 @@ def get_minter_service_private_key() -> str:
 def get_llm_api_key() -> str:
     """Return LLM_API_KEY (Google Gemini API key)."""
     return _get_secret("LLM_API_KEY")
+
+
+@lru_cache(maxsize=None)
+def get_minimax_api_key() -> str | None:
+    """Return MINIMAX_API_KEY if configured, else None.
+
+    Optional. The app runs entirely on Gemini without this; MiniMax is only
+    used where a dialogue-tuned model reads better (Agent Room).
+    Cached like the Gemini key: Agent Room asks on every turn, and an unset
+    key would otherwise cost a failed Secret Manager call each time.
+    """
+    try:
+        key = _get_secret("MINIMAX_API_KEY").strip()
+    except RuntimeError:
+        return None
+    return key or None
+
+
+@lru_cache(maxsize=None)
+def get_minimax_model() -> str:
+    """Model name for MiniMax calls."""
+    return _get_env_or_secret("MINIMAX_MODEL", default="MiniMax-M3.1-Flash-Preview")
+
+
+@lru_cache(maxsize=None)
+def get_minimax_effort() -> str:
+    """Thinking depth for M3.1: low | medium | high | xhigh | max.
+
+    Thinking cannot be turned off on M3.1 — the only way to spend less is to
+    ask for less depth. Default is high: Agent Room answers are multi-turn and
+    quality matters more than latency there, and the Gemini fallback plus the
+    10-minute cooldown on failure keep a bad configuration from costing much.
+    """
+    allowed = {"low", "medium", "high", "xhigh", "max"}
+    value = _get_env_or_secret("MINIMAX_EFFORT", default="high").strip().lower()
+    return value if value in allowed else "high"
 
 
 def get_youtube_api_key() -> str | None:

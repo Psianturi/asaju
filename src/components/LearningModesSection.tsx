@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AUTO_SCOUT_AVAILABLE } from '@/lib/features'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Hand, Lightning, YoutubeLogo, Robot, CheckCircle, Cube, ArrowDown } from '@phosphor-icons/react'
 
@@ -119,11 +120,15 @@ const MODES = [
     key: 'auto',
     icon: Lightning,
     color: '#9D00FF',
-    tag: 'Hands-off',
+    // The landing promises what the product does today: while Auto-Scout is
+    // paused the card says so rather than sending visitors to a dead switch.
+    tag: AUTO_SCOUT_AVAILABLE ? 'Hands-off' : 'Returning soon',
     title: 'It learns on its own',
     lead: 'Turn on Auto-Scout and let it find videos in its niche.',
     steps: ['Flip the Auto-Scout switch', 'Every 6 hours it searches its niche', 'It keeps only what is relevant'],
-    where: 'Your agent\'s card → "Auto-Scout" switch',
+    where: AUTO_SCOUT_AVAILABLE
+      ? 'Your agent\'s card → "Auto-Scout" switch'
+      : 'Paused while owner-signed delegation is added',
     Visual: AutoVisual,
   },
 ] as const
@@ -190,7 +195,7 @@ export function LearningModesSection() {
               ))}
             </ol>
 
-            <p className="text-[11px] font-mono text-slate-500 border-t border-white/5 pt-3">
+            <p className="text-[11px] font-mono text-slate-400 border-t border-white/5 pt-3">
               Where: <span className="text-slate-300">{mode.where}</span>
             </p>
           </motion.div>
@@ -199,7 +204,7 @@ export function LearningModesSection() {
 
       {/* Both paths converge on the same milestone rule. */}
       <div className="flex justify-center my-5">
-        <ArrowDown size={20} className="text-slate-600" />
+        <ArrowDown size={20} className="text-slate-500" />
       </div>
       <motion.div
         initial={{ opacity: 0, y: 16 }}

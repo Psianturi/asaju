@@ -1,5 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
+import { AUTO_SCOUT_AVAILABLE, AUTO_SCOUT_PAUSED_COPY } from '@/lib/features'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { StatTile, type StatTone } from '@/components/StatTile'
 import { Card } from '@/components/ui/card'
 import { getChain, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chains'
 import { Badge } from '@/components/ui/badge'
@@ -7,6 +10,7 @@ import { Plus, Robot, ShieldCheck, FlowArrow, Lightning, Clock, FileText, GlobeH
 import { Agent, Event, NFT } from '@/lib/types'
 import { cloudRunService, type MarketSnapshot } from '@/services/cloudRunService'
 import { isAgentAutoScouting, countActualVideosAnalyzed } from '@/lib/utils'
+import { fmtTimeAgo } from '@/lib/format'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { MarketSnapshotCard } from '@/components/MarketSnapshotCard'
 import { MarketIntelligenceHub } from '@/components/MarketIntelligenceHub'
@@ -25,6 +29,8 @@ interface DashboardViewProps {
   dataLoaded: boolean
   isPlatformView: boolean
   walletAddress?: string
+  /** Network selected in the header — market panels follow it. */
+  chainId?: number
   inboxRefreshKey?: number
   onSelectAgent: (agent: Agent) => void
   onOpenAgent: (agent: Agent) => void
@@ -61,6 +67,20 @@ const EMPTY_INBOX: InboxPayload = {
   recent_mints: [],
 }
 
+// The inbox drives several memos that index into its arrays; a partial payload
+// (an older backend, an error body) must degrade to "nothing waiting", not
+// blank the whole dashboard.
+function normalizeInbox(data: unknown): InboxPayload {
+  const d = (data && typeof data === 'object' ? data : {}) as Partial<InboxPayload>
+  return {
+    counts: { ...EMPTY_INBOX.counts, ...(d.counts ?? {}) },
+    pending_proposals: Array.isArray(d.pending_proposals) ? d.pending_proposals : [],
+    low_gas_agents: Array.isArray(d.low_gas_agents) ? d.low_gas_agents : [],
+    paused_agents: Array.isArray(d.paused_agents) ? d.paused_agents : [],
+    recent_mints: Array.isArray(d.recent_mints) ? d.recent_mints : [],
+  }
+}
+
 export function DashboardView({
   agents,
   events,
@@ -68,6 +88,7 @@ export function DashboardView({
   dataLoaded,
   isPlatformView,
   walletAddress,
+  chainId,
   inboxRefreshKey,
   onSelectAgent,
   onOpenAgent,
@@ -98,7 +119,7 @@ export function DashboardView({
     setInboxLoading(true)
     cloudRunService
       .getOwnerInbox(address)
-      .then(data => { if (!cancelled) setInbox(data as InboxPayload) })
+      .then(data => { if (!cancelled) setInbox(normalizeInbox(data)) })
       .catch(() => { if (!cancelled) setInbox(EMPTY_INBOX) })
       .finally(() => { if (!cancelled) setInboxLoading(false) })
     return () => { cancelled = true }
@@ -138,7 +159,9 @@ export function DashboardView({
       const ownerAgent = agents.find(a => a.id === firstProposal.agent_id)
       return { kind: 'pending-proposal' as const, agent: ownerAgent, proposal: firstProposal, cta: 'Review proposal' }
     }
-    const firstPaused = inbox.paused_agents[0]
+    // A paused-scout item asks the owner to re-enable Auto-Scout, which can't
+    // run while it is paused platform-wide — don't lead with a dead end.
+    const firstPaused = AUTO_SCOUT_AVAILABLE ? inbox.paused_agents[0] : undefined
     if (firstPaused) {
       const ownerAgent = agents.find(a => a.id === firstPaused.agent_id)
       return { kind: 'paused-agent' as const, agent: ownerAgent, paused: firstPaused, cta: 'Re-enable scout' }
@@ -158,7 +181,37 @@ export function DashboardView({
     pendingProposals: inbox.counts.pending_proposals,
   }), [agents, events, isPlatformView, inbox.counts.pending_proposals])
 
-  const autoAgents = agents.filter((a) => a.autoScoutEnabled)
+  const autoAgents = agents.filter(isAgentAutoScouting)
+
+  // Most recent lesson across the owner's agents — a real activity signal to
+  // show in place of the Auto-Scout count while Auto-Scout is paused.
+  const lastLearned = useMemo(() => {
+    const mine = new Set(agents.map(a => a.id))
+    let latest: Event | null = null
+    for (const e of events) {
+      if (mine.has(e.agentId) && (!latest || e.date > latest.date)) latest = e
+    }
+    if (!latest) return null
+    return { at: latest.date, agent: agents.find(a => a.id === latest!.agentId) }
+  }, [agents, events])
+
+  // The banner above already shows the single most urgent item; the inbox
+  // lists only what remains so the same agent never appears twice.
+  const featuredInboxKey = urgentAction == null
+    ? null
+    : urgentAction.kind === 'pending-proposal'
+      ? `pp:${urgentAction.proposal.proposal_id}`
+      : urgentAction.kind === 'paused-agent'
+        ? `p:${urgentAction.paused.agent_id}`
+        : `g:${urgentAction.gas.agent_id}`
+  const remainingInbox = useMemo<InboxPayload>(() => ({
+    ...inbox,
+    pending_proposals: inbox.pending_proposals.filter(p => `pp:${p.proposal_id}` !== featuredInboxKey),
+    paused_agents: AUTO_SCOUT_AVAILABLE ? inbox.paused_agents.filter(p => `p:${p.agent_id}` !== featuredInboxKey) : [],
+    low_gas_agents: inbox.low_gas_agents.filter(p => `g:${p.agent_id}` !== featuredInboxKey),
+  }), [inbox, featuredInboxKey])
+  const remainingInboxCount =
+    remainingInbox.pending_proposals.length + remainingInbox.paused_agents.length + remainingInbox.low_gas_agents.length
 
   // Surface the agent with the freshest real activity for the "living" pulse —
   // recency comes from actual scout timestamps, never a fixed pick.
@@ -223,7 +276,8 @@ export function DashboardView({
             page) and assume Auto-Scout is "broken" or "doesn't exist".
             Milestone-based minting makes this safe to enable 24/7 — gas is
             only spent at level-ups, not per video. */}
-        {isConnected &&
+        {AUTO_SCOUT_AVAILABLE &&
+          isConnected &&
           agents.length > 0 &&
           autoAgents.length === 0 &&
           !isPlatformView && (
@@ -262,26 +316,33 @@ export function DashboardView({
           !dataLoaded ? (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               {Array.from({ length: 4 }).map((_, i) => (
-                <Card key={i} className="p-3">
-                  <div className="h-2.5 w-16 rounded bg-muted/40 mb-2 animate-pulse" />
-                  <div className="h-6 w-12 rounded bg-muted/40 animate-pulse" />
-                </Card>
+                <StatTile key={i} label="Loading" value="" icon={null} tone="slate" loading />
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-              <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={14} />} tone="primary" />
-              <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={14} />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
-              <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={14} />} tone="accent" />
-              <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={14} />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
+              <CompactStat label="Your agents" value={stats.totalAgents} icon={<Robot size={20} weight="duotone" />} tone="primary" />
+              {AUTO_SCOUT_AVAILABLE ? (
+                <CompactStat label="Auto-scouting" value={stats.autoScouting} icon={<Lightning size={20} weight="duotone" />} tone="emerald" sublabel={stats.autoScouting > 0 ? 'monitoring' : 'idle'} />
+              ) : (
+                <CompactStat
+                  label="Last learned"
+                  value={lastLearned ? fmtTimeAgo(lastLearned.at) : '—'}
+                  icon={<Lightning size={20} weight="duotone" />}
+                  tone="emerald"
+                  sublabel={lastLearned?.agent ? lastLearned.agent.name : 'submit a video to start'}
+                />
+              )}
+              <CompactStat label="Videos analyzed" value={stats.videosAnalyzed} icon={<FileText size={20} weight="duotone" />} tone="accent" />
+              <CompactStat label="Pending proposals" value={stats.pendingProposals} icon={<Clock size={20} weight="duotone" />} tone={stats.pendingProposals > 0 ? 'amber' : 'slate'} sublabel={stats.pendingProposals > 0 ? 'need approval' : 'all clear'} />
             </div>
           )
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-            <VisitorStat label="Platform agents" value={publicMetrics?.total_agents ?? null} icon={<Robot size={14} />} loading={visitorStatsLoading} tone="primary" />
-            <VisitorStat label="Videos analyzed" value={publicMetrics?.total_events_attended ?? null} icon={<FileText size={14} />} loading={visitorStatsLoading} tone="accent" />
-            <VisitorStat label="Wisdom NFTs" value={publicMetrics?.total_wisdom_nfts ?? null} icon={<Medal size={14} />} loading={visitorStatsLoading} tone="emerald" />
-            <VisitorStat label="Avg agent level" value={publicMetrics != null ? Math.round(publicMetrics.average_agent_level * 10) / 10 : null} icon={<GlobeHemisphereEast size={14} />} loading={visitorStatsLoading} tone="amber" decimals={1} />
+            <VisitorStat label="Platform agents" value={publicMetrics?.total_agents ?? null} icon={<Robot size={20} weight="duotone" />} loading={visitorStatsLoading} tone="primary" />
+            <VisitorStat label="Videos analyzed" value={publicMetrics?.total_events_attended ?? null} icon={<FileText size={20} weight="duotone" />} loading={visitorStatsLoading} tone="accent" />
+            <VisitorStat label="Wisdom NFTs" value={publicMetrics?.total_wisdom_nfts ?? null} icon={<Medal size={20} weight="duotone" />} loading={visitorStatsLoading} tone="emerald" />
+            <VisitorStat label="Avg agent level" value={publicMetrics != null ? Math.round(publicMetrics.average_agent_level * 10) / 10 : null} icon={<GlobeHemisphereEast size={20} weight="duotone" />} loading={visitorStatsLoading} tone="amber" decimals={1} />
           </div>
         )}
       </section>
@@ -309,9 +370,11 @@ export function DashboardView({
         </section>
       )}
 
-      {isConnected && inbox.counts.total > 0 && (
+      {isConnected && remainingInboxCount > 0 && (
         <InboxBody
-          inbox={inbox}
+          inbox={remainingInbox}
+          remainingCount={remainingInboxCount}
+          hasFeatured={featuredInboxKey != null}
           loading={inboxLoading}
           agents={agents}
           onOpenAgent={onOpenAgent}
@@ -337,7 +400,7 @@ export function DashboardView({
           </h2>
         </div>
         <MarketIntelligenceHub />
-        <MarketSnapshotCard />
+        <MarketSnapshotCard chainId={chainId} />
         <CmcAiSummaryCard />
       </section>
 
@@ -396,7 +459,9 @@ export function DashboardView({
           eyebrow="Learn · automatic"
           title="Auto-Scout"
           subtitle={
-            !isConnected
+            !AUTO_SCOUT_AVAILABLE
+              ? 'Paused · submit a video to keep learning'
+              : !isConnected
               ? 'Connect wallet first'
               : agents.length === 0
                 ? 'Spawn an agent first'
@@ -411,6 +476,10 @@ export function DashboardView({
             }
             if (agents.length === 0) {
               onSpawnAgent()
+              return
+            }
+            if (!AUTO_SCOUT_AVAILABLE) {
+              toast.info('Auto-Scout is paused', { description: AUTO_SCOUT_PAUSED_COPY })
               return
             }
             // The switch lives on the agent detail page — open the first agent
@@ -468,7 +537,7 @@ export function DashboardView({
 }
 
 function HeroReadyStats({ agents, stats }: { agents: Agent[]; stats: { totalAgents: number; autoScouting: number; videosAnalyzed: number; pendingProposals: number } }) {
-  const autoAgents = agents.filter((a) => a.autoScoutEnabled)
+  const autoAgents = agents.filter(isAgentAutoScouting)
   return (
     <Card className="p-5 border border-primary/30 bg-gradient-to-br from-primary/[0.08] to-transparent shadow-lg shadow-primary/5">
       <div className="flex items-start justify-between gap-3 mb-2">
@@ -634,93 +703,45 @@ type UrgentAction =
   | { kind: 'paused-agent'; agent?: Agent; paused: { agent_id: string; agent_name: string; reason: string }; cta: string }
   | { kind: 'low-gas'; agent?: Agent; gas: { agent_id: string; agent_name: string; agent_gas_balance: number }; cta: string }
 
-function CompactStat({
-  label,
-  value,
-  icon,
-  tone,
-  sublabel,
-}: {
+function CompactStat({ label, value, icon, tone, sublabel }: {
   label: string
-  value: number
+  value: number | string
   icon: React.ReactNode
-  tone: 'primary' | 'emerald' | 'accent' | 'amber' | 'slate'
+  tone: StatTone
   sublabel?: string
 }) {
-  const toneClass = {
-    primary: 'text-primary border-primary/25',
-    emerald: 'text-emerald-400 border-emerald-500/25',
-    accent: 'text-accent border-accent/25',
-    amber: 'text-amber-400 border-amber-500/25',
-    slate: 'text-muted-foreground border-border/30',
-  }[tone]
-  return (
-    <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
-      <div className="flex items-start justify-between mb-1">
-        <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-300">
-          {label}
-        </p>
-        {icon}
-      </div>
-      <p className="text-3xl font-bold font-mono tabular-nums text-foreground leading-none">{value}</p>
-      {sublabel && (
-        <p className="text-[10px] text-muted-foreground mt-1.5">{sublabel}</p>
-      )}
-    </Card>
-  )
+  return <StatTile label={label} value={value} icon={icon} tone={tone} sublabel={sublabel} />
 }
 
-function VisitorStat({
-  label,
-  value,
-  icon,
-  loading,
-  tone,
-  decimals = 0,
-}: {
+function VisitorStat({ label, value, icon, loading, tone, decimals = 0 }: {
   label: string
   value: number | null
   icon: React.ReactNode
   loading: boolean
-  tone: 'primary' | 'emerald' | 'accent' | 'amber'
+  tone: StatTone
   decimals?: number
 }) {
-  const toneClass = {
-    primary: 'text-primary border-primary/25',
-    emerald: 'text-emerald-400 border-emerald-500/25',
-    accent: 'text-accent border-accent/25',
-    amber: 'text-amber-400 border-amber-500/25',
-  }[tone]
   const display = value == null
     ? '—'
     : decimals > 0
       ? value.toFixed(decimals)
       : Math.round(value).toLocaleString('en-US')
-  return (
-    <Card className={`p-3 border ${toneClass} bg-white/[0.02]`}>
-      <div className="flex items-start justify-between mb-1">
-        <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">
-          {label}
-        </p>
-        {icon}
-      </div>
-      {loading ? (
-        <div className="h-7 w-16 rounded bg-muted/40 animate-pulse" />
-      ) : (
-        <p className="text-xl font-bold font-mono tabular-nums">{display}</p>
-      )}
-    </Card>
-  )
+  return <StatTile label={label} value={display} icon={icon} tone={tone} loading={loading} />
 }
 
 function InboxBody({
   inbox,
+  remainingCount,
+  hasFeatured,
   loading,
   agents,
   onOpenAgent,
   onOpenMyAgents,
 }: {
   inbox: InboxPayload
+  /** Items listed here — excludes the one already shown in the banner above. */
+  remainingCount: number
+  hasFeatured: boolean
   loading: boolean
   agents: Agent[]
   onOpenAgent: (a: Agent) => void
@@ -740,7 +761,7 @@ function InboxBody({
             Needs your attention
           </p>
           <p className="text-sm font-semibold">
-            {inbox.counts.total} item{inbox.counts.total === 1 ? '' : 's'} waiting on you
+            {remainingCount} {hasFeatured ? 'more ' : ''}item{remainingCount === 1 ? '' : 's'} waiting on you
           </p>
         </div>
         <button
@@ -799,7 +820,7 @@ function InboxBody({
                   primary={p.agent_name}
                   secondary={`Balance ${p.agent_gas_balance?.toFixed(4) ?? '?'} ${
                     getChain(agentById.get(p.agent_id)?.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? ''
-                  } — top up to keep scouting`}
+                  } — top up so it can keep acting on-chain`}
                   onClick={() => {
                     const a = agentById.get(p.agent_id)
                     if (a) onOpenAgent(a)

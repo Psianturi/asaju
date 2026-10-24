@@ -19,7 +19,7 @@ import logging
 import time
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from google.cloud.firestore_v1 import Increment
 from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import BaseModel, field_validator
@@ -27,12 +27,29 @@ from web3 import Web3
 
 from core.config import settings
 from core.database import get_db
+from core.agent_auth import issue_agent_auth_challenge, require_agent_owner
+from core.agent_mandate import (
+    active_mandate,
+    confirm_mandate_revocation,
+    consume_mandate_run,
+    grant_mandate,
+    issue_mandate_challenge,
+    issue_mandate_revocation_challenge,
+    list_mandates,
+)
 from core.kms_service import decrypt_private_key
+from core.pending_spawn import is_pending
+from core.rate_limit import enforce as enforce_rate_limit
 from services.llm_service import classify_event_niche, summarize_event
 from services.web3_service import web3_service
 
 AGENTS_COLLECTION = "agents"
 EVENTS_COLLECTION = "agent_events"
+
+# Issuing a signature challenge writes a document. A person does this a few
+# times an hour; anything faster is a retry loop.
+CHALLENGE_LIMIT = 20
+CHALLENGE_WINDOW_SECONDS = 60
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/event", tags=["events"])
@@ -81,6 +98,11 @@ class AttendRequest(BaseModel):
     niche: str = "General"
     mode_b: bool = False    # If True, agent signs with its own private key (autonomous); else backend signs (Mode A)
     chain_id: int = 5003
+    # Owner authorisation. Required whenever the platform would act as this
+    # agent (mode_b=True), because the backend decrypts the agent key and signs.
+    # Without it, knowing an agent_id is enough to make the platform act.
+    auth_nonce: str = ""
+    auth_signature: str = ""
 
     @field_validator("agent_wallet")
     @classmethod
@@ -213,6 +235,123 @@ async def list_events_by_wallet(
     return result
 
 
+@router.post("/agent-auth-challenge")
+async def create_agent_auth_challenge(
+    agent_id: str = Query(...),
+    agent_wallet: str = Query(...),
+    action: str = Query("attend_event"),
+    chain_id: int = Query(5003),
+    request: Request = None,
+) -> dict:
+    """Hand the owner a short-lived message to sign before the platform will act
+    as their agent.
+
+    Separate from /attend so the UI can ask for the signature up front and show
+    exactly what is being authorised, rather than popping a wallet prompt in the
+    middle of a transcript fetch.
+    """
+    # Every challenge is a Firestore write. Without a budget this is the
+    # cheapest way to inflate the write bill, and a client stuck in a retry
+    # loop does it silently.
+    enforce_rate_limit(
+        request, "agent-auth-challenge", limit=CHALLENGE_LIMIT, window_seconds=CHALLENGE_WINDOW_SECONDS
+    )
+    if not Web3.is_address(agent_wallet):
+        raise HTTPException(status_code=400, detail="Invalid agent wallet address")
+    db = get_db()
+    challenge = await issue_agent_auth_challenge(
+        db,
+        agent_id=agent_id,
+        agent_wallet=Web3.to_checksum_address(agent_wallet),
+        action=action,
+        chain_id=chain_id,
+    )
+    return challenge
+
+
+@router.get("/agent-mandate")
+async def get_agent_mandate(
+    agent_id: str = Query(...),
+    chain_id: int = Query(5003),
+) -> dict:
+    """Current mandate status for an agent, so the UI can say what background
+    runs are allowed and how much of today's budget is left."""
+    db = get_db()
+    mandates = await list_mandates(db, agent_id)
+    current = await active_mandate(
+        db, agent_id=agent_id, chain_id=chain_id, action="attend_event"
+    )
+    return {
+        "active": current is not None,
+        "mandate": current,
+        "history_count": len(mandates),
+    }
+
+
+@router.post("/agent-mandate")
+async def create_agent_mandate(
+    agent_id: str = Query(...),
+    agent_wallet: str = Query(...),
+    chain_id: int = Query(5003),
+    scopes: str = Query("attend_event", description="Comma-separated action scopes"),
+    max_runs_per_day: int = Query(2, ge=1, le=100),
+) -> dict:
+    """Step 1 of granting a mandate: return the exact text the owner signs.
+
+    The owner is read from the chain at this point, so the mandate can only
+    ever be issued to the wallet that actually owns the agent right now.
+    """
+    if not Web3.is_address(agent_wallet):
+        raise HTTPException(status_code=400, detail="Invalid agent wallet address")
+    db = get_db()
+    return await issue_mandate_challenge(
+        db,
+        agent_id=agent_id,
+        agent_wallet=Web3.to_checksum_address(agent_wallet),
+        chain_id=chain_id,
+        scopes=[s.strip() for s in scopes.split(",") if s.strip()],
+        max_runs_per_day=max_runs_per_day,
+    )
+
+
+@router.post("/agent-mandate/revoke")
+async def create_agent_mandate_revocation(
+    agent_id: str = Query(...),
+    chain_id: int = Query(5003),
+) -> dict:
+    """Step 1 of cancelling a mandate: return the text the owner signs.
+
+    Revocation is signed for the same reason granting is. Anyone who knows an
+    agent_id should not be able to switch off another owner's background runs.
+    """
+    db = get_db()
+    return await issue_mandate_revocation_challenge(
+        db, agent_id=agent_id, chain_id=chain_id
+    )
+
+
+@router.post("/agent-mandate/revoke/confirm")
+async def confirm_agent_mandate_revocation(
+    nonce: str = Query(...),
+    signature: str = Query(...),
+) -> dict:
+    """Step 2 of cancelling a mandate: verify the owner's signature."""
+    db = get_db()
+    return await confirm_mandate_revocation(
+        db, nonce=nonce, signature=signature
+    )
+
+
+@router.post("/agent-mandate/confirm")
+async def confirm_agent_mandate(
+    nonce: str = Query(...),
+    signature: str = Query(...),
+) -> dict:
+    """Step 2 of granting a mandate: verify the owner's signature and store it."""
+    db = get_db()
+    return await grant_mandate(db, nonce=nonce, signature=signature)
+
+
 @router.post("/attend", response_model=AttendResponse)
 async def attend_event(req: AttendRequest) -> AttendResponse:
     """
@@ -229,7 +368,8 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     # Guard: contract must be deployed before minting
     from core.config import CHAIN_CONFIGS
     if req.chain_id == 5003:
-        contract_addr_check = settings.contract_address
+        from core.config import mantle_contract_address
+        contract_addr_check = mantle_contract_address()
     else:
         contract_addr_check = CHAIN_CONFIGS.get(req.chain_id, {}).get("contract_address", "")
 
@@ -254,9 +394,61 @@ async def attend_event(req: AttendRequest) -> AttendResponse:
     agent_data = agent_doc.to_dict() or {}
     if int(agent_data.get("chain_id", 5003)) != req.chain_id:
         raise HTTPException(status_code=409, detail="Agent is registered on a different network")
+    # An agent whose spawnAgent() never landed does not exist on-chain yet.
+    if is_pending(agent_data):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AGENT_NOT_ACTIVATED", "message": "This agent is not active on-chain yet. Finish spawning it first."},
+        )
+    # The mint goes to req.agent_wallet; the mandate path never checks it, so
+    # bind it to this agent here for both paths.
+    recorded_wallet = (agent_data.get("agent_wallet") or "").strip().lower()
+    if not recorded_wallet or recorded_wallet != (req.agent_wallet or "").strip().lower():
+        raise HTTPException(status_code=409, detail="agent_wallet does not belong to this agent")
 
     if not req.event_title:
         req.event_title = "YouTube Event"
+
+    # ── Owner authorisation (both modes) ──────────────────────────────────
+    # Every attend spends a model call, and on Mantle mode A mints with gas
+    # paid by the platform's MINTER_SERVICE wallet; mode B decrypts the agent's
+    # own key. So both need proof that the wallet owning the agent *on-chain
+    # right now* asked for it. After a marketplace sale the previous owner's
+    # signature stops working here, which is the whole point.
+    #
+    # Two ways to be authorised:
+    #   - a per-run signature (what a person in the UI provides), or
+    #   - a standing mandate the owner granted earlier, which is how the
+    #     Auto Scout scheduler runs without holding a wallet.
+    if req.auth_nonce and req.auth_signature:
+        await require_agent_owner(
+            db,
+            agent_id=req.agent_id,
+            agent_wallet=req.agent_wallet,
+            action="attend_event",
+            chain_id=req.chain_id,
+            nonce=req.auth_nonce,
+            signature=req.auth_signature,
+        )
+    else:
+        try:
+            mandate = await consume_mandate_run(
+                db,
+                agent_id=req.agent_id,
+                chain_id=req.chain_id,
+                action="attend_event",
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"code": "NO_MANDATE", "message": str(exc)}) from exc
+        logger.info(
+            "Attend via mandate (mode %s): agent %s acting under a mandate owned by %s "
+            "(%d/%d runs used today)",
+            "B" if req.mode_b else "A",
+            req.agent_id,
+            mandate.get("owner_wallet"),
+            mandate.get("runs_used_today"),
+            mandate.get("max_runs_per_day"),
+        )
 
     # ── Mode B: load agent private key for true autonomous signing ────────
     agent_private_key: str | None = None

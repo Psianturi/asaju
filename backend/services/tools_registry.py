@@ -80,7 +80,8 @@ async def fetch_fear_greed() -> dict:
 async def fetch_trending_gainers_losers(time_period: str = "24h", limit: int = 10) -> dict:
     """Biggest price movers (up or down) over a time window.
     Endpoint: GET /v1/cryptocurrency/trending/gainers-losers
-    Plan requirement: Startup (matches our CMC plan)."""
+    Plan requirement: Startup or above; on the free plan the service falls back to
+    movers computed from /v1/cryptocurrency/listings/latest."""
     try:
         data = await get_trending_gainers_losers(time_period=time_period, limit=limit)
         return {"status": "ok", "source": "coinmarketcap:trending/gainers-losers", "data": data}
@@ -91,7 +92,8 @@ async def fetch_trending_gainers_losers(time_period: str = "24h", limit: int = 1
 async def fetch_trending_latest(time_period: str = "24h", limit: int = 10) -> dict:
     """Coins currently trending by search/interest.
     Endpoint: GET /v1/cryptocurrency/trending/latest
-    Plan requirement: Startup (matches our CMC plan)."""
+    Plan requirement: Startup or above; on the free plan the service falls back to
+    movers computed from /v1/cryptocurrency/listings/latest."""
     try:
         data = await get_trending_latest(time_period=time_period, limit=limit)
         return {"status": "ok", "source": "coinmarketcap:trending/latest", "data": data}
@@ -102,7 +104,8 @@ async def fetch_trending_latest(time_period: str = "24h", limit: int = 10) -> di
 async def fetch_new_listings(limit: int = 10) -> dict:
     """Most recently listed cryptocurrencies on CMC.
     Endpoint: GET /v1/cryptocurrency/listings/new
-    Plan requirement: Startup (matches our CMC plan)."""
+    Plan requirement: Startup or above; on the free plan the service falls back to
+    movers computed from /v1/cryptocurrency/listings/latest."""
     try:
         data = await get_new_listings(limit=limit)
         return {"status": "ok", "source": "coinmarketcap:listings/new", "data": data}

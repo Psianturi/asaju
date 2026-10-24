@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from services.market_data_service import (
     DEX_NETWORKS,
+    cmc_feed_status,
     get_airdrops,
     get_categories,
     get_dex_pools,
@@ -20,6 +21,7 @@ from services.market_data_service import (
     get_ohlc,
     get_trending_gainers_losers,
     get_trending_latest,
+    market_status,
     symbol_to_cmc_id,
 )
 
@@ -68,7 +70,9 @@ async def market_trending_gainers_losers(
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> dict:
     """Top movers over the requested window. sort_dir=desc → gainers (default), asc → losers."""
-    return {"time_period": time_period, "sort_dir": sort_dir, "results": await get_trending_gainers_losers(time_period, limit, sort_dir)}
+    results = await get_trending_gainers_losers(time_period, limit, sort_dir)
+    feed = "gainers" if sort_dir == "desc" else "losers"
+    return {"time_period": time_period, "sort_dir": sort_dir, "results": results, **cmc_feed_status(feed)}
 
 
 @router.get("/trending/latest")
@@ -77,19 +81,29 @@ async def market_trending_latest(
     limit: int = Query(5, ge=1, le=50),
 ) -> dict:
     """Coins trending by search interest. Powered by CMC, cached 10 min."""
-    return {"time_period": time_period, "results": await get_trending_latest(time_period, limit)}
+    results = await get_trending_latest(time_period, limit)
+    return {"time_period": time_period, "results": results, **cmc_feed_status("trending_latest")}
 
 
 @router.get("/listings/new")
 async def market_new_listings(limit: int = Query(5, ge=1, le=50)) -> dict:
     """Most recently listed tokens on CMC. Cached 1 hour â€” low churn."""
-    return {"results": await get_new_listings(limit)}
+    results = await get_new_listings(limit)
+    return {"results": results, **cmc_feed_status("new_listings")}
 
 
 @router.get("/airdrops")
 async def market_airdrops(limit: int = Query(5, ge=1, le=50)) -> dict:
     """Active airdrops â€” unique to CMC. Compact list, ready for pre-connect surfacing."""
-    return {"results": await get_airdrops(limit)}
+    results = await get_airdrops(limit)
+    return {"results": results, **cmc_feed_status("airdrops")}
+
+
+@router.get("/status")
+async def market_provider_status() -> dict:
+    """Is the CoinMarketCap key working, what plan/credits does it have, is
+    CoinGecko reachable, and why did each feed last fail. Never returns a key."""
+    return await market_status()
 
 
 @router.get("/global-metrics")
@@ -102,7 +116,8 @@ async def market_global_metrics() -> dict:
 @router.get("/most-visited")
 async def market_most_visited(limit: int = Query(5, ge=1, le=50)) -> dict:
     """Trending tokens by traffic â€” useful for the pre-connect 'Hot right now' panel."""
-    return {"results": await get_most_visited(limit)}
+    results = await get_most_visited(limit)
+    return {"results": results, **cmc_feed_status("most_visited")}
 
 
 @router.get("/categories")

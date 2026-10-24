@@ -1,18 +1,22 @@
-import { startTransition, useState } from 'react'
+import { startTransition, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { Agent } from '@/lib/types'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
+import {
+  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Robot, Lightning, TrendUp, Brain, UserCircle, PencilSimple, ChatCircle, Coins, GearSix, CurrencyCircleDollar, TreeStructure, Wallet, ShoppingCart, Crown, Signature, Dna, Lightbulb, Trash, Warning, Copy, Check, ShieldWarning, Gauge, Target, ChartLine, MagnifyingGlass } from '@phosphor-icons/react'
-import { motion } from 'framer-motion'
-import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
-import { GasStatusBadge } from './GasStatusBadge'
+import {
+  ArrowRight, ChatCircle, Check, Copy, Crown, DotsThreeVertical, Dna, GearSix, Lightbulb, Lightning, MagnifyingGlass,
+  ShoppingCart, Sparkle, Trash, TreeStructure, Warning, Wallet,
+} from '@phosphor-icons/react'
+import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, isAgentAutoScouting, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { ChainBadge } from './ChainBadge'
-import { DEFAULT_CHAIN_ID, getChain, autoReplenish } from '@/lib/blockchain/chains'
-import { getAgentAvatar } from '@/lib/avatarUtils'
+import { DEFAULT_CHAIN_ID, autoReplenish, getChain, supportsMarketplace } from '@/lib/blockchain/chains'
 import { NicheAvatar } from './NicheAvatar'
+import { useGasStatus } from '@/hooks/useGasStatus'
+import { monitoringService } from '@/services/monitoringService'
 
 interface AgentCardProps {
   agent: Agent
@@ -34,787 +38,274 @@ interface AgentCardProps {
   onRetrySpawn?: (agent: Agent) => void
 }
 
-const statusColors = {
-  idle: 'bg-muted/50 text-muted-foreground border-muted',
-  active: 'bg-primary/20 text-primary border-primary animate-glow-pulse',
-  processing: 'bg-secondary/20 text-secondary border-secondary animate-glow-pulse-purple',
-  error: 'bg-destructive/20 text-destructive border-destructive'
+const STATUS = {
+  idle: { dot: 'bg-slate-400', label: 'Idle' },
+  active: { dot: 'bg-emerald-400', label: 'Active' },
+  processing: { dot: 'bg-amber-400 animate-pulse', label: 'Working' },
+  error: { dot: 'bg-rose-500', label: 'Needs attention' },
+} as const
+
+type Tone = 'warn' | 'danger' | 'ok' | 'info' | 'muted'
+const TONES: Record<Tone, string> = {
+  warn: 'border-amber-500/35 bg-amber-500/10 text-amber-300',
+  danger: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+  ok: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300',
+  info: 'border-primary/30 bg-primary/10 text-primary',
+  muted: 'border-border/60 bg-white/[0.03] text-muted-foreground',
 }
 
-const personalityIcons = {
-  Aggressive: Lightning,
-  Analytical: TrendUp,
-  Creative: Brain
+function Chip({ tone, icon, children, onClick }: { tone: Tone; icon?: ReactNode; children: ReactNode; onClick?: () => void }) {
+  const className = cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold', TONES[tone])
+  if (!onClick) return <span className={className}>{icon}{children}</span>
+  return (
+    <button type="button" onClick={(e) => { e.stopPropagation(); onClick() }} className={cn(className, 'hover:brightness-125 transition')}>
+      {icon}{children}
+    </button>
+  )
 }
 
-const subAgentIcons = {
-  secretary: UserCircle,
-  scribe: PencilSimple,
-  'social-lite': ChatCircle,
-  'mint-master': Coins
+function Stat({ label, short, value, unit, tone }: { label: string; short?: string; value: ReactNode; unit?: string; tone?: 'warn' | 'danger' }) {
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-2 min-w-0">
+      <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-semibold truncate" title={label}>
+        {short ? <><span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span></> : label}
+      </p>
+      <p className={cn('mt-0.5 text-sm font-bold font-mono tabular-nums truncate',
+        tone === 'danger' ? 'text-rose-300' : tone === 'warn' ? 'text-amber-300' : 'text-foreground')}>
+        {value}{unit && <span className="ml-1 text-[10px] font-medium text-muted-foreground">{unit}</span>}
+      </p>
+    </div>
+  )
 }
 
-const subAgentLabels = {
-  secretary: 'Secretary',
-  scribe: 'Scribe',
-  'social-lite': 'Social-Lite',
-  'mint-master': 'Mint-Master'
-}
-
+/**
+ * One agent in My Agents: who it is, what needs the owner, how far it has
+ * grown, and the next step. Everything deeper lives in the agent workspace.
+ */
 export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, onChat, onViewEvolution, onTopUpGas, onListMarketplace, onToggleAutoReplenish, pendingProposalCount, onOpenProposals, onDeleteAgent, onRetrySpawn }: AgentCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [walletCopied, setWalletCopied] = useState(false)
   const videosAnalyzed = videosAnalyzedActual ?? agent.eventsAttended ?? 0
 
-  // Display currency and replenish amounts both follow the agent's chain —
-  // 0.1/0.05 were Mantle's provision ratios, wrong anywhere else.
-  const currency = getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'
-  const { threshold: autoReplenishThreshold, refill: autoReplenishAmount } =
-    autoReplenish(agent.chainId ?? DEFAULT_CHAIN_ID)
+  const chainId = agent.chainId ?? DEFAULT_CHAIN_ID
+  const currency = getChain(chainId)?.nativeSymbol ?? 'token'
+  const walletBalance = agent.agentGasBalance ?? agent.nativeBalance ?? 0
+  // Same source as the "Live status" badge (shared, cached poll), so the card
+  // and the workspace agree on whether gas is low.
+  const { gasStatus } = useGasStatus(agent.walletAddress, chainId)
+  const gasIsLow = gasStatus ? monitoringService.isGasLow(gasStatus.status) : walletBalance < autoReplenish(chainId).threshold
+  const gasEmpty = walletBalance === 0
 
-  const copyWalletAddress = async () => {
+  const rarityTier = calculateRarityTier(agent)
+  const rarityStyles = getRarityStyles(rarityTier)
+  const isSpecialRarity = rarityTier !== 'common'
+  const status = STATUS[agent.status] ?? STATUS.idle
+  const pending = agent.level >= 3 ? pendingProposalCount ?? 0 : 0
+  const activating = agent.ownershipStatus === 'bred' && !agent.spawnedOnV4
+
+  // One progress line: comprehension toward the next milestone mint when the
+  // backend reports it, otherwise the wisdom unlock.
+  const hasComprehension = agent.comprehensionScore !== undefined
+  const progress = hasComprehension
+    ? Math.min(100, agent.comprehensionScore ?? 0)
+    : Math.min(100, (videosAnalyzed / WISDOM_UNLOCK_THRESHOLD) * 100)
+  const progressLabel = hasComprehension
+    ? agent.comprehensionNextMilestone != null ? `${agent.comprehensionProgressToNext} pts to next mint` : `${agent.comprehensionScore}/100`
+    : agent.wisdomUnlocked ? 'Wisdom unlocked' : `${videosAnalyzed}/${WISDOM_UNLOCK_THRESHOLD} videos`
+
+  const open = () => onClick?.()
+  const run = (fn: () => void) => (e: MouseEvent) => { e.stopPropagation(); startTransition(fn) }
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open() }
+  }
+  const copyWallet = async (e: MouseEvent) => {
+    e.stopPropagation()
     await navigator.clipboard.writeText(agent.walletAddress)
     setWalletCopied(true)
     setTimeout(() => setWalletCopied(false), 1500)
   }
-  const PersonalityIcon = personalityIcons[agent.personality]
-  const progress = Math.min((videosAnalyzed / WISDOM_UNLOCK_THRESHOLD) * 100, 100)
-  const avatar = getAgentAvatar(agent.id, agent.name)
 
-  const rarityTier = calculateRarityTier(agent)
-  const rarityStyles = getRarityStyles(rarityTier)
-  const rarityLabel = getRarityLabel(rarityTier)
-  const isSpecialRarity = rarityTier !== 'common'
+  const canSell = onListMarketplace && agent.ownershipStatus === 'original-creator' && supportsMarketplace(chainId)
+  const hasMenu = (onOpenProposals && agent.level >= 3) || onViewEvolution || canSell || onTopUpGas || onToggleAutoReplenish || onDeleteAgent
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      whileHover={{ scale: 1.02 }}
-      className="cursor-pointer"
-    >
-      <Card className={cn(
-        'glass-card-hover p-6 relative overflow-hidden group transition-all duration-300',
-        agent.status === 'active' && 'neon-border-cyan',
-        agent.status === 'processing' && 'neon-border-purple',
+    <Card
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${agent.name}`}
+      onClick={open}
+      onKeyDown={onKeyDown}
+      className={cn(
+        'glass-card group relative h-full overflow-hidden p-0 gap-0 cursor-pointer border border-border/40',
+        'transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/10',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
         isSpecialRarity && rarityStyles.borderClass,
-        isSpecialRarity && rarityStyles.glowClass
-      )}>
-        {isSpecialRarity && (
-          <>
-            <div className={cn(
-              "absolute inset-0 rounded-lg opacity-20",
-              rarityStyles.bgClass
-            )} />
-            <div className="absolute top-2 right-2 z-20">
-              <motion.div
-                animate={{
-                  scale: [1, 1.05, 1],
-                  opacity: [0.8, 1, 0.8]
-                }}
-                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <Badge className={cn(
-                  "text-[10px] font-bold px-2.5 py-0.5 shadow-2xl border-none relative overflow-hidden",
-                  rarityStyles.badgeClass
-                )}>
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
-                    animate={{
-                      x: ['-100%', '200%']
-                    }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  />
-                  <span className="relative z-10 flex items-center gap-1">
-                    {rarityLabel}
-                    {agent.generation && agent.generation > 1 && ` GEN-${agent.generation}`}
-                  </span>
-                </Badge>
-              </motion.div>
-            </div>
-          </>
-        )}
-        <div className="absolute top-0 right-0 w-40 h-40 bg-primary/10 rounded-full blur-3xl -mr-20 -mt-20 group-hover:bg-primary/15 transition-all duration-500" />
-        <div className="absolute bottom-0 left-0 w-32 h-32 bg-secondary/10 rounded-full blur-3xl -ml-16 -mb-16 group-hover:bg-secondary/15 transition-all duration-500" />
-        
-        <div className="relative z-10">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-3" onClick={onClick}>
-              <div className="relative">
-                <NicheAvatar agent={agent} size="md" />
-                {agent.status === 'active' && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full animate-pulse ring-2 ring-background" />
-                )}
-                {agent.isGenesis && (
-                  <div className="absolute -bottom-1 -right-1">
-                    <Crown size={14} className="text-amber-500" weight="fill" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <h3 className="font-bold text-lg tracking-tight flex items-center gap-2 flex-wrap">
-                  {agent.name}
-                  <Badge className={cn('text-[10px] font-mono px-1.5 py-0 border', statusColors[agent.status])}>
-                    {agent.status.toUpperCase()}
-                  </Badge>
-                  {agent.isGenesis && (
-                    <Badge className="bg-amber-500/20 text-amber-500 text-[10px] font-bold border-amber-500/30 px-1.5 py-0">
-                      GENESIS
-                    </Badge>
-                  )}
-                </h3>
-                <div className="flex items-center gap-1.5">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); copyWalletAddress() }}
-                          className="flex items-center gap-1 text-xs text-muted-foreground font-mono hover:text-foreground transition-colors"
-                        >
-                          {agent.walletAddress.slice(0, 6)}...{agent.walletAddress.slice(-4)}
-                          {walletCopied ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="font-mono text-xs">{walletCopied ? 'Copied!' : `${agent.walletAddress} — click to copy for top-up`}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <ChainBadge chainId={(agent as any).chainId ?? DEFAULT_CHAIN_ID} />
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {agent.level >= 3 && (pendingProposalCount ?? 0) > 0 && (
-                <motion.div
-                  animate={{ scale: [1, 1.08, 1] }}
-                  transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <Badge
-                    className="bg-amber-500/20 text-amber-400 border-amber-500/40 text-[10px] font-bold px-1.5 py-0 cursor-pointer"
-                    onClick={(e) => { e.stopPropagation(); onOpenProposals?.(agent) }}
-                  >
-                    <Lightbulb size={9} weight="fill" className="mr-0.5" />
-                    {pendingProposalCount}
-                  </Badge>
-                </motion.div>
-              )}
-            </div>
+      )}
+    >
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-primary/[0.09] via-secondary/[0.04] to-transparent" />
+
+      <div className="relative flex h-full flex-col gap-4 p-4 sm:p-5">
+        {/* Identity */}
+        <div className="flex items-start gap-3.5">
+          <div className="relative shrink-0">
+            <NicheAvatar agent={agent} size="lg" showRing={false} className="ring-1 ring-white/10 shadow-lg shadow-black/40 transition-transform duration-300 group-hover:scale-[1.04]" />
+            <span title={status.label} className={cn('absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ring-2 ring-[#0B1124]', status.dot)} />
           </div>
 
-          {agent.ownershipStatus && (
-            <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider" onClick={onClick}>
-              {agent.ownershipStatus === 'original-creator' && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/10 border border-accent/30 text-accent">
-                  <Crown weight="fill" size={11} />
-                  Original Creator
-                </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h3 className="font-bold text-base leading-tight truncate max-w-full">{agent.name}</h3>
+              <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold font-mono text-primary">Lv {agent.level}</span>
+              {isSpecialRarity && (
+                <Badge className={cn('text-[10px] font-bold px-1.5 py-0 border-0', rarityStyles.badgeClass)}>{getRarityLabel(rarityTier)}</Badge>
               )}
-              {agent.ownershipStatus === 'bred' && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/10 border border-secondary/30 text-secondary">
-                  <Dna weight="duotone" size={11} />
-                  Neural Fusion
-                </span>
+              {agent.isGenesis && <Crown size={14} weight="fill" className="text-amber-400" aria-label="Genesis agent" />}
+              {(agent.generation ?? 1) > 1 && (
+                <span className="rounded-md border border-violet-500/30 px-1.5 py-0.5 text-[10px] font-mono text-violet-300">GEN-{agent.generation}</span>
               )}
-              {agent.ownershipStatus === 'marketplace-acquired' && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/10 border border-secondary/30 text-secondary">
-                  <ShoppingCart weight="fill" size={11} />
-                  Marketplace
-                </span>
-              )}
-              {agent.ownershipStatus === 'bred' && agent.spawnedOnV4 && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                  <Lightning weight="fill" size={11} />
-                  Sovereign Mode
-                </span>
-              )}
-              {agent.ownershipStatus === 'bred' && !agent.spawnedOnV4 && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
-                  <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }}>
-                    <GearSix weight="duotone" size={11} />
-                  </motion.span>
-                  Activating V4
-                  {onRetrySpawn && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onRetrySpawn(agent) }}
-                      className="ml-1 underline underline-offset-2 hover:text-yellow-300 transition-colors normal-case"
-                    >
-                      Retry
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground truncate">{agent.niche} · {agent.personality}</p>
+            <div className="mt-1.5 flex items-center gap-2 min-w-0">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" onClick={copyWallet} className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors">
+                      {agent.walletAddress.slice(0, 6)}…{agent.walletAddress.slice(-4)}
+                      {walletCopied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
                     </button>
-                  )}
-                </span>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 mb-5" onClick={onClick}>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Niche</p>
-              <p className="text-sm font-semibold">{agent.niche}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Personality</p>
-              <div className="flex items-center gap-1.5">
-                <PersonalityIcon size={16} className="text-primary" weight="duotone" />
-                <p className="text-sm font-semibold">{agent.personality}</p>
-              </div>
+                  </TooltipTrigger>
+                  <TooltipContent><p className="font-mono text-xs">{walletCopied ? 'Copied' : 'Copy the agent wallet (for top-ups)'}</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <ChainBadge chainId={chainId} />
             </div>
           </div>
 
-          <div className="mb-5 space-y-3">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-3 rounded-lg bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 cursor-help">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <CurrencyCircleDollar size={18} className="text-primary" weight="duotone" />
-                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Agent Native Balance</span>
-                </div>
-                <span className="text-sm font-bold font-mono text-primary">{agent.nativeBalance?.toFixed(3) || '0.000'} {getChain(agent.chainId ?? DEFAULT_CHAIN_ID)?.nativeSymbol ?? 'token'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Gas Used:</span>
-                <span className="text-xs font-mono text-muted-foreground">{agent.gasSpent?.toLocaleString() || '0'} units</span>
-              </div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
-                  <p className="text-xs text-muted-foreground">
-                    Self-funded via gas provisioning. Each agent starts with{' '}
-                    <span className="font-bold text-primary">
-                      {autoReplenishAmount} {currency}
-                    </span>{' '}
-                    reserved for autonomous operations.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <div className="p-3 rounded-lg bg-gradient-to-r from-secondary/10 to-accent/10 border border-secondary/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Wallet size={18} className="text-secondary" weight="duotone" />
-                  <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Agentic Smart Account</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-muted-foreground">Agent Gas Balance:</span>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="text-sm font-bold font-mono text-secondary cursor-help">{(agent.agentGasBalance ?? 0).toFixed(4)} {currency}</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
-                      <p className="text-xs text-muted-foreground">Self-funded via Gas Provisioning</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-
-              {/* Real-time gas status from backend monitoring */}
-              <div className="mb-3 flex items-center justify-between px-2 py-1.5 rounded-md bg-background/30 border border-border/30">
-                <span className="text-xs text-muted-foreground">Live Status:</span>
-                <GasStatusBadge agentWallet={agent.walletAddress} chainId={agent.chainId} showLabel={true} />
-              </div>
-              
-              {(agent.agentGasBalance ?? 0) < 0.08 && (
-                <div
-                  className={`mb-3 flex items-center gap-2 px-2.5 py-2 rounded-md border ${
-                    (agent.agentGasBalance ?? 0) === 0
-                      ? 'bg-rose-500/15 border-rose-500/40'
-                      : 'bg-amber-500/10 border-amber-500/30'
-                  }`}
-                >
-                  <Warning
-                    size={13}
-                    className={`flex-shrink-0 ${
-                      (agent.agentGasBalance ?? 0) === 0 ? 'text-rose-400' : 'text-amber-400'
-                    }`}
-                    weight="fill"
-                  />
-                  <span
-                    className={`text-[10px] font-semibold leading-tight ${
-                      (agent.agentGasBalance ?? 0) === 0 ? 'text-rose-300' : 'text-amber-400'
-                    }`}
-                  >
-                    {(agent.agentGasBalance ?? 0) === 0
-                      ? 'Needs gas — top up before next proposal execution'
-                      : 'Low gas — top up to keep agent operational'}
-                  </span>
+          {hasMenu && (
+            // Menu clicks bubble through the React tree (even from the portal), so stop them here.
+            <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1.5 -mt-1 text-muted-foreground hover:text-foreground" aria-label={`More actions for ${agent.name}`}>
+                    <DotsThreeVertical size={18} weight="bold" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {onOpenProposals && agent.level >= 3 && (
+                    <DropdownMenuItem onSelect={() => startTransition(() => onOpenProposals(agent))}>
+                      <Lightbulb size={15} weight="duotone" className="text-amber-400" />Strategic consult
+                      {pending > 0 && <span className="ml-auto rounded-full bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-300">{pending}</span>}
+                    </DropdownMenuItem>
+                  )}
+                  {onViewEvolution && (
+                    <DropdownMenuItem onSelect={() => startTransition(() => onViewEvolution(agent))}>
+                      <TreeStructure size={15} weight="duotone" className="text-secondary" />Evolution path
+                    </DropdownMenuItem>
+                  )}
+                  {canSell && (
+                    <DropdownMenuItem onSelect={() => startTransition(() => onListMarketplace!(agent))}>
+                      <ShoppingCart size={15} weight="duotone" className="text-accent" />Sell / transfer
+                    </DropdownMenuItem>
+                  )}
                   {onTopUpGas && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTopUpGas(agent)
-                      }}
-                      className="ml-auto h-5 px-2 text-[10px] border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10"
-                    >
-                      Top up
-                    </Button>
+                    <DropdownMenuItem onSelect={() => onTopUpGas(agent)}>
+                      <Wallet size={15} weight="duotone" />Top up gas
+                    </DropdownMenuItem>
                   )}
-                </div>
-              )}
-
-              {onToggleAutoReplenish && (
-                <div className="mb-3 p-2.5 rounded-md bg-background/50 border border-border/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2 cursor-help">
-                              <Lightning size={14} className={agent.autoReplenishGas ? 'text-green-500' : 'text-muted-foreground'} weight="fill" />
-                              <span className="text-xs font-semibold">Auto-Replenish</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs bg-card border-primary/30">
-                            <p className="text-xs text-muted-foreground">
-                              Automatically deducts <span className="font-bold text-primary">{autoReplenishAmount} {currency}</span> from User Wallet when Agent Gas falls below <span className="font-bold text-destructive">{autoReplenishThreshold} {currency}</span>
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Switch
+                  {onToggleAutoReplenish && (
+                    <DropdownMenuCheckboxItem
                       checked={agent.autoReplenishGas || false}
-                      onCheckedChange={(checked) => {
-                        if (onToggleAutoReplenish) {
-                          onToggleAutoReplenish(agent, checked)
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="data-[state=checked]:bg-green-500"
-                    />
-                  </div>
-                  {agent.autoReplenishGas && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="mt-2 pt-2 border-t border-border/30"
+                      onCheckedChange={(checked) => onToggleAutoReplenish(agent, checked === true)}
                     >
-                      <div className="flex items-center gap-2 text-[10px] text-green-500">
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                        <span className="font-semibold uppercase tracking-wide">Self-Sustaining Mode Active</span>
-                      </div>
-                    </motion.div>
+                      Auto-replenish gas
+                    </DropdownMenuCheckboxItem>
                   )}
-
-                  {agent.autoScoutEnabled === false && agent.autoScoutDisabledReason && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            className="mt-2 pt-2 border-t border-border/30"
-                          >
-                            <div className="flex items-center gap-2 text-[10px] text-amber-400 cursor-help">
-                              <ShieldWarning size={12} weight="fill" />
-                              <span className="font-semibold uppercase tracking-wide">Auto Scout paused</span>
-                            </div>
-                          </motion.div>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs bg-card border-amber-500/30">
-                          <p className="text-xs text-foreground">{agent.autoScoutDisabledReason}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                  {onDeleteAgent && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="text-rose-300 focus:text-rose-200 focus:bg-rose-500/10">
+                        <Trash size={15} weight="duotone" />Remove agent
+                      </DropdownMenuItem>
+                    </>
                   )}
-
-                  {(() => {
-                    const cap = agent.dailyMintCap ?? 3
-                    const used = agent.mintCount24h ?? 0
-                    const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 0
-                    const remaining = Math.max(0, cap - used)
-                    if (!agent.autoScoutEnabled) return null
-                    return (
-                      <div className="mt-2 pt-2 border-t border-border/30">
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                          <div className="flex items-center gap-1">
-                            <Gauge size={11} />
-                            <span className="font-semibold uppercase tracking-wide">Daily mints</span>
-                          </div>
-                          <span className={remaining === 0 ? 'text-amber-400 font-bold' : 'text-foreground'}>
-                            {used}/{cap}
-                          </span>
-                        </div>
-                        <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all ${
-                              remaining === 0
-                                ? 'bg-amber-500'
-                                : pct >= 66
-                                ? 'bg-amber-400'
-                                : 'bg-green-500'
-                            }`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
-              
-              {onTopUpGas && (
-                <Button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onTopUpGas(agent)
-                  }}
-                  size="sm"
-                  className="w-full h-7 bg-gradient-to-r from-secondary/20 to-accent/20 hover:from-secondary/30 hover:to-accent/30 border border-secondary/40 hover:border-secondary/60 text-secondary font-semibold text-xs transition-all"
-                >
-                  <Lightning className="mr-1" weight="fill" size={14} />
-                  Top-Up Gas
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="mb-5" onClick={onClick}>
-            <div className="flex items-center justify-between text-xs mb-2">
-              <span className="text-muted-foreground font-medium">Wisdom Progress</span>
-              <span className="font-mono font-bold text-primary">
-                {agent.wisdomUnlocked
-                  ? `${videosAnalyzed} videos · unlocked`
-                  : `${videosAnalyzed}/${WISDOM_UNLOCK_THRESHOLD}`}
-              </span>
-            </div>
-            <div className="relative h-2.5 bg-muted/50 rounded-full overflow-hidden border border-border/50">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.8, delay: 0.2 }}
-                className={cn(
-                  'h-full rounded-full',
-                  agent.wisdomUnlocked
-                    ? 'bg-gradient-to-r from-yellow-400 via-amber-500 to-orange-500 animate-glow-pulse-gold'
-                    : 'bg-gradient-to-r from-primary via-accent to-secondary'
-                )}
-              />
-            </div>
-          </div>
-
-          {/* Comprehension progress — derived from event history (unique titles × niche depth × day-density).
-              Shows the owner how far the agent is toward the next milestone mint. */}
-          {agent.comprehensionScore !== undefined && (
-            <div className="mb-5" onClick={onClick}>
-              <div className="flex items-center justify-between text-xs mb-2">
-                <span className="text-muted-foreground font-medium flex items-center gap-1">
-                  <Target size={12} weight="duotone" className="text-accent" />
-                  Comprehension
-                </span>
-                <span className="font-mono font-bold text-accent tabular-nums">
-                  {agent.comprehensionScore}/100
-                  {agent.comprehensionNextMilestone != null && (
-                    <span className="text-muted-foreground font-normal ml-1.5">
-                      · {agent.comprehensionProgressToNext} to next mint
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden border border-border/50">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(100, agent.comprehensionScore)}%` }}
-                  transition={{ duration: 0.9, delay: 0.3 }}
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-accent to-amber-400"
-                />
-                {/* Milestone tick marks — 20, 40, 60, 80, 100 */}
-                {[20, 40, 60, 80].map((m) => (
-                  <div
-                    key={m}
-                    className="absolute top-0 bottom-0 w-px bg-border/60"
-                    style={{ left: `${m}%` }}
-                    aria-hidden="true"
-                  />
-                ))}
-              </div>
-              {(agent.comprehensionSampledNiches ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {(agent.comprehensionSampledNiches ?? []).slice(0, 4).map((niche) => (
-                    <span
-                      key={niche}
-                      className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent/10 border border-accent/30 text-accent/80"
-                    >
-                      {niche}
-                    </span>
-                  ))}
-                </div>
-              )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
+        </div>
 
-          <div className="flex items-center gap-2 mb-5" onClick={onClick}>
-            <div className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20">
-              <span className="text-muted-foreground">Level</span>
-              <span className="font-bold text-primary">{agent.level}</span>
-            </div>
-            {agent.wisdomUnlocked && (
-              <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold animate-glow-pulse-gold border-0">
-                ✨ Wisdom Unlocked
-              </Badge>
-            )}
-            {(agent.autonomousSignatures ?? 0) > 0 && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 cursor-help">
-                      <Signature size={13} className="text-green-400" weight="duotone" />
-                      <span className="text-xs font-bold text-green-400 font-mono">{agent.autonomousSignatures}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="bg-card border-green-500/30">
-                    <p className="text-xs text-muted-foreground">
-                      <span className="font-bold text-green-400">{agent.autonomousSignatures}</span> autonomous on-chain signature{(agent.autonomousSignatures ?? 0) !== 1 ? 's' : ''} — Mode B
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {agent.wisdomHeritageScore !== undefined && (agent.generation ?? 1) >= 2 && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-secondary/10 border border-secondary/30 cursor-help">
-                      <Dna size={13} className="text-secondary" weight="duotone" />
-                      <span className="text-xs font-bold text-secondary font-mono">{agent.wisdomHeritageScore}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="bg-card border-secondary/30">
-                    <p className="text-xs text-muted-foreground">
-                      Wisdom Heritage Score: <span className="font-bold text-secondary">{agent.wisdomHeritageScore}/100</span>
-                      {agent.parentNames && (
-                        <span className="block mt-0.5 text-muted-foreground/70">
-                          Born from {agent.parentNames.parent_1} × {agent.parentNames.parent_2}
-                        </span>
-                      )}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
-
-          {agent.skillScores && Object.keys(agent.skillScores).length > 0 && (
-            <div className="mb-5" onClick={onClick}>
-              <div className="flex items-center gap-1.5 mb-2">
-                <Brain size={13} className="text-accent" weight="duotone" />
-                <span className="text-xs text-muted-foreground font-medium">Skills earned from videos analyzed</span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(agent.skillScores)
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 4)
-                  .map(([category, score]) => (
-                    <span
-                      key={category}
-                      className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-full bg-accent/10 border border-accent/25 text-accent"
-                    >
-                      {category}
-                      <span className="font-bold">{score}</span>
-                    </span>
-                  ))}
-              </div>
-            </div>
+        {/* What needs the owner, or what is going well. */}
+        <div className="flex flex-wrap gap-1.5 min-h-[22px]">
+          {gasIsLow && (
+            <Chip tone={gasEmpty ? 'danger' : 'warn'} icon={<Warning size={11} weight="fill" />} onClick={onTopUpGas ? () => onTopUpGas(agent) : undefined}>
+              {gasEmpty ? 'Needs gas' : 'Low gas'}{onTopUpGas && ' · Top up'}
+            </Chip>
           )}
-
-          {agent.lineageBiography && (agent.generation ?? 1) >= 2 && (
-            <div className="mt-3 p-3 rounded-lg bg-secondary/5 border border-secondary/20" onClick={onClick}>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold flex items-center gap-1.5">
-                <Dna size={12} className="text-secondary" weight="duotone" />
-                Lineage Biography
-              </p>
-              <p className="text-xs text-muted-foreground/80 leading-relaxed italic whitespace-pre-line">
-                {agent.lineageBiography}
-              </p>
-            </div>
+          {pending > 0 && onOpenProposals && (
+            <Chip tone="warn" icon={<Lightbulb size={11} weight="fill" />} onClick={() => startTransition(() => onOpenProposals(agent))}>
+              {pending} proposal{pending === 1 ? '' : 's'} to review
+            </Chip>
           )}
+          {activating && (
+            <Chip tone="warn" icon={<GearSix size={11} weight="duotone" />} onClick={onRetrySpawn ? () => onRetrySpawn(agent) : undefined}>
+              Activating on-chain{onRetrySpawn && ' · Retry'}
+            </Chip>
+          )}
+          {isAgentAutoScouting(agent) && <Chip tone="ok" icon={<MagnifyingGlass size={11} weight="bold" />}>Auto-Scout on</Chip>}
+          {agent.autoReplenishGas && <Chip tone="info" icon={<Lightning size={11} weight="fill" />}>Self-funding</Chip>}
+          {agent.wisdomUnlocked && <Chip tone="warn" icon={<Sparkle size={11} weight="fill" />}>Wisdom unlocked</Chip>}
+          {agent.ownershipStatus === 'bred' && !activating && <Chip tone="muted" icon={<Dna size={11} weight="duotone" />}>Fusion</Chip>}
+          {agent.ownershipStatus === 'marketplace-acquired' && <Chip tone="muted" icon={<ShoppingCart size={11} weight="duotone" />}>Acquired</Chip>}
+        </div>
 
-          <div className="pt-5 border-t border-border/30 mb-5" onClick={onClick}>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3 font-semibold">Sub-Agent Status</p>
-            <TooltipProvider>
-              <div className="grid grid-cols-4 gap-3">
-                {agent.subAgents.map((subAgent) => {
-                  const Icon = subAgentIcons[subAgent.type]
-                  return (
-                    <Tooltip key={subAgent.type}>
-                      <TooltipTrigger asChild>
-                        <div className="flex flex-col items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border/30 hover:border-primary/40 transition-all group/sub">
-                          <div className="relative">
-                            <Icon 
-                              size={20} 
-                              className={cn(
-                                'transition-colors',
-                                subAgent.status === 'active' ? 'text-primary' :
-                                subAgent.status === 'processing' ? 'text-secondary' :
-                                subAgent.status === 'error' ? 'text-destructive' :
-                                'text-muted-foreground'
-                              )}
-                              weight={subAgent.status === 'idle' ? 'regular' : 'duotone'}
-                            />
-                            <div 
-                              className={cn(
-                                'absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background',
-                                subAgent.status === 'active' ? 'bg-green-500 animate-pulse' :
-                                subAgent.status === 'processing' ? 'bg-yellow-500 animate-pulse' :
-                                subAgent.status === 'error' ? 'bg-red-500' :
-                                'bg-gray-500'
-                              )}
-                            />
-                          </div>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent className="glass-card border-primary/30">
-                        <div className="space-y-1">
-                          <p className="font-semibold text-xs">{subAgentLabels[subAgent.type]}</p>
-                          <p className="text-xs text-muted-foreground">{subAgent.description}</p>
-                          <p className={cn(
-                            'text-xs font-mono font-bold',
-                            subAgent.status === 'active' ? 'text-green-500' :
-                            subAgent.status === 'processing' ? 'text-yellow-500' :
-                            subAgent.status === 'error' ? 'text-red-500' :
-                            'text-gray-500'
-                          )}>
-                            {subAgent.status.toUpperCase()}
-                          </p>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  )
-                })}
-              </div>
-            </TooltipProvider>
+        {/* Numbers */}
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="Videos" value={videosAnalyzed} />
+          <Stat label="Comprehension" short="Compr." value={hasComprehension ? agent.comprehensionScore : '—'} unit={hasComprehension ? '/100' : undefined} />
+          <Stat label="Wallet" value={walletBalance.toFixed(3)} unit={currency} tone={gasIsLow ? (gasEmpty ? 'danger' : 'warn') : undefined} />
+        </div>
+
+        {/* Growth */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-[11px]">
+            <span className="text-muted-foreground">{hasComprehension ? 'Toward next milestone NFT' : 'Wisdom progress'}</span>
+            <span className="font-mono text-foreground/80">{progressLabel}</span>
           </div>
-
-          <div className="space-y-2">
-            {onOpenProposals && agent.level >= 3 && (
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startTransition(() => onOpenProposals(agent))
-                }}
-                variant="outline"
-                size="sm"
-                className={cn(
-                  'w-full transition-all font-semibold',
-                  (pendingProposalCount ?? 0) > 0
-                    ? 'border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/70 animate-glow-pulse-gold'
-                    : 'border-amber-500/20 text-amber-400/70 hover:bg-amber-500/10 hover:border-amber-500/40'
-                )}
-              >
-                <Lightbulb className="mr-1.5" weight="duotone" size={16} />
-                Strategic Consult
-                {(pendingProposalCount ?? 0) > 0 && (
-                  <Badge className="ml-auto bg-amber-500/30 text-amber-400 border-0 text-[10px] px-1.5 py-0">
-                    {pendingProposalCount}
-                  </Badge>
-                )}
-              </Button>
-            )}
-            {onViewEvolution && (
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startTransition(() => onViewEvolution(agent))
-                }}
-                variant="outline"
-                size="sm"
-                className="w-full border-secondary/30 hover:bg-secondary/10 hover:border-secondary/50 transition-all"
-              >
-                <TreeStructure className="mr-1.5" weight="duotone" size={16} />
-                Evolution Path
-              </Button>
-            )}
-            {onListMarketplace && agent.ownershipStatus === 'original-creator' && (
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startTransition(() => onListMarketplace(agent))
-                }}
-                variant="outline"
-                size="sm"
-                className="w-full border-accent/30 hover:bg-accent/10 hover:border-accent/50 transition-all text-accent"
-              >
-                <ShoppingCart className="mr-1.5" weight="duotone" size={16} />
-                List on Marketplace
-              </Button>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              {onChat && (
-                <Button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    startTransition(() => onChat(agent))
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="border-accent/30 hover:bg-accent/10 hover:border-accent/50 transition-all"
-                >
-                  <ChatCircle className="mr-1.5" weight="duotone" size={16} />
-                  Chat
-                </Button>
-              )}
-              {onConfigure && (
-                <Button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    startTransition(() => onConfigure(agent))
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="border-primary/30 hover:bg-primary/10 hover:border-primary/50 transition-all"
-                >
-                  <GearSix className="mr-1.5" weight="duotone" size={16} />
-                  Config
-                </Button>
-              )}
-            </div>
-
-            {onDeleteAgent && (
-              confirmDelete ? (
-                <div className="flex gap-2 p-2.5 rounded-lg bg-destructive/10 border border-destructive/30">
-                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <Warning size={13} className="text-destructive flex-shrink-0" weight="fill" />
-                    <span className="text-[10px] text-destructive font-semibold">Remove from dashboard?</span>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={(e) => { e.stopPropagation(); onDeleteAgent(agent) }}
-                    className="h-6 px-2 text-[10px] bg-destructive hover:bg-destructive/80 text-white font-bold flex-shrink-0"
-                  >
-                    Delete
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }}
-                    className="h-6 px-2 text-[10px] flex-shrink-0"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
-                  variant="ghost"
-                  size="sm"
-                  className="w-full h-7 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all text-[10px]"
-                >
-                  <Trash size={12} className="mr-1" weight="duotone" />
-                  Remove Agent
-                </Button>
-              )
-            )}
+          <div className="relative h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+            <div
+              className={cn('h-full rounded-full transition-[width] duration-700',
+                agent.wisdomUnlocked && !hasComprehension ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-primary via-accent to-secondary')}
+              style={{ width: `${progress}%` }}
+            />
           </div>
         </div>
-      </Card>
-    </motion.div>
+
+        {/* Next step */}
+        {confirmDelete ? (
+          <div className="mt-auto flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5" onClick={(e) => e.stopPropagation()}>
+            <Warning size={14} weight="fill" className="shrink-0 text-rose-400" />
+            <span className="flex-1 text-[11px] font-semibold text-rose-200">Remove {agent.name} from your agents?</span>
+            <Button size="sm" onClick={run(() => onDeleteAgent?.(agent))} className="h-7 px-2.5 text-[11px] bg-rose-500 hover:bg-rose-500/85 text-white font-bold">Remove</Button>
+            <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }} className="h-7 px-2 text-[11px]">Cancel</Button>
+          </div>
+        ) : (
+          <div className="mt-auto flex items-center gap-2">
+            <Button size="sm" onClick={run(open)} className="flex-1 bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-md shadow-primary/20 hover:opacity-95">
+              Open workspace<ArrowRight size={14} weight="bold" className="ml-1.5 transition-transform group-hover:translate-x-0.5" />
+            </Button>
+            {onChat && (
+              <Button size="icon" variant="outline" onClick={run(() => onChat(agent))} aria-label={`Chat with ${agent.name}`} title="Chat" className="h-8 w-8 border-border/50 hover:border-accent/50 hover:text-accent">
+                <ChatCircle size={16} weight="duotone" />
+              </Button>
+            )}
+            {onConfigure && (
+              <Button size="icon" variant="outline" onClick={run(() => onConfigure(agent))} aria-label={`Configure ${agent.name}`} title="Configure & avatar" className="h-8 w-8 border-border/50 hover:border-primary/50 hover:text-primary">
+                <GearSix size={16} weight="duotone" />
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }

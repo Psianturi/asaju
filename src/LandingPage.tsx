@@ -179,7 +179,7 @@ export function LandingPage() {
               <img src={maefLogo} alt="ASAJU AI" className="h-9 w-auto object-contain" />
               <div>
                 <span className="text-sm font-black tracking-widest text-cyan-300">ASAJU AI</span>
-                <p className="text-[9px] text-slate-500 font-mono hidden sm:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
+                <p className="text-[9px] text-slate-400 font-mono hidden sm:block leading-none mt-0.5">Autonomous Agent Intelligence</p>
               </div>
             </div>
             <Button
@@ -202,23 +202,25 @@ export function LandingPage() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.6 }}
               >
-                <div className="flex items-center gap-2 mb-6">
+                <div className="flex flex-wrap items-center gap-2 mb-6">
                   {supportedChains.map(chain => (
                     <ChainBadge key={chain.chainId} chainId={chain.chainId} />
                   ))}
                   <span className="text-[9px] uppercase tracking-widest text-amber-400/80 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono">Testnet</span>
                 </div>
 
+                {/* Benefit first: what the agent does for you and the one rule that
+                    makes it safe — it cannot act without your signature. */}
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight mb-5 leading-[1.1]">
-                  <span className="text-white">Autonomous agents</span>
+                  <span className="text-white">It thinks.</span>
                   <br />
                   <span className="bg-gradient-to-r from-cyan-400 via-cyan-300 to-violet-400 bg-clip-text text-transparent">
-                    that live on-chain
+                    You make the call.
                   </span>
                 </h1>
 
-                <p className="text-base sm:text-lg text-slate-400 max-w-xl leading-relaxed mb-8">
-                  Spawn an AI agent with its own wallet. It learns from YouTube — when you ask, or on its own — reads live CoinMarketCap market data, and recommends a move with the reasoning behind it. You approve. Every milestone is proven on-chain.
+                <p className="text-base sm:text-lg text-slate-300 max-w-xl leading-relaxed mb-8">
+                  An AI agent with its own wallet and memory. It learns from YouTube, analyzes live market data, and proposes actions with clear reasoning. You stay in control: every action needs your signature, and milestones are recorded on-chain.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-10">
@@ -228,28 +230,32 @@ export function LandingPage() {
                     className="bg-gradient-to-r from-cyan-500 to-violet-600 hover:opacity-90 font-bold px-8 shadow-xl shadow-cyan-500/30 text-base text-white border border-cyan-400/40 h-12"
                   >
                     <Robot className="mr-2" weight="duotone" size={22} />
-                    Spawn Your First Agent
+                    Spawn your agent
                     <ArrowRight className="ml-2" size={18} weight="bold" />
                   </Button>
-                  <a href="#learning" className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
-                    See how it works
-                    <ArrowRight size={13} />
+                  {/* No wallet needed: real lessons from live agents, further down. */}
+                  <a
+                    href="#live-agents"
+                    className="flex items-center gap-1.5 h-12 px-5 rounded-md border border-white/15 text-sm font-semibold text-slate-200 hover:border-cyan-400/50 hover:text-cyan-300 transition-colors"
+                  >
+                    See live agents
+                    <span className="text-[11px] font-normal text-slate-400">· no wallet needed</span>
                   </a>
                 </div>
 
                 {/* Animated metrics */}
                 {metrics && (
-                  <div className="flex items-center gap-8">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-4 sm:gap-8">
                     {[
-                      { label: 'agents', value: metrics.total_agents, decimals: 0 },
-                      { label: 'NFTs', value: metrics.total_wisdom_nfts, decimals: 0 },
-                      { label: 'avg level', value: metrics.average_agent_level, decimals: 1 },
+                      { label: 'videos studied', value: metrics.total_events_attended, decimals: 0 },
+                      { label: 'on-chain proofs', value: metrics.total_wisdom_nfts, decimals: 0 },
+                      { label: 'live agents', value: metrics.total_agents, decimals: 0 },
                     ].map(({ label, value, decimals }) => (
                       <div key={label}>
                         <p className="text-2xl font-black font-mono text-cyan-300">
                           <AnimatedNumber value={value} decimals={decimals} />
                         </p>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">{label}</p>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">{label}</p>
                       </div>
                     ))}
                   </div>
@@ -266,16 +272,6 @@ export function LandingPage() {
                 <Suspense fallback={<div className="w-full h-full rounded-full" style={{ background: 'radial-gradient(circle, rgba(0,243,255,0.1), transparent 60%)' }} />}>
                   <AgentSphere className="w-full h-full" />
                 </Suspense>
-                {/* Labels overlay */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center">
-                  <p className="text-[9px] font-mono uppercase tracking-widest text-cyan-400/40">core</p>
-                  <p className="text-[9px] font-mono text-slate-600">agent identity</p>
-                </div>
-                {/* Orbit legend */}
-                <div className="absolute bottom-4 right-4 space-y-1 text-[9px] font-mono text-slate-500">
-                  <p className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> sub-agents</p>
-                  <p className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-violet-400" /> event memory</p>
-                </div>
               </motion.div>
             </div>
           </div>
@@ -284,7 +280,7 @@ export function LandingPage() {
         <LearningModesSection />
 
         {/* ── Agent Lifecycle — circular animated loop ──────────────────────── */}
-        <section id="lifecycle" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20 scroll-mt-20">
+        <section id="lifecycle" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-12 sm:py-20 scroll-mt-20">
           <div className="text-center mb-16">
             <p className="text-xs font-mono uppercase tracking-widest text-cyan-400/60 mb-3">Agent Lifecycle</p>
             <h2 className="text-2xl sm:text-4xl font-black mb-3 text-white">The loop that makes it smarter</h2>
@@ -325,8 +321,8 @@ export function LandingPage() {
 
               {/* Center label */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">learning</p>
-                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">loop</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">learning</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">loop</p>
               </div>
 
               {/* Stage nodes positioned on circle */}
@@ -381,7 +377,7 @@ export function LandingPage() {
         <AgentShowcase />
 
         {/* ── Recent Activity + Dashboard Preview ───────────────────────────── */}
-        <section className="max-w-screen-xl mx-auto px-4 sm:px-6 py-20">
+        <section id="live-agents" className="max-w-screen-xl mx-auto px-4 sm:px-6 py-12 sm:py-20 scroll-mt-20">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -401,7 +397,7 @@ export function LandingPage() {
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
                 </div>
-                <span className="text-[10px] text-slate-600">activity</span>
+                <span className="text-[10px] text-slate-500">activity</span>
               </div>
 
               <div className="p-4 space-y-2.5 min-h-[280px]">
@@ -413,7 +409,7 @@ export function LandingPage() {
                     </div>
                   ))
                 ) : activity.length === 0 ? (
-                  <div className="text-center py-12 text-slate-600 text-xs">
+                  <div className="text-center py-12 text-slate-500 text-xs">
                     <Pulse size={28} className="mx-auto mb-3 text-slate-700" weight="duotone" />
                     No verified mints yet.
                   </div>
@@ -427,7 +423,7 @@ export function LandingPage() {
                         className="flex items-start gap-2 text-xs leading-relaxed"
                       >
                         <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-emerald-400" />
-                        <span className="text-slate-600 text-[10px] mt-0.5 flex-shrink-0 w-12">
+                        <span className="text-slate-500 text-[10px] mt-0.5 flex-shrink-0 w-12">
                           {formatRelativeTime(entry.timestamp)}
                         </span>
                         <span className="text-slate-300 flex-1">
@@ -448,7 +444,7 @@ export function LandingPage() {
               {wisdomPreview.length === 0 ? (
                 <div className="sm:col-span-2 rounded-2xl border border-cyan-500/10 bg-[#0f1124]/40 p-8 text-center">
                   <Brain size={32} className="mx-auto mb-3 text-slate-700" weight="duotone" />
-                  <p className="text-sm text-slate-500">Wisdom summaries appear here once agents analyze YouTube videos.</p>
+                  <p className="text-sm text-slate-400">Wisdom summaries appear here once agents analyze YouTube videos.</p>
                 </div>
               ) : (
                 wisdomPreview.slice(0, 4).map((w, i) => (
@@ -467,7 +463,7 @@ export function LandingPage() {
                     <h4 className="text-sm font-bold text-white line-clamp-2 leading-snug">{w.eventTitle}</h4>
                     <p className="text-xs text-slate-400 leading-relaxed line-clamp-3 flex-1">{w.wisdomSummary}</p>
                     <div className="flex items-center justify-between pt-2 border-t border-cyan-500/10">
-                      <span className="text-[10px] font-mono text-slate-600">{w.platform}</span>
+                      <span className="text-[10px] font-mono text-slate-500">{w.platform}</span>
                       {w.txHash && (
                         <a
                           href={`${getSupportedChains().find(c => c.chainId === (w.chainId ?? 5003))?.explorerUrl}/tx/${w.txHash}`}
@@ -597,7 +593,7 @@ export function LandingPage() {
           <div className="max-w-screen-xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <img src={maefLogo} alt="ASAJU AI" className="h-7 w-auto object-contain" />
-              <span className="text-xs font-bold tracking-widest text-slate-500">ASAJU AI</span>
+              <span className="text-xs font-bold tracking-widest text-slate-400">ASAJU AI</span>
             </div>
 
             <div className="flex items-center gap-3 text-[10px] font-mono">
@@ -607,7 +603,7 @@ export function LandingPage() {
                   href={`${chain.explorerUrl}/address/${chain.contractAddress}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-cyan-400 transition-colors"
+                  className="flex items-center gap-1.5 text-slate-400 hover:text-cyan-400 transition-colors"
                 >
                   <span className="w-1 h-1 rounded-full" style={{ background: chain.color }} />
                   {chain.shortName} ↗
@@ -615,7 +611,7 @@ export function LandingPage() {
               ))}
             </div>
 
-            <p className="text-[10px] text-slate-600 font-mono">Testnet · Not financial advice</p>
+            <p className="text-[10px] text-slate-500 font-mono">Testnet · Not financial advice</p>
           </div>
         </footer>
       </div>

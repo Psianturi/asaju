@@ -18,13 +18,17 @@ import time
 import uuid
 
 from eth_account import Account
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from google.cloud.firestore_v1.base_query import FieldFilter
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from web3 import Web3
 
+from core.agent_auth import require_agent_owner
+from core.agent_mandate import active_mandate, revoke_mandate
 from core.config import get_chain_config
 from core.database import get_db
+from core.pending_spawn import archive_abandoned, confirm_on_chain, is_direct, is_pending
+from core.rate_limit import enforce as enforce_rate_limit
 from core.kms_service import decrypt_private_key, encrypt_private_key
 from services.comprehension_service import build_live_scout_log, compute_comprehension
 from services.llm_service import chat_with_agent, generate_lineage_biography, generate_wisdom_report
@@ -193,6 +197,7 @@ class SpawnResponse(BaseModel):
     custom_instructions: str | None = None
     auto_scout_enabled: bool | None = None
     custom_agenda: str | None = None
+    avatar_seed: int | None = None
     generation: int | None = None
     parent_ids: list[str] | None = None
     parent_names: dict | None = None
@@ -281,6 +286,7 @@ async def _build_agent_response(data: dict, needs_funding: bool) -> SpawnRespons
         scout_interval_hours=data.get("scout_interval_hours", 6),
         last_scout_at=data.get("last_scout_at"),
         custom_agenda=data.get("custom_agenda"),
+        avatar_seed=data.get("avatar_seed"),
         generation=data.get("generation"),
         parent_ids=data.get("parent_ids"),
         parent_names=data.get("parent_names"),
@@ -336,6 +342,7 @@ def _to_response(
         scout_interval_hours=data.get("scout_interval_hours", 6),
         last_scout_at=data.get("last_scout_at"),
         custom_agenda=data.get("custom_agenda"),
+        avatar_seed=data.get("avatar_seed"),
         generation=data.get("generation"),
         parent_ids=data.get("parent_ids"),
         parent_names=data.get("parent_names"),
@@ -379,16 +386,15 @@ class BreedRequest(BaseModel):
 
 
 class UpdateAgentStateRequest(BaseModel):
+    # Only owner-editable text. Breeding fields are server-written, and
+    # auto_scout_enabled follows the signed mandate (grant/revoke), so neither
+    # is accepted here.
     custom_instructions: str | None = None
-    auto_scout_enabled: bool | None = None
     custom_agenda: str | None = None
-    generation: int | None = None
-    parent_ids: list[str] | None = None
-    breeding_count: int | None = None
-    max_breedings: int | None = None
-    genetic_traits: list[str] | None = None
-    last_breeding_time: float | None = None
-    breeding_cooldown_hours: int | None = None
+    # Which generated avatar the owner picked (see frontend lib/agentAvatar).
+    avatar_seed: int | None = Field(default=None, ge=0, le=1_000_000)
+    auth_nonce: str
+    auth_signature: str
 
 
 class ScoutLogMetricsResponse(BaseModel):
@@ -423,14 +429,18 @@ class ScoutLogResponse(BaseModel):
 
 
 @router.post("/spawn", response_model=SpawnResponse, status_code=201)
-async def spawn_agent(req: SpawnRequest) -> SpawnResponse:
+async def spawn_agent(req: SpawnRequest, request: Request) -> SpawnResponse:
     """
     Creates a new AI agent with its own autonomous wallet, persisted in Firestore.
 
     The agent's private key is stored in Firestore so it survives Cloud Run
     cold starts. The user must call spawnAgent() on the smart contract to
     fund the agent with 0.5 MNT for gas autonomy.
+
+    The record stays pending (hidden, not counted) until the chain confirms
+    spawnAgent(); retrying with the same name resumes the same record.
     """
+    enforce_rate_limit(request, "agent-spawn", limit=10, window_seconds=600)
     agent_id = hashlib.sha256(
         f"{req.user_wallet}:{req.chain_id}:{req.agent_name}".encode()
     ).hexdigest()[:16]
@@ -449,17 +459,26 @@ async def spawn_agent(req: SpawnRequest) -> SpawnResponse:
         data = doc.to_dict()
         return _to_response(data, needs_funding=not data.get("funded", False))
 
-    # Per-wallet, per-chain limit applies only to directly spawned agents.
-    # Bred offspring are excluded — their slot cost is paid via breedAgents() on-chain.
+    # Per-wallet, per-chain limit applies only to directly spawned agents that
+    # exist on-chain. An attempt whose spawnAgent() never landed is not an
+    # agent: it is confirmed if the chain has it, archived once abandoned.
     MAX_AGENTS_PER_WALLET = 3
     try:
         existing_query = db.collection(AGENTS_COLLECTION).where("user_wallet", "==", req.user_wallet)
         existing_docs = await existing_query.get()
-        existing_count = sum(
-            1 for doc in existing_docs
-            if (doc.to_dict() or {}).get("ownership_status") != "bred"
-            and (doc.to_dict() or {}).get("chain_id", 5003) == req.chain_id
-        )
+        existing_count = 0
+        for existing in existing_docs:
+            other = existing.to_dict() or {}
+            if not is_direct(other) or other.get("chain_id", 5003) != req.chain_id:
+                continue
+            if is_pending(other):
+                confirmed = await confirm_on_chain(db, AGENTS_COLLECTION, other)
+                if confirmed is False:
+                    await archive_abandoned(db, AGENTS_COLLECTION, other)
+                    continue
+                if confirmed is None:
+                    continue  # chain unreadable: do not count a slot we cannot prove
+            existing_count += 1
         if existing_count >= MAX_AGENTS_PER_WALLET:
             raise HTTPException(
                 status_code=422,
@@ -1042,6 +1061,16 @@ async def list_agents_by_wallet(
         logger.error("Firestore query failed for wallet %s: %s", wallet, exc)
         raise HTTPException(status_code=503, detail="Database temporarily unavailable")
 
+    # A direct spawn whose transaction never landed is not an agent yet. Show it
+    # only once the chain confirms it (which also heals a missed /mark-funded).
+    pending = [d for d in docs if is_pending(d)]
+    if pending:
+        confirmed = await asyncio.gather(
+            *(confirm_on_chain(db, AGENTS_COLLECTION, d) for d in pending), return_exceptions=True
+        )
+        hidden = {id(d) for d, ok in zip(pending, confirmed) if ok is not True}
+        docs = [d for d in docs if id(d) not in hidden]
+
     # Refresh gas balances from the chain — a manual top-up is a plain transfer
     # the backend never records, so the cached value goes stale. Parallel,
     # bounded, fail-soft: keep the cached value if the RPC is slow or down.
@@ -1062,7 +1091,13 @@ async def list_agents_by_wallet(
     if docs:
         await asyncio.gather(*(_refresh_balance(d) for d in docs), return_exceptions=True)
 
-    result = [_to_response(d, needs_funding=not d.get("funded", False)) for d in docs]
+    # Each response reads that agent's events for comprehension and the scout
+    # log; build them concurrently so the list costs one round-trip, not N.
+    # gather() keeps the input order.
+    result = list(await asyncio.gather(*(
+        _build_agent_response(d, needs_funding=not d.get("funded", False))
+        for d in docs
+    )))
     logger.info("Listed %d agents for wallet %s", len(result), wallet[:10])
     return result
 
@@ -1271,6 +1306,10 @@ async def get_agent_scout_logs(agent_id: str) -> list[ScoutLogResponse]:
     return [ScoutLogResponse(**item) for item in logs[:20]]
 
 
+MARK_FUNDED_READ_ATTEMPTS = 3
+MARK_FUNDED_RETRY_SECONDS = 2
+
+
 @router.post("/{agent_id}/mark-funded")
 async def mark_agent_funded(agent_id: str) -> dict:
     """
@@ -1295,6 +1334,24 @@ async def mark_agent_funded(agent_id: str) -> dict:
 
     if not doc.exists:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    data = doc.to_dict() or {}
+    if not (data.get("funded") and data.get("spawned_on_v4")):
+        # Trust the contract, not the caller. A few retries cover RPC nodes
+        # that lag the receipt the browser just saw.
+        wallet = data.get("agent_wallet", "")
+        chain_id = int(data.get("chain_id", 5003))
+        spawned = None
+        for attempt in range(MARK_FUNDED_READ_ATTEMPTS):
+            spawned = await web3_service.is_agent_spawned(wallet, chain_id) if wallet else False
+            if spawned:
+                break
+            if attempt + 1 < MARK_FUNDED_READ_ATTEMPTS:
+                await asyncio.sleep(MARK_FUNDED_RETRY_SECONDS)
+        if spawned is None:
+            raise HTTPException(status_code=503, detail="Could not read the contract; try again shortly")
+        if not spawned:
+            raise HTTPException(status_code=409, detail="Agent is not spawned on-chain yet")
 
     try:
         await doc_ref.update({"funded": True, "spawned_on_v4": True})
@@ -1321,7 +1378,20 @@ async def update_agent_state(agent_id: str, req: UpdateAgentStateRequest) -> dic
     if not doc.exists:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
-    payload = req.model_dump(exclude_none=True)
+    data = doc.to_dict() or {}
+    # custom_instructions is injected into the agent's prompts, so an unsigned
+    # write here would let anyone who knows an agent_id steer another owner's agent.
+    await require_agent_owner(
+        db,
+        agent_id=agent_id,
+        agent_wallet=data.get("agent_wallet", ""),
+        action="update_config",
+        chain_id=int(data.get("chain_id", 5003)),
+        nonce=req.auth_nonce,
+        signature=req.auth_signature,
+    )
+
+    payload = req.model_dump(exclude_none=True, exclude={"auth_nonce", "auth_signature"})
     if not payload:
         return {"status": "noop", "agent_id": agent_id, "updated_fields": []}
 
@@ -1365,6 +1435,9 @@ async def get_agent_private_key(agent_id: str) -> str:
 
 
 EVENTS_COLLECTION = "agent_events"
+# Deleted agents keep their record here, private key included: the key is the
+# only way to ever move what is left in the agent's wallet.
+ARCHIVED_AGENTS_COLLECTION = "archived_agents"
 
 
 class ChatRequest(BaseModel):
@@ -1374,8 +1447,11 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/{agent_id}/chat")
-async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
+async def agent_chat(agent_id: str, req: ChatRequest, request: Request) -> dict:
     """Reply to a user message as the named agent, using Gemini with event grounding."""
+    # Unauthenticated and LLM-backed: cap per agent and per caller.
+    enforce_rate_limit(request, f"agent-chat:{agent_id}", limit=30, window_seconds=600)
+    enforce_rate_limit(request, "agent-chat", limit=60, window_seconds=600)
     db = get_db()
 
     try:
@@ -1550,11 +1626,13 @@ async def agent_chat(agent_id: str, req: ChatRequest) -> dict:
 
 
 @router.post("/{agent_id}/wisdom")
-async def generate_agent_wisdom(agent_id: str) -> dict:
+async def generate_agent_wisdom(agent_id: str, request: Request) -> dict:
     """
     Generate a Wisdom Report by analysing all events the agent has attended.
     Reads event summaries from Firestore and calls Gemini for analysis.
     """
+    enforce_rate_limit(request, f"agent-wisdom:{agent_id}", limit=5, window_seconds=600)
+    enforce_rate_limit(request, "agent-wisdom", limit=15, window_seconds=600)
     db = get_db()
 
     # Fetch agent to get niche
@@ -1607,7 +1685,52 @@ async def generate_agent_wisdom(agent_id: str) -> dict:
     }
 
 
+MANUAL_SCOUT_COOLDOWN_SECONDS = 10 * 60
+
+
 @router.post("/{agent_id}/scout")
+async def run_scout_now(agent_id: str, request: Request) -> dict:
+    """Owner-triggered scout ("Run a scout now").
+
+    Every run spends YouTube and LLM quota before any mint, so it is only
+    allowed under the owner's active, signed mandate, and at most once per
+    agent per cooldown window. The scheduler calls run_auto_scout() directly
+    and is not affected by these HTTP-only gates.
+    """
+    enforce_rate_limit(request, "agent-scout", limit=10, window_seconds=600)
+    db = get_db()
+    doc_ref = db.collection(AGENTS_COLLECTION).document(agent_id)
+    try:
+        doc = await doc_ref.get()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable") from exc
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    data = doc.to_dict() or {}
+
+    mandate = await active_mandate(
+        db, agent_id=agent_id, chain_id=int(data.get("chain_id") or 5003), action="attend_event"
+    )
+    if mandate is None:
+        raise HTTPException(
+            status_code=403,
+            detail="No active Auto-Scout mandate (or today's runs are used up). "
+                   "Grant it with one signature on the agent page.",
+        )
+
+    now = time.time()
+    wait = float(data.get("last_manual_scout_at") or 0) + MANUAL_SCOUT_COOLDOWN_SECONDS - now
+    if wait > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"This agent just scouted. Try again in {max(1, round(wait / 60))} min.",
+        )
+    # Stamp before running so a burst of clicks cannot start parallel runs.
+    await doc_ref.update({"last_manual_scout_at": now})
+
+    return await run_auto_scout(agent_id=agent_id)
+
+
 async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> dict:
     """
     Secretary sub-agent: autonomously discover and attend a YouTube event.
@@ -1635,6 +1758,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     agent_wallet = data.get("agent_wallet", "")
     custom_instructions = data.get("custom_instructions")
     is_funded = data.get("funded", False)
+    chain_id = int(data.get("chain_id") or 5003)
 
     if not agent_wallet:
         raise HTTPException(status_code=400, detail="Agent has no wallet address")
@@ -1666,6 +1790,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             agent_wallet=agent_wallet,
             custom_instructions=custom_instructions,
             additional_niches=additional_niches,
+            chain_id=chain_id,
         )
     except RuntimeError as exc:
         msg = str(exc)
@@ -1743,25 +1868,30 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     daily_cap = int(data.get("daily_mint_cap", 3))
     weekly_cap = int(data.get("weekly_mint_cap", 10))
 
-    async def _count_recent_mints(window_seconds: float) -> int:
+    async def _count_recent_mints(window_seconds: float) -> int | None:
+        # Counted from this agent's own scout log. Attended events carry no
+        # "source" field, so counting them by source never found a single
+        # Auto Scout mint and the cap never applied. Filtered on agent_id only
+        # (automatic single-field index); a composite query failed with
+        # FailedPrecondition where its index was never deployed.
         cutoff = time.time() - window_seconds
         count = 0
         try:
-            async for ev_doc in (
-                db.collection(EVENTS_COLLECTION)
+            async for log_doc in (
+                db.collection(SCOUT_LOGS_COLLECTION)
                 .where(filter=FieldFilter("agent_id", "==", agent_id))
-                .where(filter=FieldFilter("created_at", ">=", cutoff))
                 .stream()
             ):
-                ev = ev_doc.to_dict() or {}
-                if ev.get("source") in ("auto_scout", "scout", "scheduler"):
+                log = log_doc.to_dict() or {}
+                if log.get("action") == "MINTED" and (log.get("run_at") or 0) >= cutoff and log.get("minted") is not False:
                     count += 1
         except Exception as exc:
             logger.warning(
-                "Mint cap query failed for agent %s: %s — falling back to no cap",
+                "Mint cap query failed for agent %s: %s — skipping this run rather than minting uncapped",
                 agent_id,
                 exc.__class__.__name__,
             )
+            return None
         return count
 
     if daily_cap > 0 or weekly_cap > 0:
@@ -1769,7 +1899,11 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             _count_recent_mints(24 * 3600),
             _count_recent_mints(7 * 24 * 3600),
         )
-        capped = (daily_cap > 0 and minted_24h >= daily_cap) or (weekly_cap > 0 and minted_7d >= weekly_cap)
+        # An unreadable count is treated as capped: spending gas blind is the
+        # failure that matters here.
+        unknown = minted_24h is None or minted_7d is None
+        minted_24h, minted_7d = minted_24h or 0, minted_7d or 0
+        capped = unknown or (daily_cap > 0 and minted_24h >= daily_cap) or (weekly_cap > 0 and minted_7d >= weekly_cap)
         if capped:
             balance = decision.get("agent_gas_balance")
             await _update_agent_balance_cache(doc_ref, balance)
@@ -1786,6 +1920,8 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
                 candidate_title=video.get("title"),
                 candidate_url=video.get("url"),
                 reason_description=(
+                    "Could not read recent Auto-Scout mints, so this run was skipped instead of minting past the cap."
+                    if unknown else
                     f"Daily/weekly mint cap reached (24h={minted_24h}/{daily_cap}, 7d={minted_7d}/{weekly_cap}). "
                     "Raise the cap on the agent document or wait for the window to roll over."
                 ),
@@ -1793,9 +1929,12 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
             return {
                 "status": "skipped",
                 "message": (
-                    f"Mint cap reached — {minted_24h}/{daily_cap} in last 24h, "
-                    f"{minted_7d}/{weekly_cap} in last 7 days. "
-                    "Adjust caps in the agent config to override."
+                    "Skipped: recent mints could not be counted, so the cap could not be checked."
+                    if unknown else (
+                        f"Mint cap reached — {minted_24h}/{daily_cap} in last 24h, "
+                        f"{minted_7d}/{weekly_cap} in last 7 days. "
+                        "Adjust caps in the agent config to override."
+                    )
                 ),
                 "agent_id": agent_id,
                 "reason_code": "MINT_CAP_REACHED",
@@ -1822,7 +1961,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
         platform="YouTube",
         niche=niche,
         mode_b=is_funded,
-        chain_id=int(data.get("chain_id", 5003)),
+        chain_id=chain_id,
     )
 
     try:
@@ -1841,6 +1980,8 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
                 reason_code = "LLM_UNAVAILABLE"
             elif code == "AGENT_NOT_AUTHORIZED":
                 reason_code = "LLM_UNAVAILABLE"
+            elif code == "NO_MANDATE":
+                reason_code = "NO_MANDATE"
             reason_description = str(detail.get("message") or reason_description)
         elif isinstance(detail, str):
             lower = detail.lower()
@@ -1895,7 +2036,7 @@ async def run_auto_scout(agent_id: str, scheduler_run_id: str | None = None) -> 
     try:
         from services.web3_service import web3_service
 
-        gas_balance = await web3_service.get_native_balance(agent_wallet)
+        gas_balance = await web3_service.get_native_balance(agent_wallet, chain_id)
     except Exception:
         gas_balance = decision.get("agent_gas_balance")
 
@@ -1955,17 +2096,22 @@ PROPOSALS_COLLECTION = "proposals"
 @router.delete("/{agent_id}", status_code=200)
 async def delete_agent(
     agent_id: str,
-    wallet: str = Query(..., description="Owner wallet address — must match agent's user_wallet"),
+    auth_nonce: str = Query(..., description="Nonce from /api/v1/event/agent-auth-challenge (action=delete_agent)"),
+    auth_signature: str = Query(..., description="Owner's signature over that challenge"),
 ) -> dict:
     """
-    Soft-delete an agent from Firestore.
-    Validates that the requesting wallet owns the agent before deleting.
-    Also cleans up associated events and proposals.
-    """
-    if not Web3.is_address(wallet):
-        raise HTTPException(status_code=400, detail="Invalid wallet address")
-    wallet = Web3.to_checksum_address(wallet)
+    Remove an agent from the owner's workspace (Firestore doc, events,
+    proposals). The on-chain agent and its NFTs are untouched.
 
+    Requires the current on-chain owner's signature. A caller-supplied wallet
+    address proves nothing — owner addresses are public — and the Firestore
+    user_wallet can lag a marketplace sale.
+
+    The agent document holds the only copy of the agent wallet's key, so it is
+    archived (key included) before removal; deleting it outright stranded any
+    gas left in the wallet for good. An agent still listed in the escrow is
+    refused: a buyer would otherwise pay for an agent with no memory or key.
+    """
     db = get_db()
 
     try:
@@ -1977,9 +2123,39 @@ async def delete_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     data = doc.to_dict() or {}
-    owner = data.get("user_wallet", "")
-    if owner.lower() != wallet.lower():
-        raise HTTPException(status_code=403, detail="Wallet does not own this agent")
+    wallet = await require_agent_owner(
+        db,
+        agent_id=agent_id,
+        agent_wallet=data.get("agent_wallet", ""),
+        action="delete_agent",
+        chain_id=int(data.get("chain_id", 5003)),
+        nonce=auth_nonce,
+        signature=auth_signature,
+    )
+    chain_id = int(data.get("chain_id", 5003))
+
+    try:
+        listing = await web3_service.get_marketplace_listing(data.get("agent_wallet", ""), chain_id)
+    except Exception as exc:
+        # An RPC outage must not read as "not listed".
+        raise HTTPException(status_code=503, detail="Could not check the marketplace; try again shortly") from exc
+    if listing and listing.get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail="This agent is listed on the marketplace. Cancel the listing first, then remove it.",
+        )
+
+    try:
+        await db.collection(ARCHIVED_AGENTS_COLLECTION).document(agent_id).set(
+            {**data, "archived_at": time.time(), "archived_by": wallet}
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Failed to archive agent; nothing was removed") from exc
+
+    try:
+        await revoke_mandate(db, agent_id=agent_id, chain_id=chain_id, reason="agent removed by owner")
+    except Exception as exc:
+        logger.warning("Could not revoke mandate for removed agent %s: %s", agent_id, exc)
 
     # Delete agent doc
     try:

@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { RarityTier, Agent, Event } from './types'
+import { AUTO_SCOUT_AVAILABLE } from './features'
 
 export const WISDOM_UNLOCK_THRESHOLD = 5
 
@@ -10,8 +11,10 @@ export function cn(...inputs: ClassValue[]) {
 
 // Agents are never marked 'active' by any loader, so auto-scout is the only
 // real signal that an agent works on its own. Shared so views can't drift apart.
+// "Scouting" means it will actually run, not just that the switch is on — while
+// Auto-Scout is paused platform-wide no agent is scouting, whatever its setting.
 export function isAgentAutoScouting(agent: Agent): boolean {
-  return agent.autoScoutEnabled === true
+  return AUTO_SCOUT_AVAILABLE && agent.autoScoutEnabled === true
 }
 
 // agent.eventsAttended is a counter that can start inflated for bred offspring
@@ -22,7 +25,10 @@ export function countActualVideosAnalyzed(agents: Agent[], events: Event[]): num
   return events.filter(e => agentIds.has(e.agentId)).length
 }
 
-export function calculateRarityTier(agent: Agent): RarityTier {
+// Only reads these fields, so marketplace listings (not full Agents) qualify too.
+export function calculateRarityTier(
+  agent: Pick<Agent, 'generation' | 'level' | 'eventsAttended' | 'wisdomUnlocked'>,
+): RarityTier {
   const generation = agent.generation ?? 1
   const level = agent.level
   const eventsAttended = agent.eventsAttended

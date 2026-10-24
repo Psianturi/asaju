@@ -1,0 +1,23 @@
+{
+  "chainId": 5003,
+  "network": "mantleSepolia",
+  "deployedAt": "2026-10-20T17:16:39.021Z",
+  "deployer": "0xe52bb4B913B83A71d0d2deD47683B1154bf2560b",
+  "timelock": "0x976A7dF8c74A4aaD9EEB9Fe2231C2C6c62867719",
+  "agent": "0x0fE75B47bFE360A305F5D56607d976448fF7c9e7",
+  "market": "0x39a483ac0aa62A4AdF7Db8CfAeEa6f06F5a3A802",
+  "safe": "0x1765443FF47027Cfb024Ee886b0b56eB87107c6E",
+  "guardian": "0x1765443FF47027Cfb024Ee886b0b56eB87107c6E",
+  "treasury": "0x1765443FF47027Cfb024Ee886b0b56eB87107c6E",
+  "timelockDelay": "3600",
+  "marketFeeBps": 250,
+  "royaltyBps": 250,
+  "paymentToken": "0x0000000000000000000000000000000000000000",
+  "legacy": "0x66fD8b5411856D42c08D9356e879a6e7dF0c9419",
+  "legacyKind": "V4",
+  "fees": {
+    "spawnFee": "1000000000000000000",
+    "agentProvision": "500000000000000000",
+    "breedCost": "2000000000000000000"
+  }
+}

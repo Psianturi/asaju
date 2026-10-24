@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AUTO_SCOUT_AVAILABLE } from '@/lib/features'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -20,9 +21,10 @@ import { getChain, txUrl, nftUrl, DEFAULT_CHAIN_ID } from '@/lib/blockchain/chai
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
+import { cn, isAgentAutoScouting } from '@/lib/utils'
 import { Agent } from '@/lib/types'
 import { cloudRunService } from '@/services/cloudRunService'
+import { mantleService } from '@/lib/blockchain/mantleService'
 import { toast } from 'sonner'
 import { fmtAgeSeconds, isFiniteNum } from '@/lib/format'
 
@@ -180,6 +182,19 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
     await new Promise((r) => setTimeout(r, 350))
 
     try {
+      // Owner authorisation. On V6 chains the agent has no platform minter, so
+      // the platform may only act as this agent when the current owner signs for
+      // it. After a marketplace sale the previous owner's signature stops
+      // verifying, which is the point.
+      setStage('scoring')
+      const challenge = await cloudRunService.requestAgentAuthChallenge({
+        agentId: selectedAgent.id,
+        agentWallet: selectedAgent.walletAddress,
+        action: 'attend_event',
+        chainId: agentChainId,
+      })
+      const signed = await mantleService.signMessage(challenge.message)
+
       setStage('minting')
       const resp = await cloudRunService.attendEvent({
         agentId: selectedAgent.id,
@@ -190,6 +205,9 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
         platform: 'YouTube',
         niche: selectedAgent.niche,
         chainId: agentChainId,
+        modeB: true,
+        authNonce: challenge.nonce,
+        authSignature: signed.signature,
       })
 
       setResult({
@@ -245,7 +263,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
           <div className="mt-3 -mx-1 flex items-center gap-1 overflow-x-auto pb-1">
             {agents.map((a) => {
               const isActive = a.id === selectedAgentId
-              const isAutoScout = a.autoScoutEnabled === true
+              const isAutoScout = isAgentAutoScouting(a)
               return (
                 <button
                   key={a.id}
@@ -281,7 +299,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
               {selectedAgent.name} · {selectedAgent.niche} · Lv {selectedAgent.level ?? 1}
             </span>
             <span className="flex items-center gap-1">
-              {selectedAgent.autoScoutEnabled ? (
+              {isAgentAutoScouting(selectedAgent) ? (
                 <>
                   <span className="inline-flex w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-emerald-300">Auto-Scout active</span>
@@ -294,7 +312,7 @@ export function YouTubeSubmitDialog({ open, onOpenChange, agent, agents = [] }: 
                   className="text-muted-foreground/70"
                   title="Auto-Scout can be enabled on the agent detail page. While off, this manual override is the only way the agent learns."
                 >
-                  Auto-Scout off
+                  {AUTO_SCOUT_AVAILABLE ? 'Auto-Scout off' : 'Auto-Scout paused'}
                 </span>
               )}
             </span>

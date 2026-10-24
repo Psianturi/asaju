@@ -3,16 +3,23 @@ import { MarketplaceAgent } from '@/lib/types'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { getChain } from '@/lib/blockchain/chains'
+import { getChain, marketplaceCurrency as currencyForChain, isErc20Market } from '@/lib/blockchain/chains'
+import { mantleService } from '@/lib/blockchain/mantleService'
+import { cloudRunService } from '@/services/cloudRunService'
 import {
   Brain, Fire, ShoppingCart, CheckCircle,
-  Lightning, TrendUp, Star, Cpu,
+  Lightning, TrendUp, Star, Cpu, SpinnerGap, SealCheck,
 } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel } from '@/lib/utils'
+import { fmtTokenAmount } from '@/lib/format'
 
 interface MarketplaceAgentCardProps {
   agent: MarketplaceAgent
+  /** Called after a confirmed purchase so the board can drop the sold card. */
+  onPurchased?: () => void
 }
 
 const NICHE_ICON: Record<string, string> = {
@@ -63,8 +70,8 @@ function ValueRow({
   )
 }
 
-export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
-  const rarityTier = calculateRarityTier(agent as any)
+export function MarketplaceAgentCard({ agent, onPurchased }: MarketplaceAgentCardProps) {
+  const rarityTier = calculateRarityTier(agent)
   const rarityStyles = getRarityStyles(rarityTier)
   const rarityLabel = getRarityLabel(rarityTier)
   const isSpecialRarity = rarityTier !== 'common'
@@ -72,10 +79,34 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
   const walletBalance = agent.agentGasBalance ?? 0
   const heritageScore = agent.wisdomHeritageScore ?? 0
   const autoSigs = agent.autonomousSignatures ?? 0
-  // Marketplace agent listings can be on Mantle, BNB, or ETH Sepolia — show the
-  // agent's actual native currency, not MNT by default. Fall back to 5003
-  // (Mantle) for legacy marketplace agents without chainId.
-  const marketplaceCurrency = getChain(agent.chainId ?? 5003)?.nativeSymbol ?? 'token'
+  // Settlement currency follows the chain's marketplace: native coin on BNB and
+  // Sepolia, ASA on Robinhood/VibeVibe. Falls back to the agent's chain id for
+  // legacy listings that predate the field.
+  const chainId = agent.chainId ?? 5003
+  const marketplaceCurrency = currencyForChain(chainId)
+  // The agent's wallet holds gas in the chain's native coin, which is not the
+  // settlement token on ERC-20 markets (ETH vs ASA on Robinhood).
+  const gasSymbol = getChain(chainId)?.nativeSymbol ?? ''
+  const paysInErc20 = isErc20Market(chainId)
+  const [buying, setBuying] = useState(false)
+
+  const handleBuy = async () => {
+    setBuying(true)
+    try {
+      const res = await mantleService.buyListedAgent(agent.walletAddress, chainId)
+      if (!res.success) {
+        toast.error('Purchase failed', { description: res.error })
+        return
+      }
+      toast.success('Agent acquired', {
+        description: `Paid ${res.pricePaid} ${res.currency}${res.transactionHash ? ` · tx ${res.transactionHash.slice(0, 10)}…` : ''}`,
+      })
+      await cloudRunService.syncListing(agent.id)
+      onPurchased?.()
+    } finally {
+      setBuying(false)
+    }
+  }
 
   return (
     <motion.div
@@ -205,14 +236,14 @@ export function MarketplaceAgentCard({ agent }: MarketplaceAgentCardProps) {
               <ValueRow
                 icon={<Fire size={11} className="text-orange-400" weight="fill" />}
                 label="Wallet Balance"
-                value={`${walletBalance.toFixed(3)} ${marketplaceCurrency}`}
+                value={`${walletBalance.toFixed(3)} ${gasSymbol}`}
                 verified
                 highlight
               />
               <ValueRow
                 icon={<Cpu size={11} className="text-sky-400" weight="duotone" />}
                 label="Gas Activity"
-value={`${(agent.gasSpent ?? 0).toFixed(3)} ${marketplaceCurrency} spent`}
+value={`${(agent.gasSpent ?? 0).toFixed(3)} ${gasSymbol} spent`}
               />
             </div>
           </div>
@@ -329,26 +360,42 @@ value={`${(agent.gasSpent ?? 0).toFixed(3)} ${marketplaceCurrency} spent`}
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Listed Price</p>
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-                    {agent.price.toFixed(1)}
+                    {fmtTokenAmount(agent.price)}
                   </span>
                   <span className="text-sm font-semibold text-emerald-400">{marketplaceCurrency}</span>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-[10px] text-muted-foreground">Wallet incl.</p>
-                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} {marketplaceCurrency}</p>
+                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} {gasSymbol}</p>
               </div>
             </div>
 
-            {/* Marketplace is not yet on-chain (see "Coming Soon" banner above) —
-                buying is disabled rather than completing a fake purchase. */}
+            {/* Escrow buy — the marketplace holds the listing and settles the
+                12% fee on-chain, so ownership moves atomically with payment. */}
             <Button
-              disabled
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold opacity-50 cursor-not-allowed"
+              onClick={handleBuy}
+              disabled={buying}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold disabled:opacity-60"
             >
-              <ShoppingCart className="mr-2" weight="bold" size={18} />
-              Coming Soon
+              {buying ? (
+                <>
+                  <SpinnerGap className="mr-2 animate-spin" weight="bold" size={18} />
+                  Settling on-chain…
+                </>
+              ) : (
+                <>
+                  <ShoppingCart className="mr-2" weight="bold" size={18} />
+                  Acquire agent
+                </>
+              )}
             </Button>
+
+            <p className="text-[10px] text-muted-foreground/60 text-center leading-snug">
+              <SealCheck size={9} className="inline-block align-middle mr-1 text-emerald-400/70" />
+              Escrow holds the listing and moves ownership atomically on payment
+              {paysInErc20 ? `, priced in ${marketplaceCurrency}.` : '.'}
+            </p>
 
             <p className="text-[10px] text-muted-foreground/50 text-center font-mono">
               Seller: {agent.seller} · Listed {Math.floor((Date.now() - agent.listedAt) / 86400000)}d ago

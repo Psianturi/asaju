@@ -13,11 +13,11 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@github/spark": ">=0.43.1 <1",
         "@heroicons/react": "^2.2.0",
         "@hookform/resolvers": "^4.1.3",
         "@octokit/core": "^6.1.4",
         "@phosphor-icons/react": "^2.1.7",
+        "@privy-io/react-auth": "^3.50.0",
         "@radix-ui/colors": "^3.0.0",
         "@radix-ui/react-accordion": "^1.2.3",
         "@radix-ui/react-alert-dialog": "^1.1.6",
@@ -52,7 +52,7 @@
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
         "d3": "^7.9.0",
-        "date-fns": "^3.6.0",
+        "date-fns": "4.4.0",
         "embla-carousel-react": "^8.5.2",
         "ethers": "^6.16.0",
         "framer-motion": "^12.6.2",
@@ -75,6 +75,7 @@
         "tw-animate-css": "^1.2.4",
         "uuid": "^11.1.0",
         "vaul": "^1.1.2",
+        "viem": "^2.57.7",
         "zod": "^3.25.76"
     },
     "devDependencies": {
@@ -103,7 +104,8 @@
         "picomatch": "4.0.4",
         "path-to-regexp": "8.4.0",
         "lodash": "4.18.0",
-        "brace-expansion": "^5.0.8",
+        "brace-expansion": "^5.0.12",
+        "source-map-js": "^1.2.2",
         "minimatch": "^10.0.3",
         "js-yaml": "^4.3.2",
         "qs": "^6.16.0",
@@ -116,6 +118,7 @@
         },
         "@eslint/eslintrc": {
             "minimatch": "^10.0.3"
-        }
+        },
+        "ws": "^8.21.0"
     }
 }

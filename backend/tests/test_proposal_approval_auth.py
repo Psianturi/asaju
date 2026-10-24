@@ -101,6 +101,15 @@ async def test_owner_signature_can_approve_once(client, fake_db, monkeypatch):
             "proposals_approved_total": 1,
         }
 
+    # Ownership is resolved from the chain, not the Firestore mirror. Tests
+    # must stand in for the contract, otherwise every approve would fail closed
+    # with 503 because there is no network here.
+    async def _chain_owner(_agent_wallet, _chain_id):
+        return owner_wallet
+
+    monkeypatch.setattr(
+        "core.agent_auth._read_agent_owner_on_chain", _chain_owner
+    )
     monkeypatch.setattr(
         "routers.proposals.web3_service.send_record_executed_proposal_tx",
         _successful_web3_call,
@@ -127,6 +136,104 @@ async def test_owner_signature_can_approve_once(client, fake_db, monkeypatch):
         },
     )
     assert replay.status_code == 401
+
+
+async def _challenge_for(client, proposal_id: str, signer) -> dict:
+    response = await client.post(
+        f"/api/v1/proposals/{proposal_id}/approval-challenge?action=approve"
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+async def test_owner_change_during_challenge_ttl_is_refused(client, fake_db, monkeypatch):
+    """The 10-minute challenge window must not let a seller keep control.
+
+    Sequence: seller requests a challenge while they still own the agent, then
+    the agent sells, then the seller approves inside the TTL. The signature
+    still verifies — it was valid when signed — so only a fresh on-chain
+    ownership read can catch this.
+    """
+    owner = Account.create()
+    buyer = Account.create()
+    agent_wallet = make_wallet()
+
+    fake_db.seed(
+        "agents",
+        "agent-sold",
+        make_agent(
+            "agent-sold",
+            agent_wallet,
+            user_wallet=owner.address,
+            funded=True,
+            chain_id=97,
+        ),
+    )
+    fake_db.seed(
+        "proposals",
+        "proposal-sold",
+        {
+            "agent_id": "agent-sold",
+            "agent_wallet": agent_wallet,
+            "title": "Sell first, approve after",
+            "description": "A proposal the seller no longer owns.",
+            "category": "governance",
+            "proposal_hash": "0x" + "77" * 32,
+            "status": "pending",
+            "created_at": 1.0,
+            "expires_at": 4_102_444_800.0,
+        },
+    )
+
+    # Seller still owns it when the challenge is minted.
+    async def owner_before_sale(_wallet, _chain):
+        return owner.address
+
+    monkeypatch.setattr(
+        "core.agent_auth._read_agent_owner_on_chain", owner_before_sale
+    )
+
+    challenge = await _challenge_for(client, "proposal-sold", owner)
+    signature = Account.sign_message(
+        encode_defunct(text=challenge["message"]), owner.key
+    ).signature.hex()
+
+    # The sale settles. The same signature is now worthless.
+    async def owner_after_sale(_wallet, _chain):
+        return buyer.address
+
+    monkeypatch.setattr(
+        "core.agent_auth._read_agent_owner_on_chain", owner_after_sale
+    )
+
+    called = False
+
+    async def _must_not_sign(**kwargs):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(
+        "routers.proposals.web3_service.send_record_executed_proposal_tx",
+        _must_not_sign,
+    )
+
+    response = await client.post(
+        "/api/v1/proposals/proposal-sold/approve",
+        json={
+            "nonce": challenge["nonce"],
+            "signer_wallet": owner.address,
+            "signature": signature,
+        },
+    )
+
+    assert response.status_code == 403
+    assert "changed hands" in response.json()["detail"]
+    assert called is False, "the chain must not be signed after ownership moved"
+
+    # And the proposal stays pending so the new owner can act on it.
+    proposal = await fake_db.collection("proposals").document("proposal-sold").get()
+    assert proposal.to_dict()["status"] == "pending"
 
 
 async def test_approve_prefers_mode_b_agent_private_key(client, fake_db, monkeypatch):

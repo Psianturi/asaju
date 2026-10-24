@@ -92,15 +92,42 @@ describe('spawn economics', () => {
     // live values without changing anything.
     const onChain: Record<number, { spawnFee: string; agentProvision: string }> = {
       5003:     { spawnFee: '1',     agentProvision: '0.5' },
-      11155111: { spawnFee: '0.01',  agentProvision: '0.005' },
+      11155111: { spawnFee: '0.005', agentProvision: '0.0025' },
       97:       { spawnFee: '0.01',  agentProvision: '0.005' },
+      46630:    { spawnFee: '0.005', agentProvision: '0.0025' },
     }
     for (const chain of getSupportedChains()) {
+      // A chain registered but not yet deployed has nothing on-chain to compare
+      // against, so there is no drift to catch. It is covered separately by the
+      // pending-deploy test below rather than being asserted here with a
+      // placeholder that would read as verified.
+      if (chain.contractAddress === '0x0000000000000000000000000000000000000000') continue
       expect({
         spawnFee: chain.spawnFee,
         agentProvision: chain.agentProvision,
       }).toEqual(onChain[chain.chainId])
     }
+  })
+
+  it('has no registered-but-undeployed chains left', () => {
+    // Every chain we expose must have a real contract behind it — a zero
+    // address here means a chain was added to the selector before it was
+    // deployed, which previously shipped as a chain that silently did nothing.
+    const pending = getSupportedChains().filter(
+      (c) => c.contractAddress === '0x0000000000000000000000000000000000000000',
+    )
+    expect(pending.map((c) => c.chainId)).toEqual([])
+  })
+
+  it('lists Robinhood Chain with its live V6 address and halved fees', () => {
+    const rh = getChain(46630)!
+    expect(rh.name).toContain('Robinhood')
+    expect(rh.nativeSymbol).toBe('ETH')
+    expect(rh.contractAddress).toBe(
+      '0x480E7BA834348ef45a140Aa8F5b09c4997c5F0a3',
+    )
+    expect(rh.spawnFee).toBe('0.005')
+    expect(rh.agentProvision).toBe('0.0025')
   })
 })
 
@@ -114,8 +141,8 @@ describe('breedTotalDue', () => {
     expect(breedTotalDue(5003)).toBe('2')
   })
 
-  it('charges breedCost + spawnFee on ETH Sepolia (V5)', () => {
-    expect(breedTotalDue(11155111)).toBe('0.03')
+  it('charges breedCost + spawnFee on ETH Sepolia (V6)', () => {
+    expect(breedTotalDue(11155111)).toBe('0.015')
   })
 
   it('charges breedCost + spawnFee on BNB testnet (V6)', () => {

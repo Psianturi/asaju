@@ -26,7 +26,9 @@
   --destructive-foreground: oklch(0.98 0.01 200);
 
   --muted: oklch(0.25 0.02 250);
-  --muted-foreground: oklch(0.60 0.02 240);
+  /* L=0.70 keeps faded secondary text (muted-foreground/60) at ≥4.5:1 on both
+     the page and card backgrounds — at 0.60 it measured ~3.4:1 (WCAG AA fail). */
+  --muted-foreground: oklch(0.70 0.02 240);
   --border: oklch(0.28 0.03 245);
   --input: oklch(0.28 0.03 245);
   --ring: oklch(0.80 0.18 195);

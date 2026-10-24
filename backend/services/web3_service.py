@@ -135,6 +135,14 @@ MAEF_ABI: list[dict] = [
         "stateMutability": "payable",
         "type": "function",
     },
+    # Present on every generation (V4, V5, V6).
+    {
+        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "name": "isAgentSpawned",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
     # ── V5 only — agent ownership. Absent on V4 deployments (e.g. live Mantle),
     # which is exactly how _is_v5() tells the two generations apart.
     {
@@ -197,8 +205,44 @@ MAEF_ABI: list[dict] = [
     },
 ]
 
+# AsajuMarketplace / AsajuMarketplaceERC20 — the read surface the backend
+# mirrors: listings() for live state, AgentListed to discover new listings.
+# Both the native and the ERC-20 variant expose the same signatures.
+MARKETPLACE_ABI: list[dict] = [
+    {
+        "inputs": [{"name": "agentWallet", "type": "address"}],
+        "name": "listings",
+        "outputs": [
+            {"name": "seller", "type": "address"},
+            {"name": "price", "type": "uint256"},
+            {"name": "active", "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "name": "agentWallet", "type": "address"},
+            {"indexed": True, "name": "seller", "type": "address"},
+            {"indexed": False, "name": "price", "type": "uint256"},
+        ],
+        "name": "AgentListed",
+        "type": "event",
+    },
+]
+
 
 class Web3Service:
+    # Chains still running the legacy V4 contract, where the six live Mantle
+    # agents live. V4 has a MINTER_ROLE, so Mode A (minter signs) is the only
+    # way to mint for those agents. Everything else must be V5/V6.
+    #
+    # This allow-list exists so adding a new chain can't silently re-enable a
+    # platform-funded gas path: on a chain that isn't listed here, Mode A is
+    # refused in Python before we build a doomed transaction. Retire a chain
+    # from this set once its agents migrate or are wound down.
+    LEGACY_MODE_A_CHAINS: frozenset[int] = frozenset({5003})  # Mantle Sepolia (V4)
     def __init__(self) -> None:
         # Per-chain caches — keyed by chain_id (e.g. 5003, 11155111)
         self._w3_cache: dict[int, Web3] = {}
@@ -244,7 +288,8 @@ class Web3Service:
         # Mantle: contract address from Cloud Run env var (CONTRACT_ADDRESS) for flexibility
         # Other chains: hardcoded address from CHAIN_CONFIGS
         if chain_id == 5003:
-            addr = settings.contract_address
+            from core.config import mantle_contract_address
+            addr = mantle_contract_address()
         else:
             addr = get_chain_config(chain_id)["contract_address"]
 
@@ -364,6 +409,67 @@ class Web3Service:
             for log in logs
         ]
 
+    # ── Marketplace escrow (read-only) ────────────────────────────────────────
+
+    def _init_marketplace(self, chain_id: int) -> Any | None:
+        """The chain's AsajuMarketplace escrow, or None when none is deployed.
+        Native and ERC-20 variants share listings() and the listing events, so
+        one ABI reads both."""
+        from core.config import get_chain_config
+
+        addr = get_chain_config(chain_id).get("marketplace_address", "")
+        if not addr or not Web3.is_address(addr):
+            return None
+        w3 = self._init_w3(chain_id)
+        return w3.eth.contract(address=Web3.to_checksum_address(addr), abi=MARKETPLACE_ABI)
+
+    async def get_marketplace_listing(self, agent_wallet: str, chain_id: int) -> dict | None:
+        """Live-read listings(agentWallet) from the escrow.
+
+        Returns {"seller", "price_wei", "active"}, or None when the chain has no
+        marketplace. Raises when the chain cannot be read — the caller must not
+        mistake an RPC outage for "not listed"."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_marketplace_listing, agent_wallet, chain_id)
+
+    def _sync_marketplace_listing(self, agent_wallet: str, chain_id: int) -> dict | None:
+        market = self._init_marketplace(chain_id)
+        if market is None:
+            return None
+        seller, price, active = market.functions.listings(Web3.to_checksum_address(agent_wallet)).call()
+        return {"seller": seller, "price_wei": int(price), "active": bool(active)}
+
+    async def get_block_number(self, chain_id: int) -> int:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self._init_w3(chain_id).eth.block_number)
+
+    async def get_marketplace_event_logs(
+        self, event_name: str, *, chain_id: int, from_block: int, to_block: int
+    ) -> list[dict]:
+        """Read one escrow event over a bounded block range. Returns [] when the
+        chain has no marketplace. Same shape as get_event_logs()."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_marketplace_event_logs, event_name, chain_id, from_block, to_block
+        )
+
+    def _sync_marketplace_event_logs(self, event_name, chain_id, from_block, to_block):
+        market = self._init_marketplace(chain_id)
+        if market is None:
+            return []
+        event = getattr(market.events, event_name)
+        logs = event.get_logs(fromBlock=from_block, toBlock=to_block)
+        return [
+            {
+                "blockNumber": log.blockNumber,
+                "transactionHash": log.transactionHash.hex(),
+                "logIndex": log.logIndex,
+                "args": dict(log.args),
+                "event": event_name,
+            }
+            for log in logs
+        ]
+
     async def get_native_balance(self, address: str, chain_id: int = 5003) -> float:
         """Return the wallet's native token balance from the target chain RPC in ether units."""
         loop = asyncio.get_event_loop()
@@ -383,6 +489,64 @@ class Web3Service:
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._sync_agent_provision, chain_id)
+
+    async def get_agent_owner(self, agent_wallet: str, chain_id: int = 5003) -> str | None:
+        """Live-read agentOwner(agentWallet) — who owns this agent right now.
+
+        This is the authoritative ownership answer for marketplace purposes. The
+        Firestore mirror is written by the indexer on a poll loop and therefore
+        lags a sale; the chain settles the sale synchronously inside buy().
+
+        Returns None when the chain cannot be reached or the deployed contract
+        predates V5 (no agentOwner getter), so callers can decide whether a
+        fallback is safe rather than silently trusting stale data.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_agent_owner, agent_wallet, chain_id
+        )
+
+    async def is_agent_spawned(self, agent_wallet: str, chain_id: int = 5003) -> bool | None:
+        """Live-read isAgentSpawned(agentWallet). None when the chain can't be read."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_is_agent_spawned, agent_wallet, chain_id
+        )
+
+    def _sync_is_agent_spawned(self, agent_wallet: str, chain_id: int) -> bool | None:
+        try:
+            contract = self._init_contract(chain_id)
+            return bool(
+                contract.functions.isAgentSpawned(
+                    Web3.to_checksum_address(agent_wallet)
+                ).call()
+            )
+        except Exception as exc:
+            logger.debug(
+                "isAgentSpawned read failed for %s on chain %s: %s",
+                agent_wallet,
+                chain_id,
+                exc.__class__.__name__,
+            )
+            return None
+
+    def _sync_agent_owner(self, agent_wallet: str, chain_id: int) -> str | None:
+        try:
+            contract = self._init_contract(chain_id)
+            owner = contract.functions.agentOwner(
+                Web3.to_checksum_address(agent_wallet)
+            ).call()
+        except Exception as exc:
+            logger.debug(
+                "agentOwner read failed for %s on chain %s: %s",
+                agent_wallet,
+                chain_id,
+                exc.__class__.__name__,
+            )
+            return None
+        if not owner or owner == Web3.to_checksum_address("0x" + "0" * 40):
+            return None
+        return owner
 
     def _sync_agent_provision(self, chain_id: int = 5003) -> float:
         contract = self._init_contract(chain_id)
@@ -429,6 +593,23 @@ class Web3Service:
         self._is_v5_cache[chain_id] = result
         logger.info("Contract on chain %s detected as %s", chain_id, "V5" if result else "V4")
         return result
+
+    def _mode_a_allowed(self, chain_id: int) -> bool:
+        """Mode A (minter signs, platform pays gas) is only ever permitted on the
+        legacy V4 chains we still have live agents on. Everything else must run
+        agent-signed (Mode B), so no user action is ever subsidised by us."""
+        return chain_id in self.LEGACY_MODE_A_CHAINS
+
+    def _require_mode_b(self, chain_id: int, operation: str) -> None:
+        """Raise if this chain is not allowed to fall back to a platform-funded
+        signer. Call at the top of any path that would otherwise reach
+        get_minter_service_private_key()."""
+        if self._mode_a_allowed(chain_id):
+            return
+        raise PermissionError(
+            f"{operation} on chain {chain_id} must be signed by the agent or its "
+            f"owner. Mode A (platform-funded gas) is retired on this chain."
+        )
 
     def _is_v6(self, contract, chain_id: int) -> bool:
         """
@@ -610,6 +791,7 @@ class Web3Service:
                         "Mode B fallback triggered (%s). Falling back to minter service wallet.",
                         "missing role" if lacks_minter else "insufficient gas",
                     )
+                    self._require_mode_b(chain_id, "mintAttendanceNFT")
                     private_key = get_minter_service_private_key()
                     self.check_minter_balance_health(chain_id)
                     signer = Account.from_key(private_key)
@@ -736,6 +918,7 @@ class Web3Service:
             )
 
         self.check_minter_balance_health(chain_id)
+        self._require_mode_b(chain_id, "spawnBredAgent activation")
         private_key = get_minter_service_private_key()
         signer = Account.from_key(private_key)
 
@@ -854,9 +1037,10 @@ class Web3Service:
                     "recordExecutedProposal on a V6 contract requires the owner's "
                     "or the agent's own key — there is no minter fallback."
                 )
-            # Fallback: MINTER_SERVICE (Mode A). Only reached when the caller
-            # explicitly skipped agent-key decryption. We still check balance
-            # for log visibility but don't gate the call on it.
+            # Fallback: MINTER_SERVICE (Mode A). Only reached on the legacy V4
+            # chains listed in LEGACY_MODE_A_CHAINS — anywhere else this raises
+            # before we spend the platform wallet's gas.
+            self._require_mode_b(chain_id, "recordExecutedProposal")
             self.check_minter_balance_health(chain_id)
             logger.info(
                 "recordExecutedProposal Mode A fallback (minter service): "

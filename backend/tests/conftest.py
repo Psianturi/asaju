@@ -9,6 +9,55 @@ from httpx import ASGITransport, AsyncClient
 from tests.fake_firestore import FakeFirestoreClient
 
 
+@pytest_asyncio.fixture(autouse=True)
+def chain_owner_matches_firestore(monkeypatch):
+    """Stand in for the deployed contract in every test.
+
+    Authorisation now resolves ownership from the chain and fails closed when
+    the chain cannot be read, so without this every endpoint that checks
+    ownership would 503 under test — there is no network here.
+
+    Returning the Firestore owner models the healthy case: the chain and the
+    mirror agree. Tests that care about disagreement (a sale settling, a chain
+    outage) override this themselves.
+    """
+    from core import agent_auth
+
+    async def _read(agent_wallet, chain_id):
+        return _OWNER_OVERRIDE.get(agent_wallet.lower())
+
+    # Mutable map so an individual test can pin a different owner.
+    _OWNER_OVERRIDE = {}
+    monkeypatch.setattr(agent_auth, "_read_agent_owner_on_chain", _read)
+    return _OWNER_OVERRIDE
+
+
+@pytest_asyncio.fixture(autouse=True)
+def no_coingecko_network(monkeypatch):
+    """Market feeds fall back to CoinGecko when CMC fails. Tests have no
+    network, so the fallback fails fast unless a test provides its own."""
+    from services import market_data_service
+
+    async def _offline(*args, **kwargs):
+        raise RuntimeError("no network in tests")
+
+    monkeypatch.setattr(market_data_service, "_coingecko_get", _offline)
+    monkeypatch.setattr(market_data_service, "_alt_fear_greed", _offline)
+
+
+@pytest_asyncio.fixture(autouse=True)
+def reset_cmc_feed_failures():
+    """CMC feed failures are remembered per process (retry window), so one test's
+    simulated outage must not leak into the next test's happy path."""
+    from services import market_data_service
+
+    market_data_service._FEED_FAILURES.clear()
+    market_data_service._FEED_SERVED.clear()
+    yield
+    market_data_service._FEED_FAILURES.clear()
+    market_data_service._FEED_SERVED.clear()
+
+
 def make_wallet() -> str:
     """Fresh, valid checksummed Ethereum address — avoids hand-typed checksums."""
     return Account.create().address

@@ -6,32 +6,38 @@ import { Label } from '@/components/ui/label'
 import { Agent } from '@/lib/types'
 import { GearSix, FloppyDisk } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { motion } from 'framer-motion'
+import { AvatarPicker } from '@/components/AvatarPicker'
 
 interface AgentConfigDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   agent: Agent
-  onSave: (agentId: string, instructions: string, customAgenda: string) => void
+  /** Signs and persists; rejects if the owner declines or the save fails. */
+  onSave: (agentId: string, instructions: string, customAgenda: string, avatarSeed: number) => Promise<void>
 }
 
 export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentConfigDialogProps) {
   const [instructions, setInstructions] = useState(agent.customInstructions || '')
   const [customAgenda, setCustomAgenda] = useState(agent.customAgenda || '')
+  const [avatarSeed, setAvatarSeed] = useState(agent.avatarSeed ?? 0)
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async () => {
     setIsSaving(true)
-    
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    onSave(agent.id, instructions, customAgenda)
-    setIsSaving(false)
-    onOpenChange(false)
-    
-    toast.success('Agent Configuration Updated!', {
-      description: `${agent.name} has been reconfigured`
-    })
+    try {
+      await onSave(agent.id, instructions, customAgenda, avatarSeed)
+      onOpenChange(false)
+      toast.success('Agent Configuration Updated!', {
+        description: `${agent.name} has been reconfigured`
+      })
+    } catch (err) {
+      // Stay open so nothing the owner typed is lost.
+      toast.error('Configuration not saved', {
+        description: err instanceof Error ? err.message : 'The signature was declined or the save failed.',
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const exampleInstructions = {
@@ -63,6 +69,11 @@ export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentCo
         </DialogHeader>
 
         <div className="space-y-6 mt-4 overflow-y-auto flex-1 pr-1">
+          <div className="space-y-3">
+            <Label className="text-sm font-semibold">Avatar</Label>
+            <AvatarPicker agent={agent} value={avatarSeed} onChange={setAvatarSeed} />
+          </div>
+
           <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -160,7 +171,7 @@ export function AgentConfigDialog({ open, onOpenChange, agent, onSave }: AgentCo
               className="flex-1 bg-gradient-to-r from-primary to-accent hover:opacity-90 font-semibold"
             >
               <FloppyDisk className="mr-2" weight="duotone" />
-              {isSaving ? 'Saving...' : 'Save Configuration'}
+              {isSaving ? 'Waiting for signature…' : 'Sign & save'}
             </Button>
           </div>
         </div>

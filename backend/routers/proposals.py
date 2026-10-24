@@ -30,6 +30,8 @@ from web3 import Web3
 
 from core.config import settings
 from core.database import get_db
+from core.agent_auth import current_owner_of
+from core.rate_limit import client_ip, enforce as enforce_rate_limit
 from core.kms_service import decrypt_private_key
 from google.cloud.firestore_v1.base_query import FieldFilter
 from services.llm_service import ProposalGenerationError, generate_agent_proposal
@@ -241,7 +243,7 @@ def _approval_message(
 
 
 def _enforce_proposal_action_rate_limit(request: Request, proposal_id: str) -> None:
-    client_host = request.client.host if request.client else "unknown"
+    client_host = client_ip(request)
     key = f"{client_host}:{proposal_id}"
     now = time.time()
     attempts = _approval_attempts[key]
@@ -433,17 +435,52 @@ async def _bg_autonomous_transfer(
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
+PROPOSE_COOLDOWN_SECONDS = 60
+MAX_PENDING_PROPOSALS = 5
+
+
+async def _guard_proposal_request(db, agent_id: str, agent_ref, agent_data: dict) -> None:
+    """Each proposal spends LLM quota and lands in the owner's inbox, and the
+    endpoint is reachable by anyone who knows an agent_id. Cap it per agent, in
+    Firestore so the cap holds across instances: a short cooldown, and no new
+    proposal while too many unexpired ones are still waiting on the owner."""
+    now = time.time()
+    wait = float(agent_data.get("last_proposal_requested_at") or 0) + PROPOSE_COOLDOWN_SECONDS - now
+    if wait > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"A proposal was just requested for this agent. Try again in {int(wait) + 1}s.",
+        )
+    pending = 0
+    async for doc in (
+        db.collection(PROPOSALS_COLLECTION)
+        .where(filter=FieldFilter("agent_id", "==", agent_id))
+        .where(filter=FieldFilter("status", "==", "pending"))
+        .stream()
+    ):
+        if float((doc.to_dict() or {}).get("expires_at") or 0) > now:
+            pending += 1
+    if pending >= MAX_PENDING_PROPOSALS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"This agent already has {pending} proposals waiting. Approve or reject them first.",
+        )
+    await agent_ref.update({"last_proposal_requested_at": now})
+
+
 @router.post("/api/v1/agent/{agent_id}/propose", response_model=ProposalResponse, status_code=201)
-async def generate_proposal(agent_id: str) -> ProposalResponse:
+async def generate_proposal(agent_id: str, request: Request) -> ProposalResponse:
     """
     Gemini analyses the agent's event history and generates a strategic proposal.
     Saved to Firestore with a 7-day TTL and keccak256 hash for on-chain auditability.
     """
+    enforce_rate_limit(request, "agent-propose", limit=20, window_seconds=600)
     db = get_db()
 
     # Fetch agent
+    agent_ref = db.collection(AGENTS_COLLECTION).document(agent_id)
     try:
-        agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+        agent_doc = await agent_ref.get()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database temporarily unavailable") from exc
 
@@ -451,6 +488,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
     agent_data = agent_doc.to_dict() or {}
+    await _guard_proposal_request(db, agent_id, agent_ref, agent_data)
     agent_wallet = agent_data.get("agent_wallet", "")
     agent_name = agent_data.get("agent_name", "Agent")
     niche = agent_data.get("niche", "General")
@@ -638,7 +676,7 @@ async def generate_proposal(agent_id: str) -> ProposalResponse:
 
 
 @router.post("/api/v1/agent/{agent_id}/force-evaluate", response_model=ProposalResponse)
-async def force_evaluate(agent_id: str) -> ProposalResponse:
+async def force_evaluate(agent_id: str, request: Request) -> ProposalResponse:
     """Manual override: re-evaluate the agent synchronously against the latest
     market snapshot, without persisting the result. Markets move fast — the
     owner uses this to wake their agent outside the Auto-Scout cycle when a
@@ -651,6 +689,9 @@ async def force_evaluate(agent_id: str) -> ProposalResponse:
     Reuses the same data fetch + Gemini call as `generate_proposal` so the
     reasoning trace is identical to what a real proposal would have.
     """
+    # Nothing is persisted, so only LLM quota is at stake: cap per agent and per caller.
+    enforce_rate_limit(request, f"agent-force-eval:{agent_id}", limit=5, window_seconds=600)
+    enforce_rate_limit(request, "agent-force-eval", limit=20, window_seconds=600)
     db = get_db()
 
     try:
@@ -865,14 +906,19 @@ async def create_approval_challenge(
     agent_id = proposal_data.get("agent_id", "")
     agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
     agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
-    owner_wallet = agent_data.get("user_wallet", "")
+    agent_chain_id = agent_data.get("chain_id", proposal_data.get("chain_id", 5003))
     agent_wallet = proposal_data.get("agent_wallet", "")
     proposal_hash = proposal_data.get("proposal_hash", "")
-    if not Web3.is_address(owner_wallet) or not Web3.is_address(agent_wallet) or not proposal_hash:
+    if not Web3.is_address(agent_wallet) or not proposal_hash:
         raise HTTPException(status_code=400, detail="Proposal or agent ownership data is incomplete")
 
-    owner_wallet = Web3.to_checksum_address(owner_wallet)
     agent_wallet = Web3.to_checksum_address(agent_wallet)
+    # Resolve the owner from the chain, not the Firestore mirror. The indexer
+    # writes that mirror on a poll loop, so between a marketplace sale settling
+    # and the next poll the previous owner would still satisfy this check — and
+    # on the execute path that means they could still move the agent's funds.
+    owner_wallet = await current_owner_of(db, agent_id, agent_wallet, agent_chain_id)
+    owner_wallet = Web3.to_checksum_address(owner_wallet)
     nonce = secrets.token_urlsafe(32)
     expires_at = now + APPROVAL_CHALLENGE_TTL_SECONDS
     message = _approval_message(
@@ -929,7 +975,18 @@ async def approve_proposal(
         raise HTTPException(status_code=400, detail="Proposal missing wallet or hash")
 
     agent_id = data.get("agent_id", "")
-    challenge_ref, _ = await _verify_proposal_action_signature(db, proposal_id, authorization)
+    challenge_ref, challenge_data = await _verify_proposal_action_signature(
+        db, proposal_id, authorization
+    )
+    # The signer is the owner recorded when the challenge was issued.
+    signer_at_issue = Web3.to_checksum_address(challenge_data.get("owner_wallet", ""))
+
+    agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+    agent_chain_id = (
+        (agent_doc.to_dict() or {}).get("chain_id", data.get("chain_id", 5003))
+        if agent_doc.exists
+        else data.get("chain_id", 5003)
+    )
 
     proposal_ref = db.collection(PROPOSALS_COLLECTION).document(proposal_id)
     now = time.time()
@@ -940,9 +997,42 @@ async def approve_proposal(
 
     # Resolve the chain only after the signature is valid and the proposal has
     # been atomically reserved, so unauthorised requests never reach Web3/KMS.
-    agent_doc_for_chain = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
-    agent_data_for_chain = (agent_doc_for_chain.to_dict() or {}) if agent_doc_for_chain.exists else {}
-    agent_chain_id = agent_data_for_chain.get("chain_id", 5003)
+    # agent_chain_id was already resolved above (it is needed for the on-chain
+    # ownership check that gates this whole flow).
+
+    # ── Re-check ownership immediately before touching the key ──────────
+    # The challenge was signed up to 10 minutes ago. Ownership can change in
+    # that window: a seller could request a challenge, list the agent, sell it,
+    # then approve within the TTL. The signature still verifies — it just no
+    # longer proves anything, because the signer is no longer the owner. Close
+    # that window by resolving the owner again here, after the signature passed
+    # but before any key is decrypted.
+    owner_now = await current_owner_of(
+        db, agent_id, agent_wallet, agent_chain_id
+    )
+    if Web3.to_checksum_address(owner_now) != signer_at_issue:
+        await proposal_ref.update(
+            {
+                "status": "pending",
+                "approval_failed_at": time.time(),
+                "approval_failed_reason": "ownership changed between challenge and approval",
+            }
+        )
+        logger.warning(
+            "approve_proposal %s refused: owner changed from %s to %s after the "
+            "signature was issued (agent %s)",
+            proposal_id,
+            signer_at_issue,
+            owner_now,
+            agent_id,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This agent changed hands while the approval was being "
+                f"confirmed. Only the current owner {owner_now} may approve."
+            ),
+        )
 
     # Call recordExecutedProposal(). Default signer: agent wallet (Mode B) —
     # the user pays for their own proposal execution. Fallback to MINTER_SERVICE
@@ -1142,7 +1232,7 @@ def _execution_message(
 
 
 def _enforce_execution_rate_limit(request: Request, proposal_id: str) -> None:
-    client_host = request.client.host if request.client else "unknown"
+    client_host = client_ip(request)
     key = f"{client_host}:execute:{proposal_id}"
     now = time.time()
     attempts = _approval_attempts[key]
@@ -1188,15 +1278,22 @@ async def create_execution_challenge(
     agent_id = data.get("agent_id", "")
     agent_doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
     agent_data = (agent_doc.to_dict() or {}) if agent_doc.exists else {}
-    owner_wallet = agent_data.get("user_wallet", "")
     agent_wallet = data.get("agent_wallet", "")
     proposal_hash = data.get("proposal_hash", "")
     vault_address = settings.autonomous_vault_address
 
-    if not all(Web3.is_address(a) for a in [owner_wallet, agent_wallet, vault_address]):
+    if not all(Web3.is_address(a) for a in [agent_wallet, vault_address]):
         raise HTTPException(status_code=400, detail="Agent or vault wallet address is invalid")
 
-    owner_wallet = Web3.to_checksum_address(owner_wallet)
+    # Same on-chain ownership resolution as the approve path. This one moves
+    # funds, so a stale Firestore owner here would let a previous seller drain
+    # the agent's balance after selling it.
+    owner_wallet = await current_owner_of(
+        db,
+        agent_id,
+        Web3.to_checksum_address(agent_wallet),
+        agent_data.get("chain_id", data.get("chain_id", 5003)),
+    )
     agent_wallet = Web3.to_checksum_address(agent_wallet)
     nonce = secrets.token_urlsafe(32)
     expires_at = time.time() + APPROVAL_CHALLENGE_TTL_SECONDS

@@ -22,6 +22,7 @@ from web3 import Web3
 
 from core.config import settings
 from core.database import get_db
+from core.pending_spawn import is_pending
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/public", tags=["public"])
@@ -249,8 +250,10 @@ async def get_public_metrics() -> PublicMetricsResponse:
         # Count agents
         total_agents = 0
         total_level_sum = 0.0
-        async for _ in db.collection(AGENTS_COLLECTION).stream():
-            total_agents += 1
+        async for agent_doc in db.collection(AGENTS_COLLECTION).stream():
+            # An unconfirmed spawn attempt is not an agent.
+            if not is_pending(agent_doc.to_dict() or {}):
+                total_agents += 1
         
         # Count wisdom NFTs, events, and bred agents
         total_wisdom_nfts = 0
@@ -320,7 +323,7 @@ async def get_public_agents() -> list[PublicAgentItem]:
         async for doc in db.collection(AGENTS_COLLECTION).stream():
             data = doc.to_dict() or {}
             agent_name = data.get("agent_name", "")
-            if _is_internal_test(agent_name):
+            if _is_internal_test(agent_name) or is_pending(data):
                 continue
 
             agents.append(PublicAgentItem(

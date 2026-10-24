@@ -3,6 +3,30 @@ import { GAS_LIMITS } from './config'
 import { MAEF_NFT_ABI } from './abi'
 import { DEFAULT_CHAIN_ID, getChain } from './chains'
 
+/**
+ * Subset of AsajuMarketplace / AsajuMarketplaceERC20 the UI needs. Both variants
+ * share list/cancel and differ only in how buy() is paid for — which the
+ * service handles, so callers never branch on settlement type.
+ */
+const MARKETPLACE_ABI = [
+  'function listings(address agentWallet) view returns (address seller, uint256 price, bool active)',
+  'function list(address agentWallet, uint256 price)',
+  'function cancel(address agentWallet)',
+  'function buy(address agentWallet) payable',
+  'function agentContract() view returns (address)',
+  'function feeBps() view returns (uint256)',
+  'event AgentSold(address indexed agentWallet, address indexed seller, address indexed buyer, uint256 price, uint256 fee)',
+] as const
+
+/** Minimal ERC-20 surface for the allowance grant before an ERC-20 buy. */
+const ERC20_MIN_ABI = [
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+  'function balanceOf(address account) view returns (uint256)',
+] as const
+
 type EthProvider = {
   isMetaMask?: boolean
   isOKExWallet?: boolean
@@ -90,6 +114,11 @@ export class MantleBlockchainService {
   // Called by WalletConnect picker before connectWallet() to set a specific provider.
   setPreferredProvider(provider: EthProvider | null): void {
     this.preferredProvider = provider
+  }
+
+  /** The provider the app is actually using (a picked wallet, Privy, or the injected default). */
+  getActiveProvider(): EthProvider | undefined {
+    return this.getEthProvider()
   }
 
   private getEthProvider(): EthProvider | undefined {
@@ -293,6 +322,183 @@ export class MantleBlockchainService {
     }
   }
 
+  async transferAgentOwnership(
+    agentWallet: string,
+    newOwner: string,
+    chainId = this.currentChainId,
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    await this.activateChain(chainId)
+    if (!this.contract) {
+      return { success: false, error: 'Contract is not initialized. Check wallet connection.' }
+    }
+    try {
+      const tx = await this.contract.transferAgentOwnership(agentWallet, newOwner)
+      const receipt: TransactionReceipt = await tx.wait()
+      return { success: true, transactionHash: receipt.hash }
+    } catch (error) {
+      console.error('transferAgentOwnership transaction error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error occurred' }
+    }
+  }
+
+  // ── Marketplace escrow ─────────────────────────────────────────────────────
+
+  /**
+   * Read the marketplace escrow for a chain, or null when that chain has none
+   * deployed. Both variants share the list/cancel surface; only buy() differs
+   * (native `payable` vs ERC-20 allowance + transferFrom).
+   */
+  private marketplaceContract(chainId: number): Contract | null {
+    const chain = getChain(chainId)
+    if (!chain?.marketplaceAddress) return null
+    return new Contract(
+      chain.marketplaceAddress,
+      MARKETPLACE_ABI,
+      this.provider ?? this.signer,
+    )
+  }
+
+  /** On-chain listing state for an agent. `price` is 0 when not listed. */
+  async getListing(
+    agentWallet: string,
+    chainId = this.currentChainId,
+  ): Promise<{ listed: boolean; seller: string; price: bigint }> {
+    const market = this.marketplaceContract(chainId)
+    if (!market) return { listed: false, seller: ethers.ZeroAddress, price: 0n }
+    try {
+      const l = await market.listings(agentWallet)
+      return { listed: Boolean(l.active), seller: l.seller, price: l.price }
+    } catch (error) {
+      console.error('getListing failed:', error)
+      return { listed: false, seller: ethers.ZeroAddress, price: 0n }
+    }
+  }
+
+  /** List an agent for sale. Only the current on-chain owner may call this. */
+  async listAgentForSale(
+    agentWallet: string,
+    price: string,
+    chainId = this.currentChainId,
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    await this.activateChain(chainId)
+    const market = this.marketplaceContract(chainId)
+    if (!this.signer) {
+      return { success: false, error: 'Wallet signer is not initialized. Please reconnect your wallet.' }
+    }
+    if (!market) {
+      return { success: false, error: `No marketplace escrow on chain ${chainId}.` }
+    }
+    try {
+      const connected = market.connect(this.signer) as unknown as {
+        list: (a: string, p: bigint) => Promise<{ wait: () => Promise<TransactionReceipt> }>
+      }
+      // Price is in the escrow's settlement unit: the ERC-20's decimals on
+      // token-settled chains (ASA on Robinhood), the native coin's 18 elsewhere.
+      const decimals = getChain(chainId)?.paymentTokenDecimals ?? 18
+      const tx = await connected.list(agentWallet, ethers.parseUnits(price, decimals))
+      const receipt: TransactionReceipt = await tx.wait()
+      return { success: true, transactionHash: receipt.hash }
+    } catch (error) {
+      console.error('listAgentForSale transaction error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'List failed' }
+    }
+  }
+
+  /** Cancel a live listing. Only the seller who created it may call this. */
+  async cancelAgentListing(
+    agentWallet: string,
+    chainId = this.currentChainId,
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    await this.activateChain(chainId)
+    const market = this.marketplaceContract(chainId)
+    if (!this.signer) {
+      return { success: false, error: 'Wallet signer is not initialized. Please reconnect your wallet.' }
+    }
+    if (!market) {
+      return { success: false, error: `No marketplace escrow on chain ${chainId}.` }
+    }
+    try {
+      const connected = market.connect(this.signer) as unknown as {
+        cancel: (a: string) => Promise<{ wait: () => Promise<TransactionReceipt> }>
+      }
+      const tx = await connected.cancel(agentWallet)
+      const receipt: TransactionReceipt = await tx.wait()
+      return { success: true, transactionHash: receipt.hash }
+    } catch (error) {
+      console.error('cancelAgentListing transaction error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Cancel failed' }
+    }
+  }
+
+  /**
+   * Buy a listed agent through the escrow. Native chains send `msg.value`;
+   * ERC-20 chains (Robinhood/ASA) grant an exact allowance first so the
+   * marketplace can pull the token, then call the same buy(). Returns the same
+   * shape for both so callers never branch on settlement type.
+   */
+  async buyListedAgent(
+    agentWallet: string,
+    chainId = this.currentChainId,
+  ): Promise<{
+    success: boolean
+    transactionHash?: string
+    pricePaid?: string
+    currency?: string
+    error?: string
+  }> {
+    await this.activateChain(chainId)
+    const chain = getChain(chainId)
+    const market = this.marketplaceContract(chainId)
+    if (!this.signer) {
+      return { success: false, error: 'Wallet signer is not initialized. Please reconnect your wallet.' }
+    }
+    if (!market || !chain?.marketplaceAddress) {
+      return { success: false, error: `No marketplace escrow on chain ${chainId}.` }
+    }
+
+    try {
+      const listing = await this.getListing(agentWallet, chainId)
+      if (!listing.listed) {
+        return { success: false, error: 'This agent is not listed for sale.' }
+      }
+      const decimals = chain.paymentTokenDecimals ?? 18
+      const currency = chain.paymentTokenSymbol || chain.nativeSymbol
+      const connected = market.connect(this.signer) as unknown as {
+        buy: (a: string, overrides?: Record<string, unknown>) => Promise<{ wait: () => Promise<TransactionReceipt> }>
+      }
+
+      let overrides: Record<string, unknown> = {}
+      if (chain.paymentToken) {
+        // ERC-20 settlement: approve the exact price so the pull can't fail on
+        // allowance, and so a stale listing can't drain more than it should.
+        const token = new Contract(
+          chain.paymentToken,
+          ERC20_MIN_ABI,
+          this.signer,
+        ) as unknown as {
+          approve: (spender: string, amount: bigint) => Promise<{ wait: () => Promise<TransactionReceipt> }>
+        }
+        const approveTx = await token.approve(chain.marketplaceAddress, listing.price)
+        await approveTx.wait()
+        overrides = {}
+      } else {
+        overrides = { value: listing.price }
+      }
+
+      const tx = await connected.buy(agentWallet, overrides)
+      const receipt = await tx.wait()
+      return {
+        success: true,
+        transactionHash: receipt.hash,
+        pricePaid: ethers.formatUnits(listing.price, chain.paymentTokenDecimals ?? 18),
+        currency,
+      }
+    } catch (error) {
+      console.error('buyListedAgent transaction error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Buy failed' }
+    }
+  }
+
   async topUpAgentGas(agentWallet: string, amount: number, chainId = this.currentChainId): Promise<TopUpGasResult> {
     await this.activateChain(chainId)
     if (!this.signer || !this.provider) {
@@ -347,6 +553,12 @@ export class MantleBlockchainService {
       signerWallet: await this.signer.getAddress(),
       signature: await this.signer.signMessage(message),
     }
+  }
+
+  /** Balance in wei; throws when the chain cannot be read (unlike getBalance). */
+  async getBalanceWei(address: string, chainId = this.currentChainId): Promise<bigint> {
+    const provider = new JsonRpcProvider(this.getChainConfig(chainId).rpcUrl)
+    return provider.getBalance(address)
   }
 
   async getBalance(address: string, chainId = this.currentChainId): Promise<string> {

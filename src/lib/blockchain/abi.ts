@@ -22,6 +22,12 @@ export const MAEF_NFT_ABI = [
     "stateMutability": "nonpayable", "type": "function"
   },
   {
+    "inputs": [{ "internalType": "address", "name": "agentWallet", "type": "address" }, { "internalType": "address", "name": "newOwner", "type": "address" }],
+    "name": "transferAgentOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable", "type": "function"
+  },
+  {
     "inputs": [{ "internalType": "address", "name": "agentWallet", "type": "address" }, { "internalType": "string", "name": "eventTitle", "type": "string" }, { "internalType": "string", "name": "eventUrl", "type": "string" }, { "internalType": "string", "name": "platform", "type": "string" }, { "internalType": "string", "name": "agentName", "type": "string" }, { "internalType": "string", "name": "summary", "type": "string" }, { "internalType": "string", "name": "niche", "type": "string" }],
     "name": "mintAttendanceNFT",
     "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],

@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from core.auth import require_oidc
+from core.agent_mandate import active_mandate
 from core.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -129,10 +130,37 @@ async def run_all_scouts(_claims: dict = Depends(require_oidc)) -> dict:
         )
         return {"status": "error", "detail": "Database query failed", "processed": 0}
 
+    # ── Mandate screening ────────────────────────────────────────────────────
+    # Opting an agent into Auto Scout is not enough on its own: every run needs a
+    # mandate the owner signed, because the scheduler holds no wallet. Filter here
+    # so an agent without one is skipped with a reason, rather than being counted
+    # eligible and then failing mid-run with an opaque error.
+    mandate_ready: list[str] = []
+    no_mandate = 0
+    for agent_id in eligible_ids:
+        doc = await db.collection(AGENTS_COLLECTION).document(agent_id).get()
+        data = doc.to_dict() or {}
+        chain_id = int(data.get("chain_id") or 5003)
+        mandate = await active_mandate(
+            db, agent_id=agent_id, chain_id=chain_id, action="attend_event"
+        )
+        if mandate is None:
+            logger.info(
+                "Scheduler: skipping agent %s — no active mandate for attend_event "
+                "(owner must grant one from the agent page)",
+                agent_id,
+            )
+            no_mandate += 1
+            continue
+        mandate_ready.append(agent_id)
+
+    eligible_ids = mandate_ready
+
     logger.info(
-        "Scheduler: %d agents eligible, %d on cooldown (run=%s)",
+        "Scheduler: %d agents eligible, %d on cooldown, %d without a mandate (run=%s)",
         len(eligible_ids),
         skipped,
+        no_mandate,
         scheduler_run_id,
     )
 
@@ -142,6 +170,7 @@ async def run_all_scouts(_claims: dict = Depends(require_oidc)) -> dict:
             "scheduler_run_id": scheduler_run_id,
             "processed": 0,
             "skipped": skipped,
+        "no_mandate": no_mandate,
             "attended": 0,
             "no_new_events": 0,
             "errors": 0,
@@ -186,6 +215,7 @@ async def run_all_scouts(_claims: dict = Depends(require_oidc)) -> dict:
         "scheduler_run_id": scheduler_run_id,
         "processed": len(eligible_ids),
         "skipped": skipped,
+        "no_mandate": no_mandate,
         "attended": attended,
         "no_new_events": no_events,
         "errors": errors,
