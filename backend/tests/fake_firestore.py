@@ -93,6 +93,8 @@ class FakeQuery:
 
     def _matches(self, data: dict) -> bool:
         for fp, op, val in self._filters:
+            if fp is None:
+                continue
             dv = data.get(fp)
             if op == "==":
                 if dv != val:
@@ -156,6 +158,12 @@ class FakeCollection:
         op = kwargs.get("op_string") or kwargs.get("op", "==")
         value = kwargs.get("value")
         return FakeQuery(self, field, op, value)
+
+    def order_by(self, field_path: str, direction: str = "ASCENDING") -> FakeQuery:
+        return FakeQuery(self, None, None, None).order_by(field_path, direction)
+
+    def limit(self, n: int) -> FakeQuery:
+        return FakeQuery(self, None, None, None).limit(n)
 
     async def add(self, data: dict) -> tuple[float, FakeDocRef]:
         """Generate a new doc ID and set data on it.
