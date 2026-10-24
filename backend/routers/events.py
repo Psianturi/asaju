@@ -290,6 +290,7 @@ async def get_agent_mandate(
 
 @router.post("/agent-mandate")
 async def create_agent_mandate(
+    request: Request,
     agent_id: str = Query(...),
     agent_wallet: str = Query(...),
     chain_id: int = Query(5003),
@@ -301,6 +302,7 @@ async def create_agent_mandate(
     The owner is read from the chain at this point, so the mandate can only
     ever be issued to the wallet that actually owns the agent right now.
     """
+    enforce_rate_limit(request, "mandate-challenge", limit=10, window_seconds=60)
     if not Web3.is_address(agent_wallet):
         raise HTTPException(status_code=400, detail="Invalid agent wallet address")
     db = get_db()
@@ -316,6 +318,7 @@ async def create_agent_mandate(
 
 @router.post("/agent-mandate/revoke")
 async def create_agent_mandate_revocation(
+    request: Request,
     agent_id: str = Query(...),
     chain_id: int = Query(5003),
 ) -> dict:
@@ -324,6 +327,7 @@ async def create_agent_mandate_revocation(
     Revocation is signed for the same reason granting is. Anyone who knows an
     agent_id should not be able to switch off another owner's background runs.
     """
+    enforce_rate_limit(request, "mandate-revoke-challenge", limit=10, window_seconds=60)
     db = get_db()
     return await issue_mandate_revocation_challenge(
         db, agent_id=agent_id, chain_id=chain_id
@@ -332,10 +336,12 @@ async def create_agent_mandate_revocation(
 
 @router.post("/agent-mandate/revoke/confirm")
 async def confirm_agent_mandate_revocation(
+    request: Request,
     nonce: str = Query(...),
     signature: str = Query(...),
 ) -> dict:
     """Step 2 of cancelling a mandate: verify the owner's signature."""
+    enforce_rate_limit(request, "mandate-revoke-confirm", limit=20, window_seconds=60)
     db = get_db()
     return await confirm_mandate_revocation(
         db, nonce=nonce, signature=signature
@@ -344,10 +350,12 @@ async def confirm_agent_mandate_revocation(
 
 @router.post("/agent-mandate/confirm")
 async def confirm_agent_mandate(
+    request: Request,
     nonce: str = Query(...),
     signature: str = Query(...),
 ) -> dict:
     """Step 2 of granting a mandate: verify the owner's signature and store it."""
+    enforce_rate_limit(request, "mandate-confirm", limit=20, window_seconds=60)
     db = get_db()
     return await grant_mandate(db, nonce=nonce, signature=signature)
 

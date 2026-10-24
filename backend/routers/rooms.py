@@ -9,11 +9,12 @@ time as `Authorization: Bearer <room_key>`.
 
 import logging
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core.agent_auth import current_owner_of
 from core.database import get_db
+from core.rate_limit import enforce as enforce_rate_limit
 from services import agent_room
 from services.agent_room import RoomError, RoomForbidden, RoomLimitReached
 
@@ -85,7 +86,9 @@ async def room_config() -> dict:
 
 
 @router.post("/challenge")
-async def post_challenge(body: RoomChallengeRequest) -> dict:
+async def post_challenge(body: RoomChallengeRequest, request: Request) -> dict:
+    # Every call writes a challenge document.
+    enforce_rate_limit(request, "room-challenge", limit=10, window_seconds=60)
     db = get_db()
     # Checked here only to fail early; open_room is where the quota is enforced.
     left = await agent_room.rooms_left_today(db, body.owner)
