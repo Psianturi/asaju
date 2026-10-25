@@ -531,10 +531,8 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       // Pre-flight: surface the wrong-account case BEFORE MetaMask prompts.
       // The signature request would otherwise show the agent wallet, leaving
       // the user wondering why "Approve" silently fails server-side.
-      const ok = await assertSignerMatchesOwner(proposal, 'approve')
-      if (!ok) return
-
-      const challenge = await cloudRunService.createProposalApprovalChallenge(proposal.proposal_id)
+      const challenge = await assertSignerMatchesOwner(proposal, 'approve')
+      if (!challenge) return
       const signedAuthorization = await mantleService.signMessage(challenge.message)
       const authorization = { ...signedAuthorization, nonce: challenge.nonce }
       const updated = await cloudRunService.approveProposal(proposal.proposal_id, authorization)
@@ -580,19 +578,17 @@ export function ProposalModal({ open, onOpenChange, agent, onProposalCountChange
       const msg = `MetaMask is on ${shortActive}, but the proposal expects the owner (${shortOwner}). Switch accounts and try again.`
       setSignerMismatch(msg)
       toast.warning('Wrong MetaMask account', { description: msg })
-      return false
+      return null
     }
     setSignerMismatch(null)
-    return true
+    return challenge
   }
 
   const handleReject = async (proposal: BackendProposal) => {
     setActioningId(proposal.proposal_id)
     try {
-      const ok = await assertSignerMatchesOwner(proposal, 'reject')
-      if (!ok) return
-
-      const challenge = await cloudRunService.createProposalApprovalChallenge(proposal.proposal_id, 'reject')
+      const challenge = await assertSignerMatchesOwner(proposal, 'reject')
+      if (!challenge) return
       const signedAuthorization = await mantleService.signMessage(challenge.message)
       const authorization = { ...signedAuthorization, nonce: challenge.nonce }
       const updated = await cloudRunService.rejectProposal(proposal.proposal_id, authorization)

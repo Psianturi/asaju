@@ -15,6 +15,21 @@ export default defineConfig({
       "@": resolve(projectRoot, "src"),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // Libraries that change rarely get their own cacheable chunks; the app
+        // chunk then only carries app code. Wallet SDKs stay lazy as before.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "react";
+          if (/[\\/]node_modules[\\/](framer-motion|motion-dom|motion-utils)[\\/]/.test(id)) return "motion";
+          return undefined;
+        },
+      },
+    },
+  },
   test: {
     environment: "node",
     // Kilo keeps git worktrees under .kilo/; without this, vitest picks up the

@@ -370,6 +370,24 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
   }
 }
 
+// Feed reads are polled by several components at once; one in-flight request
+// per key, and a short-lived result, replaces the duplicates. Writes call
+// invalidateCache() so the next read is fresh.
+const _cache = new Map<string, { at: number; value: Promise<unknown> }>()
+
+function memoGet<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
+  const hit = _cache.get(key)
+  const now = Date.now()
+  if (hit && now - hit.at < ttlMs) return hit.value as Promise<T>
+  const value = fetcher().catch((err) => { _cache.delete(key); throw err })
+  _cache.set(key, { at: now, value })
+  return value
+}
+
+export function invalidateCache(prefix = ''): void {
+  for (const key of Array.from(_cache.keys())) if (key.startsWith(prefix)) _cache.delete(key)
+}
+
 async function handleAPIResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let errorMessage = `API Error: ${response.status} ${response.statusText}`
@@ -1045,7 +1063,7 @@ export const cloudRunService = {
         {
           method: 'GET',
         },
-        5000
+        15000
       )
 
       return handleAPIResponse<{ status: string; version: string; autonomous_execution_enabled?: boolean }>(response)
@@ -1062,65 +1080,69 @@ export const cloudRunService = {
   // ── Public endpoints (no auth required) ────────────────────────────────────
 
   async getPublicMetrics() {
-    try {
-      const response = await fetchWithTimeout(
-        `${GCP_BACKEND_URL}/api/v1/public/metrics`,
-        { method: 'GET' }
-      )
+    return memoGet('public-metrics', 60_000, async () => {
+      try {
+        const response = await fetchWithTimeout(
+          `${GCP_BACKEND_URL}/api/v1/public/metrics`,
+          { method: 'GET' }
+        )
 
-      return await handleAPIResponse<{
-        total_agents: number
-        total_wisdom_nfts: number
-        total_events_attended: number
-        average_agent_level: number
-        global_wisdom_index: number
-        total_bred_agents: number
-        total_proposals_approved: number
-      }>(response)
-    } catch (error) {
-      console.warn('[cloudRunService] getPublicMetrics failed:', error)
-      return {
-        total_agents: 0,
-        total_wisdom_nfts: 0,
-        total_events_attended: 0,
-        average_agent_level: 0,
-        global_wisdom_index: 0,
-        total_bred_agents: 0,
-        total_proposals_approved: 0,
+        return await handleAPIResponse<{
+          total_agents: number
+          total_wisdom_nfts: number
+          total_events_attended: number
+          average_agent_level: number
+          global_wisdom_index: number
+          total_bred_agents: number
+          total_proposals_approved: number
+        }>(response)
+      } catch (error) {
+        console.warn('[cloudRunService] getPublicMetrics failed:', error)
+        return {
+          total_agents: 0,
+          total_wisdom_nfts: 0,
+          total_events_attended: 0,
+          average_agent_level: 0,
+          global_wisdom_index: 0,
+          total_bred_agents: 0,
+          total_proposals_approved: 0,
+        }
       }
-    }
+    })
   },
 
   async getPublicAgents() {
-    try {
-      const response = await fetchWithTimeout(
-        `${GCP_BACKEND_URL}/api/v1/public/agents`,
-        { method: 'GET' }
-      )
+    return memoGet('public-agents', 60_000, async () => {
+      try {
+        const response = await fetchWithTimeout(
+          `${GCP_BACKEND_URL}/api/v1/public/agents`,
+          { method: 'GET' }
+        )
 
-      const raw = await handleAPIResponse<Array<{
-        agent_name: string
-        niche: string
-        level: number
-        total_events: number
-        chain_id: number
-        generation: number
-        ownership_status: string
-      }>>(response)
+        const raw = await handleAPIResponse<Array<{
+          agent_name: string
+          niche: string
+          level: number
+          total_events: number
+          chain_id: number
+          generation: number
+          ownership_status: string
+        }>>(response)
 
-      return raw.map(a => ({
-        agentName: a.agent_name,
-        niche: a.niche,
-        level: a.level,
-        totalEvents: a.total_events,
-        chainId: a.chain_id,
-        generation: a.generation,
-        ownershipStatus: a.ownership_status,
-      }))
-    } catch (error) {
-      console.warn('[cloudRunService] getPublicAgents failed:', error)
-      return []
-    }
+        return raw.map(a => ({
+          agentName: a.agent_name,
+          niche: a.niche,
+          level: a.level,
+          totalEvents: a.total_events,
+          chainId: a.chain_id,
+          generation: a.generation,
+          ownershipStatus: a.ownership_status,
+        }))
+      } catch (error) {
+        console.warn('[cloudRunService] getPublicAgents failed:', error)
+        return []
+      }
+    })
   },
 
   async getAgentScoutLogs(agentId: string) {
@@ -1295,8 +1317,11 @@ export const cloudRunService = {
           signature: authorization.signature,
         }),
       },
+      130_000,
     )
-    return handleAPIResponse<BackendProposal>(response)
+    const out = await handleAPIResponse<BackendProposal>(response)
+    invalidateCache('inbox:')
+    return out
   },
 
   async rejectProposal(
@@ -1314,8 +1339,11 @@ export const cloudRunService = {
           signature: authorization.signature,
         }),
       },
+      130_000,
     )
-    return handleAPIResponse<BackendProposal>(response)
+    const out = await handleAPIResponse<BackendProposal>(response)
+    invalidateCache('inbox:')
+    return out
   },
 
   async createExecutionChallenge(
@@ -1403,11 +1431,13 @@ export const cloudRunService = {
   },
 
   async getMarketSnapshot(coins: string[] = ['bitcoin', 'ethereum', 'mantle']): Promise<MarketSnapshot> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/snapshot?coins=${encodeURIComponent(coins.join(','))}`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<MarketSnapshot>(response)
+    return memoGet(`snapshot:${coins.join(',')}`, 60_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/snapshot?coins=${encodeURIComponent(coins.join(','))}`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<MarketSnapshot>(response)
+    })
   },
 
   async getMantleDexPools(): Promise<{ network: string; page: number; pools: DexPool[] }> {
@@ -1416,51 +1446,63 @@ export const cloudRunService = {
 
   /** Top DEX pools on one GeckoTerminal network (eth, bsc, arbitrum, mantle, …). */
   async getDexPools(network: string): Promise<{ network: string; page: number; pools: DexPool[] }> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/dex-pools/${encodeURIComponent(network)}`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
+    return memoGet(`dex:${network}`, 120_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/dex-pools/${encodeURIComponent(network)}`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ network: string; page: number; pools: DexPool[] }>(response)
+    })
   },
 
   async getTrendingGainersLosers(timePeriod: '1h' | '24h' | '7d' | '30d' = '24h', limit = 5, sortDir: 'asc' | 'desc' = 'desc'): Promise<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}&sort_dir=${sortDir}`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability>(response)
+    return memoGet(`gainers:${timePeriod}:${limit}:${sortDir}`, 120_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/trending/gainers-losers?time_period=${timePeriod}&limit=${limit}&sort_dir=${sortDir}`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ time_period: string; sort_dir?: string; results: TrendingCoin[] } & FeedAvailability>(response)
+    })
   },
 
   async getNewListings(limit = 5): Promise<{ results: NewListing[] } & FeedAvailability> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/listings/new?limit=${limit}`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ results: NewListing[] } & FeedAvailability>(response)
+    return memoGet(`listings:${limit}`, 300_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/listings/new?limit=${limit}`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ results: NewListing[] } & FeedAvailability>(response)
+    })
   },
 
   async getAirdrops(limit = 5): Promise<{ results: Airdrop[] } & FeedAvailability> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/airdrops?limit=${limit}`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ results: Airdrop[] } & FeedAvailability>(response)
+    return memoGet(`airdrops:${limit}`, 300_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/airdrops?limit=${limit}`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ results: Airdrop[] } & FeedAvailability>(response)
+    })
   },
 
   async getGlobalMetrics(): Promise<{ metrics: GlobalMetrics | null }> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/global-metrics`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ metrics: GlobalMetrics | null }>(response)
+    return memoGet('global-metrics', 120_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/global-metrics`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ metrics: GlobalMetrics | null }>(response)
+    })
   },
 
   async getMostVisited(limit = 5): Promise<{ results: TrendingCoin[] } & FeedAvailability> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/most-visited?limit=${limit}`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ results: TrendingCoin[] } & FeedAvailability>(response)
+    return memoGet(`most-visited:${limit}`, 120_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/most-visited?limit=${limit}`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ results: TrendingCoin[] } & FeedAvailability>(response)
+    })
   },
 
   /**
@@ -1470,11 +1512,13 @@ export const cloudRunService = {
    * highest-priority context. Falls back to `summary = {}` on transient errors.
    */
   async getCmcAiBrief(): Promise<{ summary: CmcAiSummary }> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/market/cmc-ai-brief`,
-      { method: 'GET' },
-    )
-    return handleAPIResponse<{ summary: CmcAiSummary }>(response)
+    return memoGet('cmc-ai-brief', 300_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/market/cmc-ai-brief`,
+        { method: 'GET' },
+      )
+      return handleAPIResponse<{ summary: CmcAiSummary }>(response)
+    })
   },
 
   async getOwnerInbox(wallet: string): Promise<{
@@ -1514,12 +1558,14 @@ export const cloudRunService = {
       score: number | null
     }>
   }> {
-    const response = await fetchWithTimeout(
-      `${GCP_BACKEND_URL}/api/v1/owner/inbox?user_wallet=${encodeURIComponent(wallet)}`,
-      { method: 'GET' },
-      15000,
-    )
-    return handleAPIResponse(response)
+    return memoGet(`inbox:${wallet.toLowerCase()}`, 12_000, async () => {
+      const response = await fetchWithTimeout(
+        `${GCP_BACKEND_URL}/api/v1/owner/inbox?user_wallet=${encodeURIComponent(wallet)}`,
+        { method: 'GET' },
+        15000,
+      )
+      return handleAPIResponse(response)
+    })
   },
 
 }
