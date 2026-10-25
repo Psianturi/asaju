@@ -371,9 +371,9 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
               {(['instant', 'live'] as MatchType[]).map(m => (
                 <button key={m} type="button" onClick={() => setMode(m)} aria-pressed={mode === m}
                   className={cn('rounded-lg border px-2.5 py-2 text-left transition-all', mode === m ? 'border-primary/60 bg-primary/10' : 'border-border/50 hover:border-primary/30')}>
-                  <p className="text-xs font-semibold flex items-center gap-1">{m === 'instant' ? <Lightning size={12} weight="fill" className="text-amber-400" /> : <Clock size={12} className="text-primary" />}{m === 'instant' ? 'Instant' : 'Live'}</p>
+                  <p className="text-xs font-semibold flex items-center gap-1">{m === 'instant' ? <Lightning size={12} weight="fill" className="text-amber-400" /> : <Clock size={12} className="text-primary" />}{m === 'instant' ? 'Instant' : 'Live'}{m === 'instant' && <span className="ml-1 rounded border border-primary/40 px-1 text-[9px] font-mono text-primary">quick</span>}</p>
                   <p className="text-[10px] text-muted-foreground leading-snug">
-                    {m === 'instant' ? 'Plays now on the last 24h of 30-min candles.' : 'Rounds settle on real future prices.'}
+                    {m === 'instant' ? 'Plays now on the last 24h of 30-min candles.' : 'Each round waits for real prices: 5 min to 1 h per round.'}
                   </p>
                 </button>
               ))}
@@ -410,7 +410,7 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
           </p>
 
           <Button className="w-full" disabled={!challenger || !opponent || busy} onClick={start}>
-            <ShieldCheck size={16} className="mr-1.5" />{busy ? 'Starting…' : 'Sign & start duel'}
+            <ShieldCheck size={16} className="mr-1.5" />{busy ? 'Scouting the market… (2 AI calls)' : 'Sign & start duel'}
           </Button>
         </>
       )}
@@ -427,6 +427,16 @@ function RoundLog({ duel }: { duel: ArenaDuel }) {
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Round log</p>
         <p className="text-[10px] font-mono text-muted-foreground">{done}/{duel.rounds_total} settled</p>
       </div>
+      {(a.strategy || b.strategy) && (
+        <div className="grid gap-2 sm:grid-cols-2 text-[11px]">
+          {[a, b].map(f => (
+            <div key={f.agent_id} className="rounded-lg border border-border/40 bg-white/[0.02] px-3 py-2">
+              <p className="font-semibold">{f.name} <span className="font-mono text-muted-foreground">· {f.style ?? 'fighter'}{f.stats && ` · POW ${f.stats.power} GRD ${f.stats.guard} FOC ${f.stats.focus}`}</span></p>
+              <p className="text-muted-foreground italic leading-snug">“{f.strategy || '—'}”</p>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-2">
         {[...duel.rounds].reverse().map(r => {
           const picks = (r.picks || [])

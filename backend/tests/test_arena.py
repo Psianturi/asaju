@@ -333,3 +333,23 @@ async def test_challenge_endpoint_validates_and_rate_limits(client, owner):
     for _ in range(8):
         assert (await client.post("/api/v1/arena/challenge", json=body)).status_code == 200
     assert (await client.post("/api/v1/arena/challenge", json=body)).status_code == 429
+
+
+async def test_duel_list_survives_a_missing_composite_index(db, owner, monkeypatch):
+    """Production refused `where status + order_by updated_at` until the composite
+    index existed; the fake never did, which is why the test suite missed it."""
+    d1, _ = await _open(db, owner, now=1000)
+    d2, _ = await _open(db, owner, agent="Brisa", opponent="Atlas", now=2000)
+    from tests.fake_firestore import FakeQuery
+
+    real = FakeQuery.order_by
+
+    def refuse(self, *a, **k):
+        if self._filters and self._filters[0][0] == "status":
+            raise RuntimeError("400 The query requires an index. You can create it here: ...")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(FakeQuery, "order_by", refuse)
+    live = await arena.list_duels(db, "live", 10)
+    assert [d["duel_id"] for d in live] == [d2["duel_id"], d1["duel_id"]]
+    assert all("picks" not in r for d in live for r in d["rounds"])

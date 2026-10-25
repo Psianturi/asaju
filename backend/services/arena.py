@@ -730,13 +730,27 @@ async def get_duel(db, duel_id: str) -> dict:
 
 
 async def list_duels(db, status: str | None, limit: int) -> list[dict]:
-    q = db.collection(DUELS_COLLECTION)
+    """Newest first. Filtering by status while sorting by time needs a composite
+    index (status + updated_at); until it exists Firestore refuses the query,
+    so fall back to sorting the filtered rows here rather than failing the board."""
+    base = db.collection(DUELS_COLLECTION)
     if status in ("live", "finished"):
-        q = q.where(filter=FieldFilter("status", "==", status))
-    q = q.order_by("updated_at", direction="DESCENDING").limit(limit)
+        base = base.where(filter=FieldFilter("status", "==", status))
+    rows: list[dict] = []
+    try:
+        async for snap in base.order_by("updated_at", direction="DESCENDING").limit(limit).stream():
+            rows.append(snap.to_dict() or {})
+    except Exception as exc:
+        if "index" not in str(exc).lower():
+            raise
+        logger.warning("arena: duel list index missing, sorting in memory")
+        async for snap in base.limit(max(limit * 5, 100)).stream():
+            rows.append(snap.to_dict() or {})
+        rows.sort(key=lambda d: -float(d.get("updated_at") or 0))
+        rows = rows[:limit]
     out = []
-    async for snap in q.stream():
-        d = public_duel(snap.to_dict() or {})
+    for raw in rows:
+        d = public_duel(raw)
         # Lists stay light: picks live on the duel page.
         d["rounds"] = [{k: v for k, v in r.items() if k != "picks"} for r in d["rounds"]]
         out.append(d)

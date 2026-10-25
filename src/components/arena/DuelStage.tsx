@@ -409,6 +409,9 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
               {secondsLeft > 0 ? fmtCountdown(secondsLeft) : 'Settling…'}
             </p>
             <p className="text-[10px] text-white/60">open {fmtPrice(sealed.open_price)}</p>
+            <p className="mt-1 max-w-[260px] text-[10px] leading-snug text-white/55">
+              Live duel: both plans are locked. Nothing moves until this window closes, then the market lands the blows.
+            </p>
           </div>
         ) : playing ? (
           <button type="button" onClick={() => { fastRef.current = true }} className="pointer-events-auto inline-flex items-center gap-1 rounded-lg bg-black/55 backdrop-blur px-3 py-1.5 border border-white/10 text-xs hover:border-primary/50">
@@ -420,6 +423,18 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
           </button>
         ) : null}
       </div>
+
+      {/* While a live round waits, keep the two battle plans in view. */}
+      {sealed && !intro && !reveal && !banner && (a.strategy || b.strategy) && (
+        <div className="absolute inset-x-2 sm:inset-x-4 bottom-2 sm:bottom-3 hidden sm:grid grid-cols-2 gap-2 text-white pointer-events-none">
+          {[a, b].map((f, i) => (
+            <div key={f.agent_id} className={cn('rounded-lg border border-white/10 bg-black/45 backdrop-blur px-3 py-1.5', i === 1 && 'text-right')}>
+              <p className="text-[9px] uppercase tracking-widest text-white/50">{f.name} · battle plan</p>
+              <p className="text-[11px] italic text-white/80 leading-snug line-clamp-2">“{f.strategy}”</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Pre-fight: each agent's scouting report (the one AI step). */}
       <AnimatePresence>
