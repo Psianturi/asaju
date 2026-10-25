@@ -111,6 +111,9 @@ class ArenaForbidden(Exception):
 
 # ── Pure rules ───────────────────────────────────────────────────────────────
 
+STAT_EDGE_MAX = 0.10
+
+
 def _clamp(v: float, lo: int = STAT_MIN, hi: int = STAT_MAX) -> int:
     return int(max(lo, min(hi, round(v))))
 
@@ -141,7 +144,9 @@ def strike(duel_id: str, round_no: int, me: dict, them: dict, direction: str, co
     o = outcome(direction, confidence, move)
     seed = (duel_id, round_no, me["agent_id"])
     if o["result"] == "hit":
-        dmg = o["hit"] * (1 + (me["stats"]["power"] - them["stats"]["guard"]) / 100)
+        # Stats tilt a blow by at most ±10%: the call decides the fight, not the level.
+        edge = max(-STAT_EDGE_MAX, min(STAT_EDGE_MAX, (me["stats"]["power"] - them["stats"]["guard"]) / 100))
+        dmg = o["hit"] * (1 + edge)
         crit = roll(*seed, "crit") < me["stats"]["focus"] / 200
         dmg = max(MIN_HIT, round(dmg * (CRIT_MULTIPLIER if crit else 1)))
         heavy = crit or dmg >= 35
@@ -151,7 +156,7 @@ def strike(duel_id: str, round_no: int, me: dict, them: dict, direction: str, co
         move_name = weighted[int(roll(*seed, "move") * len(weighted)) % len(weighted)]
         return {"hit": dmg, "recoil": 0, "result": "hit", "crit": crit, "move": move_name}
     if o["result"] == "miss":
-        recoil = round(o["recoil"] * (1 - me["stats"]["guard"] / 200))
+        recoil = round(o["recoil"] * (1 - min(STAT_EDGE_MAX, me["stats"]["guard"] / 200)))
         return {"hit": 0, "recoil": recoil, "result": "miss", "crit": False, "move": "stumble" if recoil else "whiff"}
     return {"hit": 0, "recoil": 0, "result": "flat", "crit": False, "move": "clash"}
 

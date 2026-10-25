@@ -91,7 +91,7 @@ export interface LeagueRecord {
 
 export const LEAGUE_DEFAULTS: LeagueConfig = {
   enabled: false, horizon_seconds: 1800, cadence_seconds: 1800, assets: ['BTC', 'ETH', 'SOL', 'BNB', 'MNT'],
-  max_participants: 8, picks_per_day: 8, points_per_confidence: 10, wrong_penalty_per_confidence: 2,
+  max_participants: 8, picks_per_day: 8, points_per_confidence: 10, wrong_penalty_per_confidence: 10,
   magnitude_bonus_max: 10, ai_calls_per_pick: 1, season_id: '',
 }
 
@@ -123,8 +123,7 @@ export function pointsFor(direction: Direction, confidence: number, move: number
   const c = Math.max(1, Math.min(3, Math.round(confidence)))
   const correct = move > 0 === (direction === 'up')
   if (correct) return cfg.points_per_confidence * c + Math.min(cfg.magnitude_bonus_max, Math.floor(Math.abs(move) * 2000))
-  const penalty = cfg.wrong_penalty_per_confidence * (c - 1)
-  return penalty ? -penalty : 0
+  return -cfg.wrong_penalty_per_confidence * c
 }
 
 /** "14:30–15:00 UTC" */

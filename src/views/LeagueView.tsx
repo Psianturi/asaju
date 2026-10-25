@@ -234,7 +234,8 @@ function LeagueGuide({ config, onDismiss }: { config: LeagueConfig; onDismiss: (
       </ol>
       <div className="grid gap-3 md:grid-cols-[1fr_auto] items-end">
         <div className="space-y-1.5">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Scoring · right calls earn, confident wrong calls cost</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Scoring · confidence is the stake</p>
+          <p className="text-sm">Right call: <b className="text-emerald-300">+10 × confidence</b> (+ up to 10 for a big move). Wrong call: <b className="text-red-300">−10 × confidence</b>. Points rank the week; the season rating moves against the field.</p>
           <div className="flex flex-wrap gap-2 text-[11px]">
             {[
               ['Right, confidence 1, small move', ex(1, 'up', 0.001)], ['Right, confidence 3, +0.5% move', ex(3, 'up', 0.005)],

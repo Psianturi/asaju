@@ -1,6 +1,10 @@
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ChartLineUp, Sword, Bug, ArrowRight, Lightning, LockKey, CheckCircle } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
+import { fmtTimeAgo } from '@/lib/format'
+import { fmtCountdown, resultLine } from '@/lib/arena'
+import { arenaService, leagueService } from '@/services/cloudRunService'
 
 /**
  * Games hub: one card per game. The League is the flagship (the only game the
@@ -17,9 +21,9 @@ const GAMES: { id: GameId; icon: typeof Sword; title: string; tag: string; tagTo
     facts: ['1 AI call per pick', 'Sealed until settled, verifiable after', 'Weekly season rating'], open: true,
   },
   {
-    id: 'duel', icon: Sword, title: 'Duel (legacy)', tag: 'Simulation', tagTone: 'border-border/60 text-muted-foreground',
-    text: 'The first game: two agents fight it out, blows landed by their market calls. Kept playable while the new Fight Arena is built.',
-    facts: ['2 AI calls per duel', 'Instant or live rounds', 'Separate rating'], open: true,
+    id: 'duel', icon: Sword, title: 'Agent Duel', tag: 'Simulation · Live', tagTone: 'border-fuchsia-400/50 text-fuchsia-300',
+    text: 'Two agents fight it out: every blow is a market call that landed. Instant duels play in seconds, live duels wait for real prices.',
+    facts: ['2 AI calls per duel', 'Instant or live rounds', 'Style rating, separate from the League'], open: true,
   },
   {
     id: 'exploit', icon: Bug, title: 'Exploit Hunt', tag: 'Coming soon', tagTone: 'border-border/60 text-muted-foreground',
@@ -28,7 +32,44 @@ const GAMES: { id: GameId; icon: typeof Sword; title: string; tag: string; tagTo
   },
 ]
 
+/** One live line per card so the hub reads as "now", not as a brochure. */
+function useLiveLines(): Partial<Record<GameId, string>> {
+  const [lines, setLines] = useState<Partial<Record<GameId, string>>>({})
+  const [now, setNow] = useState(() => Date.now() / 1000)
+  const [next, setNext] = useState<{ symbol: string; open_ts: number; participants: number } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const [u, live, fin] = await Promise.all([
+        leagueService.windows('upcoming', 1).catch(() => null),
+        arenaService.duels('live', 20).catch(() => null),
+        arenaService.duels('finished', 1).catch(() => null),
+      ])
+      if (cancelled) return
+      const w = u?.windows[0]
+      setNext(w ? { symbol: w.symbol, open_ts: w.open_ts, participants: w.participants.length } : null)
+      const last = fin?.duels[0]
+      const liveN = live?.duels.length ?? 0
+      setLines(l => ({
+        ...l,
+        duel: last
+          ? `${liveN ? `${liveN} live now · ` : ''}last: ${resultLine(last)} (${fmtTimeAgo(last.created_at * 1000)})`
+          : liveN ? `${liveN} live now` : 'No duel yet today — start one',
+      }))
+    }
+    void load()
+    const t = setInterval(() => { if (document.visibilityState === 'visible') void load() }, 30000)
+    const tick = setInterval(() => setNow(Date.now() / 1000), 1000)
+    return () => { cancelled = true; clearInterval(t); clearInterval(tick) }
+  }, [])
+  const league = next
+    ? `Next: ${next.symbol} · picks close in ${fmtCountdown(next.open_ts - now)} · ${next.participants} agent${next.participants === 1 ? '' : 's'} in`
+    : undefined
+  return { ...lines, league }
+}
+
 export function GamesHub({ onOpen, className }: { onOpen: (game: GameId) => void; className?: string }) {
+  const live = useLiveLines()
   return (
     <div className={cn('space-y-4', className)}>
       <div className="grid gap-4 md:grid-cols-3">
@@ -55,6 +96,12 @@ export function GamesHub({ onOpen, className }: { onOpen: (game: GameId) => void
             <ul className="space-y-1 text-[11px] text-muted-foreground">
               {g.facts.map(f => <li key={f} className="flex items-center gap-1.5"><CheckCircle size={12} className={g.open ? 'text-primary' : ''} /> {f}</li>)}
             </ul>
+            {live[g.id] && (
+              <p className="text-[11px] font-mono text-foreground/90 flex items-center gap-1.5 rounded-md border border-border/50 bg-black/25 px-2 py-1 w-fit max-w-full">
+                <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" /></span>
+                {live[g.id]}
+              </p>
+            )}
             {g.open && <p className="text-xs font-semibold text-primary inline-flex items-center gap-1">Open <ArrowRight size={12} /></p>}
           </motion.button>
         ))}

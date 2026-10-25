@@ -46,6 +46,10 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
   const [guideOpen, setGuideOpen] = useState(false)
   const demo = isDemoDuel(selected)
   const openDemo = () => setSelected(demoDuel())
+  // The result and the log follow the replay, so the stage never gets spoiled.
+  const [progress, setProgress] = useState({ shown: 0, done: false })
+  const onProgress = useCallback((shown: number, done: boolean) => setProgress({ shown, done }), [])
+  useEffect(() => { setProgress({ shown: 0, done: false }) }, [selected?.duel_id])
 
   const refreshLists = useCallback(async () => {
     try {
@@ -101,9 +105,9 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
               : `${selected.mode === 'instant' ? 'INSTANT' : 'LIVE'} · ${selected.status === 'live' ? 'in progress' : resultLine(selected)} · ${HORIZON_LABEL[selected.horizon] ?? selected.horizon} rounds · ${selected.ai_calls ?? 2} AI calls · started ${fmtTimeAgo(selected.created_at * 1000)}`}
           </p>
         </div>
-        <DuelStage duel={selected} startHp={config.start_hp} onAdvance={advance} demo={demo} />
-        {selected.status === 'finished' && <DuelSummary duel={selected} />}
-        <RoundLog duel={selected} />
+        <DuelStage duel={selected} startHp={config.start_hp} onAdvance={advance} demo={demo} onProgress={onProgress} />
+        {selected.status === 'finished' && progress.done && <DuelSummary duel={selected} />}
+        <RoundLog duel={selected} shown={progress.shown} />
       </div>
     )
   }
@@ -437,9 +441,11 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
   )
 }
 
-function RoundLog({ duel }: { duel: ArenaDuel }) {
+function RoundLog({ duel, shown }: { duel: ArenaDuel; shown: number }) {
   const [a, b] = duel.fighters
-  const done = resolvedCount(duel)
+  const done = Math.min(resolvedCount(duel), shown)
+  // Only rounds the stage has already played, plus the one still sealed.
+  const visible = duel.rounds.filter((r, i) => i < shown || r.status === 'sealed')
   return (
     <Card className="glass-card p-5 space-y-3">
       <div className="flex items-center justify-between">
@@ -457,7 +463,8 @@ function RoundLog({ duel }: { duel: ArenaDuel }) {
         </div>
       )}
       <div className="space-y-2">
-        {[...duel.rounds].reverse().map(r => {
+        {visible.length === 0 && <p className="text-[11px] text-muted-foreground">Rounds appear here as the fight plays out.</p>}
+        {[...visible].reverse().map(r => {
           const picks = (r.picks || [])
           const pa = picks[0]; const pb = picks[1]
           return (

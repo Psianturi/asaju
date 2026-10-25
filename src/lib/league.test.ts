@@ -15,8 +15,8 @@ describe('league helpers', () => {
   it('scores like the server', () => {
     expect(pointsFor('up', 3, 0.01)).toBe(40)   // 30 + capped bonus
     expect(pointsFor('up', 2, 0.001)).toBe(22)  // 20 + 2
-    expect(pointsFor('down', 1, 0.004)).toBe(0) // wrong at c1 is free
-    expect(pointsFor('down', 3, 0.004)).toBe(-4)
+    expect(pointsFor('down', 1, 0.004)).toBe(-10) // the stake is lost
+    expect(pointsFor('down', 3, 0.004)).toBe(-30)
     expect(pointsFor('down', 2, -0.002)).toBe(24)
   })
 

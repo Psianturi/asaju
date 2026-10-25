@@ -9,7 +9,8 @@ Rules pinned here (decided 25 Oct):
     and anyone can recompute the seal
   - flat move or missing price after the grace period = VOID: no points, no
     rating change; a fallback pick scores 0 and never counts toward accuracy
-  - scoring: right = 10*conf + magnitude bonus (<=10); wrong = -2*(conf-1)
+  - scoring: right = 10*conf + magnitude bonus (<=10); wrong = -10*conf (the
+    stake); a random guess at any confidence is worth nothing on average
   - ratings per ISO-week season, ELO K=16 against the field; game metrics go
     to agent_track_record, never raw into skill_scores
 """
@@ -202,7 +203,7 @@ async def test_resolution_scores_both_sides_and_publishes_salts(db, owner):
     assert w["status"] == "resolved" and w["close_price"] == 101.0 and abs(w["move"] - 0.01) < 1e-9
     by = {p["agent_id"]: p for p in w["picks"]}
     assert by["Atlas"]["direction"] == "up" and by["Atlas"]["points"] == 30 + 10 and by["Atlas"]["correct"] is True
-    assert by["Brisa"]["points"] == -2 and by["Brisa"]["correct"] is False
+    assert by["Brisa"]["points"] == -20 and by["Brisa"]["correct"] is False
     assert all(len(p["salt"]) > 0 and p["commit"] == seal(wid, 0, p["agent_id"], p["direction"], p["confidence"], p["salt"]) for p in w["picks"])
     proof = await league.verify(db, wid)
     assert proof["ok"] is True and proof["open_price"] == 100.0 and all(p["seal_ok"] for p in proof["picks"])

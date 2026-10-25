@@ -23,6 +23,8 @@ interface DuelStageProps {
   demo?: boolean
   /** Ask the server to settle a due round. Called once the countdown hits zero. */
   onAdvance?: () => Promise<unknown>
+  /** How far the replay has got: rounds shown so far, and whether the ending has played. */
+  onProgress?: (shown: number, done: boolean) => void
 }
 
 interface Floater { id: number; side: 0 | 1 | 'center'; text: string; kind: 'hit' | 'recoil' | 'flat' | 'miss' | 'crit' | 'move' }
@@ -163,7 +165,7 @@ function PickCard({ pick, name, side }: { pick: RevealedPick | undefined; name: 
   )
 }
 
-export function DuelStage({ duel, startHp = 100, onAdvance, demo = false }: DuelStageProps) {
+export function DuelStage({ duel, startHp = 100, onAdvance, onProgress, demo = false }: DuelStageProps) {
   const reduce = !!useReducedMotion()
   const [a, b] = duel.fighters
   const lookA = useMemo(() => fighterLook(a.agent_id, a.niche, a.avatar_seed ?? 0), [a.agent_id, a.niche, a.avatar_seed])
@@ -196,6 +198,8 @@ export function DuelStage({ duel, startHp = 100, onAdvance, demo = false }: Duel
   const advancingRef = useRef(0)
   const fastRef = useRef(false)
   const introRef = useRef(initialPlayed > 0)
+  const progressRef = useRef(onProgress)
+  progressRef.current = onProgress
 
   // StrictMode mounts twice; the flag must come back on the second mount.
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false } }, [])
@@ -297,7 +301,8 @@ export function DuelStage({ duel, startHp = 100, onAdvance, demo = false }: Duel
       return
     }
     const w = d.winner === d.fighters[0].agent_id ? 0 : 1
-    setPoses(w === 0 ? ['win', 'ko'] : ['ko', 'win'])
+    const lost: FighterPose = d.result === 'ko' ? 'ko' : 'stumble'  // only a K.O. puts a fighter on the floor
+    setPoses(w === 0 ? ['win', lost] : [lost, 'win'])
     await sleep(reduce ? 100 : 500)
     setBanner({ text: d.result === 'ko' ? 'K.O.' : 'DECISION', sub: `${d.fighters[w].name} wins`, sticky: true })
     const l = d.fighters[1 - w]
@@ -317,12 +322,17 @@ export function DuelStage({ duel, startHp = 100, onAdvance, demo = false }: Duel
           introRef.current = true
           await playIntro()
         }
+        progressRef.current?.(playedRef.current, false)
         while (aliveRef.current && playedRef.current < resolvedCount(duelRef.current)) {
           const idx = playedRef.current
           await playRound(duelRef.current, idx)
           playedRef.current = idx + 1
+          progressRef.current?.(playedRef.current, false)
         }
-        if (aliveRef.current && duelRef.current.status === 'finished') await playEnd(duelRef.current)
+        if (aliveRef.current && duelRef.current.status === 'finished') {
+          await playEnd(duelRef.current)
+          progressRef.current?.(playedRef.current, true)
+        }
       } finally {
         busyRef.current = false
         fastRef.current = false
@@ -346,6 +356,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance, demo = false }: Duel
     if (busyRef.current) return
     playedRef.current = 0
     introRef.current = false
+    progressRef.current?.(0, false)
     setHp([startHp, startHp])
     setPoses(['idle', 'idle'])
     setBanner(null)

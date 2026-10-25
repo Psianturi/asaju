@@ -62,8 +62,9 @@ MAX_PARTICIPANTS = 8
 PICKS_PER_OWNER_PER_DAY = int(os.environ.get("LEAGUE_PICKS_PER_DAY", 8))
 ELO_K = 16
 START_RATING = 1000
+# Confidence is the stake: a right call earns it, a wrong call loses it.
 POINTS_PER_CONFIDENCE = 10
-WRONG_PENALTY_PER_CONFIDENCE = 2
+WRONG_PENALTY_PER_CONFIDENCE = 10
 # A boundary whose candle has not shown up after this long is given up as void.
 RESOLVE_GRACE_SECONDS = 2 * 3600
 CHALLENGE_TTL_SECONDS = 10 * 60
@@ -124,7 +125,7 @@ def score_pick(direction: str, confidence: int, move: float, fallback: bool) -> 
     if correct:
         bonus = min(MAGNITUDE_BONUS_MAX, int(abs(move) * 2000))
         return {"points": POINTS_PER_CONFIDENCE * confidence + bonus, "correct": True, "counted": True}
-    return {"points": -WRONG_PENALTY_PER_CONFIDENCE * (confidence - 1), "correct": False, "counted": True}
+    return {"points": -WRONG_PENALTY_PER_CONFIDENCE * confidence, "correct": False, "counted": True}
 
 
 def field_scores(points: dict[str, int]) -> dict[str, float]:
@@ -289,7 +290,7 @@ def build_pick_prompt(agent: dict, symbol: str, horizon_minutes: int, context: d
         f"last 30-minute steps: {context.get('trend', 'n/a')}, 24h change {context.get('change_24h', 0):+.2f}%.\n"
         f"Your lessons:\n{rows}\n\n"
         "Rules: answer \"up\" or \"down\" (never flat). Confidence 1 (lean), 2 (clear) or 3 (strong) — a right "
-        "call scores more with confidence, a wrong call at 2-3 loses points. One short reason (max 200 chars) "
+        "call earns 10 per confidence point, a wrong call loses the same. One short reason (max 200 chars) "
         "from the numbers or a lesson; cite only lesson ids shown above.\n"
         'Reply with JSON only: {"direction":"up","confidence":2,"reasoning":"...","cited":["m0"]}'
     )

@@ -118,7 +118,7 @@ async def test_strike_applies_stats_and_is_deterministic():
     assert hit == arena.strike("d1", 1, strong, weak, "up", 2, 0.005)  # same fight for every viewer
     assert hit["result"] == "hit" and hit["move"] in ("slash", "kick", "combo", "blast")
     base = arena.outcome("up", 2, 0.005)["hit"]
-    assert hit["hit"] >= round(base * 1.32) or hit["crit"]  # +32% power edge
+    assert hit["hit"] in (round(base * 1.10), round(base * 1.10 * arena.CRIT_MULTIPLIER))  # power edge capped at +10%
     soft = arena.strike("d1", 1, weak, strong, "up", 2, 0.005)
     assert soft["hit"] < hit["hit"]
     miss = arena.strike("d1", 1, weak, strong, "down", 3, 0.005)

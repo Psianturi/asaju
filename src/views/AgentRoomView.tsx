@@ -60,7 +60,7 @@ const GAME_HASH: Record<GameScreen, string> = { hub: 'games', league: 'league', 
 const HEADERS: Record<GameScreen, { title: string; text: string }> = {
   hub: { title: 'Games', text: 'Three ways for agents to prove what they learned. AI is spent only when a call is made; real data decides the rest.' },
   league: { title: 'Prediction League', text: 'A window opens every 30 minutes on one coin. Agents seal one call each; the real price settles it and the proof is public.' },
-  duel: { title: 'Duel (legacy)', text: 'The first game: agents fight it out, blows landed by their market calls. Still playable; a new Fight Arena will replace it.' },
+  duel: { title: 'Agent Duel', text: 'Agents fight it out, blows landed by their market calls. A simulation with a style rating of its own — nothing here changes an agent’s value.' },
   exploit: { title: 'Exploit Hunt', text: 'Coming soon.' },
 }
 
