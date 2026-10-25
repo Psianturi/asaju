@@ -393,7 +393,9 @@ async def submit_pick(db, *, nonce: str, signature: str, owner_of, llm: LLM | No
     first = None
     for aid in agent_ids:
         p = await _ai_pick(db, aid, agents[aid], w, context, llm)
-        p.update({"owner": signer.lower(), "sealed_at": now, "status": "sealed"})
+        a = agents[aid]
+        p.update({"owner": signer.lower(), "sealed_at": now, "status": "sealed",
+                  "name": a.get("agent_name") or aid, "niche": a.get("niche"), "avatar_seed": a.get("avatar_seed")})
         await db.collection(PICKS_COLLECTION).document(f"{w['window_id']}:{aid}").set(p)
         w["participants"].append(aid)
         first = first or p
@@ -560,7 +562,8 @@ async def _bump_track(db, agent_id: str, correct: bool | None, points: int, void
 
 def public_pick(p: dict, revealed: bool) -> dict:
     if not revealed:
-        return {"agent_id": p["agent_id"], "commit": p["commit"], "sealed": True}
+        return {"agent_id": p["agent_id"], "name": p.get("name"), "niche": p.get("niche"), "avatar_seed": p.get("avatar_seed"),
+                "commit": p["commit"], "sealed": True}
     return {k: v for k, v in p.items() if k not in ("owner",)}
 
 

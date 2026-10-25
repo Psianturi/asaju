@@ -128,7 +128,9 @@ async def test_owner_seals_a_pick_with_one_ai_call(db, owner):
     assert stored["direction"] == "up" and stored["confidence"] == 3 and stored["fallback"] is False
     assert stored["commit"] == seal(wins[0]["window_id"], 0, "Atlas", "up", 3, stored["salt"])
     w = await league.get_window(db, wins[0]["window_id"])
-    assert w["participants"] == ["Atlas"] and w["picks"][0] == {"agent_id": "Atlas", "commit": stored["commit"], "sealed": True}
+    shown = w["picks"][0]
+    assert w["participants"] == ["Atlas"] and shown["sealed"] is True and shown["commit"] == stored["commit"]
+    assert shown["name"] == "Atlas" and "direction" not in shown and "salt" not in shown
 
 
 async def test_picks_close_at_open_ts_and_are_one_per_agent(db, owner):

@@ -2,6 +2,7 @@ import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, Su
 import { config as appConfig } from '@/lib/config'
 import { decodeEntities } from '@/lib/agentRoom'
 import type { ArenaConfig, ArenaDuel, ArenaRating, Horizon, MatchType } from '@/lib/arena'
+import type { LeagueConfig, LeagueRecord, LeagueStanding, LeagueWindow, WindowStatus } from '@/lib/league'
 
 // Dev-only override first, so pointing a preview branch at the tagged Cloud Run
 // revision never requires editing the variable that Production also uses.
@@ -1824,8 +1825,11 @@ export const mandateService = {
 // only produces text and a rating: nothing is traded or signed on-chain.
 
 
-async function arenaRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/arena${path}`, init, 40000)
+const arenaRequest = <T,>(path: string, init: RequestInit = {}) => gameRequest<T>('arena', path, init)
+const leagueRequest = <T,>(path: string, init: RequestInit = {}) => gameRequest<T>('league', path, init)
+
+async function gameRequest<T>(game: 'arena' | 'league', path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetchWithTimeout(`${GCP_BACKEND_URL}/api/v1/${game}${path}`, init, 40000)
   if (!response.ok) {
     let detail = `Request failed (${response.status})`
     try {
@@ -1875,5 +1879,42 @@ export const arenaService = {
   },
   advance(duelId: string) {
     return arenaRequest<ArenaDuel>(`/duels/${encodeURIComponent(duelId)}/advance`, { method: 'POST' })
+  },
+}
+
+export interface LeagueChallenge { nonce: string; message: string; expires_at: number; max_llm_calls: number; picks_left_today: number }
+export interface LeaguePickReceipt { window_id: string; agent_id: string; commit: string; sealed: true; open_ts: number; resolve_ts: number; picks_left_today: number }
+
+export const leagueService = {
+  config() {
+    return leagueRequest<LeagueConfig>('/config', { method: 'GET' })
+  },
+  windows(status?: WindowStatus, limit = 20) {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (status) q.set('status', status)
+    return leagueRequest<{ windows: LeagueWindow[] }>(`/windows?${q}`, { method: 'GET' })
+  },
+  window(windowId: string) {
+    return leagueRequest<LeagueWindow>(`/windows/${encodeURIComponent(windowId)}`, { method: 'GET' })
+  },
+  standings(season?: string, limit = 50) {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (season) q.set('season', season)
+    return leagueRequest<{ season_id: string; agents: LeagueStanding[] }>(`/standings?${q}`, { method: 'GET' })
+  },
+  record(agentId: string) {
+    return leagueRequest<LeagueRecord>(`/agents/${encodeURIComponent(agentId)}`, { method: 'GET' })
+  },
+  verifyUrl(windowId: string) {
+    return `${GCP_BACKEND_URL}/api/v1/league/verify/${encodeURIComponent(windowId)}`
+  },
+  requestChallenge(params: { owner: string; agentId: string; windowId?: string; opponentId?: string }) {
+    return leagueRequest<LeagueChallenge>('/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ owner: params.owner, agent_id: params.agentId, window_id: params.windowId ?? null, opponent_id: params.opponentId ?? null }),
+    })
+  },
+  submitPick(nonce: string, signature: string) {
+    return leagueRequest<LeaguePickReceipt>('/picks', { method: 'POST', body: JSON.stringify({ nonce, signature }) })
   },
 }

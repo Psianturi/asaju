@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   UsersThree, BookOpen, ArrowRight, Play, Pause, FlagCheckered, PaperPlaneRight, Warning,
   CheckCircle, Sparkle, ArrowsLeftRight, PencilLine, ClockCounterClockwise, SignOut, Lightning, ShieldCheck, Sword,
+  ArrowLeft, ChartLineUp, GameController,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -14,12 +15,15 @@ import { NicheAvatar } from '@/components/NicheAvatar'
 import { RoomWhiteboard } from '@/components/RoomWhiteboard'
 import { RoomIntro } from '@/components/RoomIntro'
 import { ArenaView } from '@/views/ArenaView'
+import { LeagueView } from '@/views/LeagueView'
+import { GamesHub, type GameId } from '@/components/games/GamesHub'
 import type { ArenaConfig } from '@/lib/arena'
+import type { LeagueConfig } from '@/lib/league'
 import { Agent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import {
-  agentRoomService, arenaService, type AgentRoom, type RoomClaimCheck, type RoomMessage, type RoomMode, type RoomParticipant, type RoomCitation,
+  agentRoomService, arenaService, leagueService, type AgentRoom, type RoomClaimCheck, type RoomMessage, type RoomMode, type RoomParticipant, type RoomCitation,
 } from '@/services/cloudRunService'
 import {
   OWNER_SEAT, ROOM_LIMITS, ROOM_MODES, decodeEntities, limitsFromConfig, loadSavedRooms, saveRoom, seatPositions, transferKey,
@@ -47,59 +51,82 @@ const asAvatar = (p: RoomParticipant) => ({ id: p.agent_id, name: p.name, niche:
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong')
 
-type HubTab = 'room' | 'arena'
+type HubTab = 'room' | 'games'
+type GameScreen = 'hub' | GameId
+
+const HASH_TO_GAME: Record<string, GameScreen> = { '#games': 'hub', '#league': 'league', '#arena': 'duel' }
+const GAME_HASH: Record<GameScreen, string> = { hub: 'games', league: 'league', duel: 'arena', exploit: 'games' }
+
+const HEADERS: Record<GameScreen, { title: string; text: string }> = {
+  hub: { title: 'Games', text: 'Three ways for agents to prove what they learned. AI is spent only when a call is made; real data decides the rest.' },
+  league: { title: 'Prediction League', text: 'A window opens every 30 minutes on one coin. Agents seal one call each; the real price settles it and the proof is public.' },
+  duel: { title: 'Duel (legacy)', text: 'The first game: agents fight it out, blows landed by their market calls. Still playable; a new Fight Arena will replace it.' },
+  exploit: { title: 'Exploit Hunt', text: 'Coming soon.' },
+}
 
 /** Agent Room page: the Room (your agents talk) and, when the server has it
- *  switched on, the Arena (agents duel, open to everyone). */
+ *  switched on, the Games (League, Duel; open to everyone). */
 export function AgentRoomView(props: AgentRoomViewProps) {
   const [arenaCfg, setArenaCfg] = useState<ArenaConfig | null>(null)
-  const [tab, setTab] = useState<HubTab>(() => (typeof window !== 'undefined' && window.location.hash === '#arena' ? 'arena' : 'room'))
+  const [leagueCfg, setLeagueCfg] = useState<LeagueConfig | null>(null)
+  const [game, setGame] = useState<GameScreen>(() => (typeof window !== 'undefined' && HASH_TO_GAME[window.location.hash]) || 'hub')
+  const [tab, setTab] = useState<HubTab>(() => (typeof window !== 'undefined' && window.location.hash in HASH_TO_GAME ? 'games' : 'room'))
 
   useEffect(() => {
     let cancelled = false
     arenaService.config()
       .then(cfg => { if (!cancelled) setArenaCfg(cfg) })
       .catch(() => { if (!cancelled) setArenaCfg(null) })
+    leagueService.config()
+      .then(cfg => { if (!cancelled) setLeagueCfg(cfg) })
+      .catch(() => { if (!cancelled) setLeagueCfg(null) })
     return () => { cancelled = true }
   }, [])
 
-  const arenaOn = !!arenaCfg?.enabled
-  useEffect(() => { if (!arenaOn && tab === 'arena' && arenaCfg !== null) setTab('room') }, [arenaOn, tab, arenaCfg])
+  const gamesOn = !!arenaCfg?.enabled
+  useEffect(() => { if (!gamesOn && tab === 'games' && arenaCfg !== null) setTab('room') }, [gamesOn, tab, arenaCfg])
 
-  const pick = (t: HubTab) => {
-    setTab(t)
-    if (typeof window !== 'undefined') window.location.hash = t === 'arena' ? 'arena' : 'agent-room'
-  }
+  const setHash = (h: string) => { if (typeof window !== 'undefined') window.location.hash = h }
+  const pick = (t: HubTab) => { setTab(t); setHash(t === 'games' ? GAME_HASH[game] : 'agent-room') }
+  const openGame = (g: GameScreen) => { setGame(g); setHash(GAME_HASH[g]) }
+
+  const inGames = tab === 'games' && gamesOn
+  const header = inGames ? HEADERS[game] : { title: 'Agent Room', text: 'Seat your agents at one table. They speak from what each has actually learned, cite it, and hand useful lessons to each other. Pull up a chair whenever you want.' }
+  const Icon = !inGames ? UsersThree : game === 'league' ? ChartLineUp : game === 'duel' ? Sword : GameController
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="p-2 rounded-lg bg-primary/10 border border-primary/30">
-            {tab === 'arena' ? <Sword size={22} weight="duotone" className="text-primary" /> : <UsersThree size={22} weight="duotone" className="text-primary" />}
+            <Icon size={22} weight="duotone" className="text-primary" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight">{tab === 'arena' ? 'Arena' : 'Agent Room'}</h2>
-            <p className="text-sm text-muted-foreground">
-              {tab === 'arena'
-                ? 'Agents duel by calling the market. Sealed picks, real price moves, K.O. — open to every owner, watchable by anyone.'
-                : 'Seat your agents at one table. They speak from what each has actually learned, cite it, and hand useful lessons to each other. Pull up a chair whenever you want.'}
-            </p>
+            <h2 className="text-xl font-bold tracking-tight">{header.title}</h2>
+            <p className="text-sm text-muted-foreground">{header.text}</p>
+            {inGames && game !== 'hub' && (
+              <button type="button" onClick={() => openGame('hub')} className="mt-1 text-xs font-semibold text-primary inline-flex items-center gap-1 hover:underline">
+                <ArrowLeft size={12} /> All games
+              </button>
+            )}
           </div>
         </div>
-        {arenaOn && (
+        {gamesOn && (
           <div className="inline-flex rounded-lg border border-border/60 p-0.5 bg-black/20" role="tablist" aria-label="Agent Room sections">
-            {(['room', 'arena'] as HubTab[]).map(t => (
+            {(['room', 'games'] as HubTab[]).map(t => (
               <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => pick(t)}
                 className={cn('px-3 py-1.5 text-xs font-semibold rounded-md transition-all inline-flex items-center gap-1.5',
                   tab === t ? 'bg-primary/15 text-primary shadow-[0_0_14px_rgba(0,243,255,0.15)]' : 'text-muted-foreground hover:text-foreground')}>
-                {t === 'room' ? <UsersThree size={14} /> : <Sword size={14} />}{t === 'room' ? 'Room' : 'Arena'}
+                {t === 'room' ? <UsersThree size={14} /> : <GameController size={14} />}{t === 'room' ? 'Room' : 'Games'}
               </button>
             ))}
           </div>
         )}
       </div>
-      {tab === 'arena' && arenaOn ? <ArenaView {...props} config={arenaCfg ?? undefined} /> : <RoomTab {...props} />}
+      {!inGames ? <RoomTab {...props} />
+        : game === 'league' ? <LeagueView {...props} config={leagueCfg ?? undefined} />
+        : game === 'duel' ? <ArenaView {...props} config={arenaCfg ?? undefined} />
+        : <GamesHub onOpen={openGame} />}
     </div>
   )
 }
