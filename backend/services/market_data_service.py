@@ -535,7 +535,8 @@ async def get_dex_pools(network: str = "mantle", page: int = 1) -> list:
 async def get_dex_pools_multi(networks: list[str] | None = None) -> dict:
     """Top pools across several high-volume networks in one call, each independently cached."""
     networks = networks or list(DEX_NETWORKS.keys())
-    return {net: await get_dex_pools(net) for net in networks}
+    pools = await asyncio.gather(*(get_dex_pools(net) for net in networks), return_exceptions=True)
+    return {net: (p if isinstance(p, list) else []) for net, p in zip(networks, pools)}
 
 
 async def get_fear_greed_index() -> dict | None:

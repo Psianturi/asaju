@@ -154,8 +154,10 @@ def get_youtube_api_key() -> str | None:
         return None
 
 
+@lru_cache(maxsize=None)
 def get_mantle_rpc_url() -> str:
-    """Return MANTLE_RPC_URL, falling back to public Sepolia RPC."""
+    """Return MANTLE_RPC_URL, falling back to public Sepolia RPC. Cached per
+    process: a rotated secret needs a new revision, like the LLM key."""
     try:
         return _get_secret("MANTLE_RPC_URL")
     except RuntimeError:
@@ -163,6 +165,7 @@ def get_mantle_rpc_url() -> str:
         return "https://rpc.sepolia.mantle.xyz"
 
 
+@lru_cache(maxsize=None)
 def get_coingecko_api_key() -> str | None:
     """Return COINGECKO_API_KEY if configured, None otherwise (keyless demo calls only)."""
     try:
@@ -171,6 +174,7 @@ def get_coingecko_api_key() -> str | None:
         return None
 
 
+@lru_cache(maxsize=None)
 def get_coinmarketcap_api_key() -> str | None:
     """Return COINMARKETCAP_API_KEY if configured, None otherwise (CMC endpoints disabled)."""
     try:

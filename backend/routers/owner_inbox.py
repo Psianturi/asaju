@@ -195,26 +195,30 @@ async def get_owner_inbox(user_wallet: str = Query(...)) -> dict[str, Any]:
 
     pending_proposals: list[dict] = []
     if agent_ids:
-        async def _fetch_proposals():
+        async def _agent_pending(aid: str) -> list[dict]:
             out: list[dict] = []
-            for aid in agent_ids:
-                async for prop_doc in (
-                    db.collection(PROPOSALS_COLLECTION)
-                    .where(filter=FieldFilter("agent_id", "==", aid))
-                    .where(filter=FieldFilter("status", "==", "pending"))
-                    .limit(INBOX_LIMIT_PER_SECTION)
-                    .stream()
-                ):
-                    pd = prop_doc.to_dict() or {}
-                    out.append(
-                        {
-                            "proposal_id": prop_doc.id,
-                            "agent_id": aid,
-                            "title": pd.get("title", ""),
-                            "category": pd.get("category", "general"),
-                            "created_at": pd.get("created_at"),
-                        }
-                    )
+            async for prop_doc in (
+                db.collection(PROPOSALS_COLLECTION)
+                .where(filter=FieldFilter("agent_id", "==", aid))
+                .where(filter=FieldFilter("status", "==", "pending"))
+                .limit(INBOX_LIMIT_PER_SECTION)
+                .stream()
+            ):
+                pd = prop_doc.to_dict() or {}
+                out.append(
+                    {
+                        "proposal_id": prop_doc.id,
+                        "agent_id": aid,
+                        "title": pd.get("title", ""),
+                        "category": pd.get("category", "general"),
+                        "created_at": pd.get("created_at"),
+                    }
+                )
+            return out
+
+        async def _fetch_proposals():
+            per_agent = await asyncio.gather(*(_agent_pending(aid) for aid in agent_ids))
+            out = [p for rows in per_agent for p in rows]
             return out[:INBOX_LIMIT_PER_SECTION]
 
         pending_proposals = await _safe_call(_fetch_proposals(), [])
@@ -313,11 +317,11 @@ async def get_owner_inbox(user_wallet: str = Query(...)) -> dict[str, Any]:
     # milestone (level-up or comprehension step). Computed live from the event
     # history so the owner can see *where each agent is on its learning arc*.
     agent_progress: list[dict] = []
-    for a in owned_agents:
-        aid = a.get("agent_id", "")
-        if not aid:
-            continue
-        events = await _safe_call(_fetch_agent_events(db, aid), [])
+    progress_agents = [a for a in owned_agents if a.get("agent_id")]
+    # One Firestore query per agent, all in flight at once instead of in turn.
+    events_by_agent = await asyncio.gather(*(_safe_call(_fetch_agent_events(db, a["agent_id"]), []) for a in progress_agents))
+    for a, events in zip(progress_agents, events_by_agent):
+        aid = a["agent_id"]
         comp = _compute_comprehension_inline(events)
         agent_progress.append(
             {
