@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
  * the sword arm swings with a CSS keyframe so it stays in sync with the lunge.
  */
 
-export type FighterPose = 'idle' | 'attack' | 'hit' | 'ko' | 'win' | 'guard'
+export type FighterPose = 'idle' | 'slash' | 'kick' | 'combo' | 'blast' | 'hit' | 'stumble' | 'ko' | 'win' | 'guard'
 
 interface FighterProps {
   agentId: string
@@ -34,10 +34,32 @@ function poseAnimation(pose: FighterPose, dir: 1 | -1, reduce: boolean): { anima
       : { animate: { x: 0, y: 0, rotate: 0, opacity: 1 }, transition: { duration: 0.2 } }
   }
   switch (pose) {
-    case 'attack':
+    case 'slash':
       return {
         animate: { x: [0, dir * 110, dir * 104, 0], y: [0, -14, -4, 0], rotate: [0, dir * 7, dir * 4, 0], opacity: 1 },
         transition: { duration: 0.9, times: [0, 0.32, 0.6, 1], ease: 'easeOut' },
+      }
+    case 'kick':
+      // Leans back so the leg reaches.
+      return {
+        animate: { x: [0, dir * 120, dir * 112, 0], y: [0, -22, -8, 0], rotate: [0, -dir * 10, -dir * 6, 0], opacity: 1 },
+        transition: { duration: 0.9, times: [0, 0.32, 0.6, 1], ease: 'easeOut' },
+      }
+    case 'combo':
+      return {
+        animate: { x: [0, dir * 100, dir * 86, dir * 112, 0], y: [0, -10, -2, -14, 0], rotate: [0, dir * 6, -dir * 3, dir * 9, 0], opacity: 1 },
+        transition: { duration: 1.2, times: [0, 0.25, 0.5, 0.72, 1], ease: 'easeOut' },
+      }
+    case 'blast':
+      // Braces, then pushes the energy out from where it stands.
+      return {
+        animate: { x: [0, -dir * 14, dir * 12, 0], y: [0, 2, -6, 0], rotate: [0, -dir * 4, dir * 3, 0], opacity: 1 },
+        transition: { duration: 0.9, times: [0, 0.3, 0.55, 1], ease: 'easeOut' },
+      }
+    case 'stumble':
+      return {
+        animate: { x: [0, -dir * 22, -dir * 14, 0], y: [0, 4, 0, 0], rotate: [0, -dir * 8, dir * 3, 0], opacity: 1 },
+        transition: { duration: 0.6, times: [0, 0.3, 0.6, 1], ease: 'easeOut' },
       }
     case 'hit':
       return {
@@ -117,7 +139,9 @@ export const Fighter = memo(function Fighter({ agentId, name, niche, seed, side,
   const { animate, transition } = poseAnimation(pose, dir, reduce)
   const a = look.accent
   const a2 = look.accent2
-  const armClass = reduce ? '' : pose === 'attack' ? 'arena-arm--attack' : pose === 'idle' || pose === 'win' ? 'arena-arm--idle' : ''
+  const ARM: Partial<Record<FighterPose, string>> = { slash: 'arena-arm--attack', combo: 'arena-arm--combo', blast: 'arena-arm--blast', idle: 'arena-arm--idle', win: 'arena-arm--idle' }
+  const armClass = reduce ? '' : ARM[pose] ?? ''
+  const legClass = reduce ? '' : pose === 'kick' ? 'arena-leg--kick' : ''
 
   return (
     <motion.div
@@ -170,9 +194,15 @@ export const Fighter = memo(function Fighter({ agentId, name, niche, seed, side,
 
           {/* Legs. */}
           <path d="M88 186 L72 252 L60 262 L80 270 L98 256 L104 192 Z" fill={`url(#${id}m)`} stroke={a2} strokeWidth=".7" strokeOpacity=".7" />
-          <path d="M108 186 L112 254 L102 266 L134 270 L128 254 L126 192 Z" fill={`url(#${id}m)`} stroke={a2} strokeWidth=".7" strokeOpacity=".7" />
-          <path d="M78 228 L92 224 M114 230 L128 232" stroke={a} strokeWidth="1.6" opacity=".9" />
-          <path d="M60 262 L80 270 M102 266 L134 270" stroke={a} strokeWidth="1.2" opacity=".8" />
+          <path d="M78 228 L92 224" stroke={a} strokeWidth="1.6" opacity=".9" />
+          <path d="M60 262 L80 270" stroke={a} strokeWidth="1.2" opacity=".8" />
+          {/* Front leg: swings from the hip for kicks. */}
+          <g className={cn('arena-leg', legClass)}>
+            <path d="M108 186 L112 254 L102 266 L134 270 L128 254 L126 192 Z" fill={`url(#${id}m)`} stroke={a2} strokeWidth=".7" strokeOpacity=".7" />
+            <path d="M114 230 L128 232" stroke={a} strokeWidth="1.6" opacity=".9" />
+            <path d="M102 266 L134 270" stroke={a} strokeWidth="1.2" opacity=".8" />
+            {pose === 'kick' && <ellipse cx="118" cy="268" rx="20" ry="7" fill={a} opacity=".55" filter={`url(#${id}g)`} />}
+          </g>
 
           {/* Belt and torso. */}
           <path d="M72 118 L128 118 L133 152 L125 188 L75 188 L67 152 Z" fill={`url(#${id}m)`} stroke={a} strokeWidth="1" />
@@ -201,6 +231,9 @@ export const Fighter = memo(function Fighter({ agentId, name, niche, seed, side,
             <path d="M128 120 L162 150 L154 160 L120 134 Z" fill={`url(#${id}m)`} stroke={a2} strokeWidth=".7" strokeOpacity=".7" />
             <path d="M154 150 L178 168 L170 180 L146 162 Z" fill={`url(#${id}m)`} stroke={a2} strokeWidth=".7" strokeOpacity=".7" />
             <circle cx="172" cy="174" r="10" fill={`url(#${id}m)`} stroke={a} strokeWidth="1.1" />
+            {pose === 'blast' && (
+              <circle cx="172" cy="174" r="16" fill={a} opacity=".85" filter={`url(#${id}g)`} className="arena-charge" />
+            )}
             <g transform="translate(172 174) rotate(34)">
               <Blade kind={look.blade} id={id} a={a} a2={a2} />
             </g>

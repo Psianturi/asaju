@@ -4,10 +4,15 @@
  */
 import { avatarParts, paletteKey } from '@/lib/agentAvatar'
 
-export type Horizon = '15m' | '1h' | '4h'
+export type Horizon = '5m' | '15m' | '1h' | '30m'
+export type MatchType = 'instant' | 'live'
+export type FightMove = 'slash' | 'kick' | 'combo' | 'blast' | 'whiff' | 'stumble' | 'clash'
 
 export interface ArenaConfig {
   enabled: boolean
+  match_types?: MatchType[]
+  default_match_type?: MatchType
+  ai_calls_per_duel?: number
   start_hp: number
   min_rounds: number
   max_rounds: number
@@ -31,6 +36,9 @@ export interface ArenaFighter {
   avatar_seed?: number | null
   owner: string
   hp: number
+  stats?: { power: number; guard: number; focus: number }
+  style?: 'striker' | 'tactician' | 'trickster'
+  strategy?: string
   rating?: number
   rating_before?: number
   rating_after?: number
@@ -48,6 +56,8 @@ export interface RevealedPick {
   hit?: number
   recoil?: number
   result?: 'hit' | 'miss' | 'flat'
+  move?: FightMove
+  crit?: boolean
 }
 export type ArenaPick = SealedPick | RevealedPick
 
@@ -70,6 +80,8 @@ export interface ArenaRound {
 export interface ArenaDuel {
   duel_id: string
   status: 'live' | 'finished'
+  mode?: MatchType
+  ai_calls?: number
   owner: string
   rounds_total: number
   horizon: Horizon
@@ -103,11 +115,16 @@ export interface ArenaRating {
 
 export const ARENA_DEFAULTS: ArenaConfig = {
   enabled: false, start_hp: 100, min_rounds: 3, max_rounds: 7, default_rounds: 5,
-  horizons: ['15m', '1h', '4h'], default_horizon: '15m', assets: ['BTC', 'ETH', 'SOL', 'BNB', 'MNT'],
+  match_types: ['instant', 'live'], default_match_type: 'instant', ai_calls_per_duel: 2,
+  horizons: ['5m', '15m', '1h'], default_horizon: '15m', assets: ['BTC', 'ETH', 'SOL', 'BNB', 'MNT'],
   hit: { 1: 14, 2: 22, 3: 30 }, recoil: { 1: 0, 2: 6, 3: 12 }, duels_per_day: 6,
 }
 
-export const HORIZON_LABEL: Record<Horizon, string> = { '15m': '15 minutes', '1h': '1 hour', '4h': '4 hours' }
+export const HORIZON_LABEL: Record<Horizon, string> = { '5m': '5 minutes', '15m': '15 minutes', '1h': '1 hour', '30m': '30 minutes' }
+
+export const MOVE_LABEL: Record<FightMove, string> = {
+  slash: 'Slash', kick: 'Kick', combo: 'Combo', blast: 'Energy blast', whiff: 'Miss', stumble: 'Recoil', clash: 'Clash',
+}
 
 export const isSealed = (p: ArenaPick): p is SealedPick => (p as SealedPick).sealed === true
 
@@ -145,6 +162,8 @@ export interface StrikeStep {
   target: 0 | 1
   kind: 'hit' | 'recoil' | 'flat' | 'whiff'
   amount: number
+  move: FightMove
+  crit: boolean
 }
 
 export function strikeSteps(round: ArenaRound): StrikeStep[] {
@@ -155,10 +174,11 @@ export function strikeSteps(round: ArenaRound): StrikeStep[] {
     if (isSealed(p)) return
     const actor = i as 0 | 1
     const target = (1 - i) as 0 | 1
-    if (p.result === 'flat') steps.push({ actor, target, kind: 'flat', amount: 0 })
-    else if (p.result === 'hit') steps.push({ actor, target, kind: 'hit', amount: p.hit || 0 })
-    else if ((p.recoil || 0) > 0) steps.push({ actor, target: actor, kind: 'recoil', amount: p.recoil || 0 })
-    else steps.push({ actor, target, kind: 'whiff', amount: 0 })
+    const crit = !!p.crit
+    if (p.result === 'flat') steps.push({ actor, target, kind: 'flat', amount: 0, move: 'clash', crit })
+    else if (p.result === 'hit') steps.push({ actor, target, kind: 'hit', amount: p.hit || 0, move: p.move ?? 'slash', crit })
+    else if ((p.recoil || 0) > 0) steps.push({ actor, target: actor, kind: 'recoil', amount: p.recoil || 0, move: 'stumble', crit })
+    else steps.push({ actor, target, kind: 'whiff', amount: 0, move: 'whiff', crit })
   })
   return steps
 }

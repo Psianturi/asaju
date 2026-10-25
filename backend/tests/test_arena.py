@@ -1,5 +1,6 @@
-"""Arena duels: owner-signed start, sealed picks, market-settled rounds,
-KO/decision, ELO, and the public/scheduler gates."""
+"""Arena duels: one AI plan per fighter at the start, then an algorithmic
+fight settled by real price moves (live) or by the candles after a cutoff
+(instant). Also the owner-signed start, sealed calls, ELO and the gates."""
 import json
 
 import pytest
@@ -16,23 +17,50 @@ pytestmark = pytest.mark.asyncio
 
 
 class ScriptedLLM:
+    """Replies with queued plans; records each prompt."""
+
     def __init__(self, *replies):
         self.replies, self.prompts = list(replies), []
 
-    async def __call__(self, prompt, *, context, max_tokens=260, temperature=None, **kw):
+    async def __call__(self, prompt, *, context, max_tokens=400, temperature=None, **kw):
         self.prompts.append(prompt)
-        reply = self.replies.pop(0) if self.replies else {"direction": "up", "confidence": 1, "reasoning": "r", "cited": []}
+        reply = self.replies.pop(0) if self.replies else {"strategy": "s", "calls": []}
         if isinstance(reply, Exception):
             raise reply
         return reply if isinstance(reply, str) else json.dumps(reply)
 
 
-class Market:
-    def __init__(self, price=100.0):
-        self.price, self.change = price, 1.5
+class FakeMarket:
+    """Live prices you can move, and a 24h history of 30-minute candles."""
 
-    async def __call__(self, asset):
-        return {"price": self.price, "change_24h": self.change, "fear_greed": 55, "fear_greed_label": "Greed"}
+    def __init__(self, price=100.0, steps=None):
+        self.prices = {a: price for a in arena.ASSETS}
+        self.change = 1.5
+        self.steps = steps or [0.01] * 48  # +1% per candle by default
+
+    def set(self, price):
+        self.prices = {a: price for a in arena.ASSETS}
+
+    async def now(self, assets):
+        return {a: {"price": self.prices[a], "change_24h": self.change} for a in arena.ASSETS}
+
+    async def history(self, assets):
+        out = {}
+        for a in assets:
+            p, rows = 100.0, []
+            for i, step in enumerate(self.steps):
+                p = p * (1 + step)
+                rows.append([1_700_000_000_000 + i * 1_800_000, p, p, p, p])
+            out[a] = rows
+        return out
+
+
+def plan(direction, confidence=2, rounds=7, strategy="Ride momentum"):
+    dirs = direction if isinstance(direction, list) else [direction] * rounds
+    return {"strategy": strategy, "calls": [
+        {"round": i + 1, "direction": d, "confidence": confidence, "reasoning": f"going {d}", "cited": ["m0"]}
+        for i, d in enumerate(dirs)
+    ]}
 
 
 @pytest.fixture
@@ -45,64 +73,123 @@ def db(owner, monkeypatch, chain_owner_matches_firestore):
     db = FakeFirestoreClient()
     monkeypatch.setattr("routers.arena.get_db", lambda: db)
     monkeypatch.setenv("ARENA_ENABLED", "true")
-    for name, level in (("Atlas", 5), ("Brisa", 2)):
+    for name, level, events in (("Atlas", 5, 10), ("Brisa", 2, 3)):
         wallet = Account.create().address
-        db.seed("agents", name, make_agent(name, wallet, user_wallet=owner.address, level=level, chain_id=97))
+        doc = make_agent(name, wallet, user_wallet=owner.address, level=level, total_events=events, chain_id=97)
+        doc["skill_scores"] = {"Trading/Investment": 6}
+        db.seed("agents", name, doc)
         chain_owner_matches_firestore[wallet.lower()] = owner.address
     db.seed("agent_events", "ev1", {"agent_id": "Atlas", "event_title": "BTC funding", "attended_at": 2,
                                     "wisdom_summary": "Extreme funding often precedes a squeeze in bitcoin."})
     return db
 
 
-def _pick(direction, confidence=2, cited=None):
-    return {"direction": direction, "confidence": confidence, "reasoning": f"going {direction}", "cited": cited or []}
-
-
-async def _open(db, owner, agent="Atlas", opponent="Brisa", llm=None, market=None, signer=None, rounds=3, now=1000.0, open_to=True):
+async def _open(db, owner, agent="Atlas", opponent="Brisa", llm=None, market=None, signer=None,
+                rounds=3, mode="live", horizon="15m", now=1000.0, open_to=True):
     ch = await arena.issue_challenge(db, owner=owner.address, agent_id=agent, opponent_id=opponent,
-                                     rounds=rounds, horizon="15m", open_to_challenges=open_to)
+                                     rounds=rounds, mode=mode, horizon=horizon, open_to_challenges=open_to)
     sig = Account.sign_message(encode_defunct(text=ch["message"]), (signer or owner).key).signature.hex()
     from routers.arena import _owner_of
     return await arena.open_duel(db, nonce=ch["nonce"], signature=sig, owner_of=_owner_of,
-                                 llm=llm or ScriptedLLM(), market=market or Market(), now=now), ch
+                                 llm=llm or ScriptedLLM(), market=market or FakeMarket(), now=now), ch
 
 
 # ── Rules ────────────────────────────────────────────────────────────────────
 
+async def test_stats_come_from_level_lessons_and_skill():
+    s = arena.fighter_stats({"level": 13, "total_events": 24, "skill_scores": {"Other": 4, "Trading": 11}})
+    assert s == {"power": 36, "guard": 32, "focus": 30}
+    assert arena.fighter_stats({}) == {"power": 12, "guard": 8, "focus": 8}
+    assert arena.fighter_stats({"level": 99, "total_events": 999})["power"] == arena.STAT_MAX
+    assert arena.style_of("Aggressive") == "striker" and arena.style_of(None) == "tactician"
+
+
 async def test_outcomes_follow_direction_and_confidence():
     assert arena.outcome("up", 3, 0.01) == {"hit": 30 + 10, "recoil": 0, "result": "hit"}
-    assert arena.outcome("up", 1, 0.001) == {"hit": 14 + 2, "recoil": 0, "result": "hit"}
     assert arena.outcome("down", 3, 0.01) == {"hit": 0, "recoil": 12, "result": "miss"}
     assert arena.outcome("down", 1, 0.01)["recoil"] == 0
     assert arena.outcome("up", 3, 0.00001)["result"] == "flat"
 
 
+async def test_strike_applies_stats_and_is_deterministic():
+    strong = {"agent_id": "a", "style": "striker", "stats": {"power": 40, "guard": 30, "focus": 8}}
+    weak = {"agent_id": "b", "style": "tactician", "stats": {"power": 12, "guard": 8, "focus": 8}}
+    hit = arena.strike("d1", 1, strong, weak, "up", 2, 0.005)
+    assert hit == arena.strike("d1", 1, strong, weak, "up", 2, 0.005)  # same fight for every viewer
+    assert hit["result"] == "hit" and hit["move"] in ("slash", "kick", "combo", "blast")
+    base = arena.outcome("up", 2, 0.005)["hit"]
+    assert hit["hit"] >= round(base * 1.32) or hit["crit"]  # +32% power edge
+    soft = arena.strike("d1", 1, weak, strong, "up", 2, 0.005)
+    assert soft["hit"] < hit["hit"]
+    miss = arena.strike("d1", 1, weak, strong, "down", 3, 0.005)
+    assert miss["result"] == "miss" and miss["move"] == "stumble" and miss["recoil"] == round(12 * (1 - 8 / 200))
+    assert arena.strike("d1", 1, weak, strong, "up", 1, 0.0)["move"] == "clash"
+
+
 async def test_elo_is_zero_sum_and_rewards_upsets():
-    a, b = arena.elo_update(1000, 1000, 1.0)
-    assert (a, b) == (1016, 984)
+    assert arena.elo_update(1000, 1000, 1.0) == (1016, 984)
     under, fav = arena.elo_update(900, 1100, 1.0)
     assert under - 900 > 16 and under - 900 == 1100 - fav
+    assert arena.elo_update(1000, 1000, 1.0, k=16) == (1008, 992)
 
 
-async def test_assets_rotate_per_duel():
-    seq = [arena.asset_for_round("d1", r) for r in range(1, 6)]
-    assert sorted(seq) == sorted(arena.ASSETS)
+async def test_candles_are_aligned_by_time_not_position():
+    hist = {"bitcoin": [[1, 0, 0, 0, 10.0], [2, 0, 0, 0, 11.0], [3, 0, 0, 0, 12.0]],
+            "ethereum": [[2, 0, 0, 0, 5.0], [3, 0, 0, 0, 6.0]]}  # ethereum lags one candle
+    common, by_ts = arena.aligned_windows(hist, ["bitcoin", "ethereum"])
+    assert common == [2, 3] and by_ts["bitcoin"][2] == 11.0 and by_ts["ethereum"][3] == 6.0
 
 
 # ── Opening ──────────────────────────────────────────────────────────────────
 
-async def test_owner_opens_a_duel_with_sealed_round_one(db, owner):
-    llm = ScriptedLLM(_pick("up", 3, ["m0"]), _pick("down", 1))
-    duel, _ = await _open(db, owner, llm=llm)
-    assert duel["status"] == "live" and len(duel["rounds"]) == 1
+async def test_live_duel_costs_two_ai_calls_and_seals_round_one(db, owner):
+    llm = ScriptedLLM(plan("up", 3), plan("down", 1))
+    duel, _ = await _open(db, owner, llm=llm, rounds=5)
+    assert len(llm.prompts) == 2 and duel["ai_calls"] == 2
+    assert "Extreme funding" in llm.prompts[0] and "POWER" in llm.prompts[0] and "Round 5" in llm.prompts[0]
+    assert duel["status"] == "live" and duel["mode"] == "live" and len(duel["rounds"]) == 1
     r = duel["rounds"][0]
     assert r["status"] == "sealed" and r["resolve_at"] == 1000 + 900 and r["open_price"] == 100.0
-    assert all(p["sealed"] and "direction" not in p and len(p["commit"]) == 64 for p in r["picks"])
-    assert [f["hp"] for f in duel["fighters"]] == [100, 100]
+    assert all(p["sealed"] and "direction" not in p for p in r["picks"])
+    assert "plans" not in duel
+    assert duel["fighters"][0]["strategy"] == "Ride momentum" and duel["fighters"][0]["stats"]["power"] == 20
     assert duel["duels_left_today"] == arena.DUELS_PER_OWNER_PER_DAY - 1
-    assert len(llm.prompts) == 2 and "Extreme funding" in llm.prompts[0] and "<memory" in llm.prompts[0]
-    rating = (await db.collection("arena_ratings").document("Atlas").get()).to_dict()
-    assert rating["open_to_challenges"] is True and rating["rating"] == 1000
+
+
+async def test_live_rounds_use_the_plan_and_never_call_ai_again(db, owner):
+    llm = ScriptedLLM(plan("up", 3), plan("down", 2))
+    market = FakeMarket(100.0)
+    duel, _ = await _open(db, owner, llm=llm, market=market)
+    did = duel["duel_id"]
+    market.set(101.0)
+    assert (await arena.advance_duel(db, did, market, now=1500))["rounds"][0]["status"] == "sealed"
+    out = await arena.advance_duel(db, did, market, now=1900)
+    r1 = out["rounds"][0]
+    assert r1["status"] == "resolved" and abs(r1["move"] - 0.01) < 1e-9
+    p0, p1 = r1["picks"]
+    assert p0["direction"] == "up" and p0["result"] == "hit" and p0["move"] and "salt" not in p0
+    assert p1["result"] == "miss" and p1["move"] == "stumble"
+    assert r1["hp_after"][1] == 100 - p0["hit"] - p1["recoil"]
+    assert len(out["rounds"]) == 2 and out["rounds"][1]["open_price"] == 101.0
+    assert len(llm.prompts) == 2  # no AI after the start
+
+
+async def test_instant_duel_plays_out_at_once(db, owner):
+    llm = ScriptedLLM(plan("up", 3), plan("down", 3))
+    duel, _ = await _open(db, owner, llm=llm, mode="instant", rounds=5)
+    assert duel["status"] == "finished" and duel["mode"] == "instant" and duel["horizon"] == "30m"
+    assert duel["winner"] == "Atlas" and duel["result"] == "ko"
+    assert all(r["status"] == "resolved" for r in duel["rounds"])
+    assert duel["rounds"][0]["resolve_at"] - duel["rounds"][0]["opened_at"] == 1800
+    # Planned on data up to the cutoff only: the prompt never sees later candles.
+    assert "12h" in llm.prompts[0]
+    board = {b["agent_id"]: b for b in await arena.leaderboard(db)}
+    assert board["Atlas"]["rating"] == 1008 and board["Atlas"]["kos"] == 1  # instant uses K=16
+
+
+async def test_instant_needs_enough_history(db, owner):
+    with pytest.raises(arena.ArenaError, match="Not enough"):
+        await _open(db, owner, mode="instant", market=FakeMarket(steps=[0.01] * 5))
 
 
 async def test_signature_must_come_from_the_owner_and_works_once(db, owner):
@@ -112,7 +199,7 @@ async def test_signature_must_come_from_the_owner_and_works_once(db, owner):
     sig = Account.sign_message(encode_defunct(text=ch["message"]), owner.key).signature.hex()
     from routers.arena import _owner_of
     with pytest.raises(arena.ArenaError, match="already used"):
-        await arena.open_duel(db, nonce=ch["nonce"], signature=sig, owner_of=_owner_of, llm=ScriptedLLM(), market=Market())
+        await arena.open_duel(db, nonce=ch["nonce"], signature=sig, owner_of=_owner_of, llm=ScriptedLLM(), market=FakeMarket())
 
 
 async def test_challenger_sold_on_chain_cannot_fight(db, owner, chain_owner_matches_firestore):
@@ -134,9 +221,12 @@ async def test_other_owners_agent_needs_open_flag(db, owner, chain_owner_matches
     assert duel["fighters"][1]["owner"] == other.address.lower()
 
 
-async def test_pending_spawn_and_self_duel_are_refused(db, owner):
+async def test_request_validation_and_pending_spawn(db, owner):
     with pytest.raises(arena.ArenaError, match="itself"):
-        arena.validate_duel_request("Atlas", "Atlas", 3, "15m")
+        arena.validate_duel_request("Atlas", "Atlas", 3, "live", "15m")
+    with pytest.raises(arena.ArenaError, match="window"):
+        arena.validate_duel_request("Atlas", "Brisa", 3, "live", "4h")
+    assert arena.validate_duel_request("Atlas", "Brisa", 3, "instant", "anything")[4] == "30m"
     db.collection("agents")._docs["Brisa"]["funded"] = False
     with pytest.raises(arena.ArenaError, match="not active"):
         await _open(db, owner)
@@ -149,85 +239,57 @@ async def test_daily_quota_holds(db, owner, monkeypatch):
         await _open(db, owner)
 
 
-# ── Rounds ───────────────────────────────────────────────────────────────────
+# ── Resolution ───────────────────────────────────────────────────────────────
 
-async def test_round_resolves_only_after_the_horizon(db, owner):
-    llm = ScriptedLLM(_pick("up", 3), _pick("down", 2), _pick("up"), _pick("up"))
-    market = Market(100.0)
-    duel, _ = await _open(db, owner, llm=llm, market=market)
-    did = duel["duel_id"]
-    market.price = 101.0  # +1%
-    same = await arena.advance_duel(db, did, llm, market, now=1500)
-    assert same["rounds"][0]["status"] == "sealed" and len(llm.prompts) == 2
-
-    out = await arena.advance_duel(db, did, llm, market, now=1900)
-    r1 = out["rounds"][0]
-    assert r1["status"] == "resolved" and r1["close_price"] == 101.0 and abs(r1["move"] - 0.01) < 1e-9
-    assert r1["picks"][0]["direction"] == "up" and r1["picks"][0]["hit"] == 40 and "salt" not in r1["picks"][0]
-    assert r1["picks"][1]["result"] == "miss" and r1["picks"][1]["recoil"] == 6
-    assert r1["hp_after"] == [100, 54]  # Brisa: -40 hit, -6 recoil
-    assert out["status"] == "live" and len(out["rounds"]) == 2 and out["rounds"][1]["status"] == "sealed"
-    assert out["rounds"][1]["open_price"] == 101.0 and len(llm.prompts) == 4
-
-
-async def test_knockout_finishes_the_duel_and_settles_elo(db, owner):
-    llm = ScriptedLLM(*([_pick("up", 3), _pick("down", 3)] * 3))
-    market = Market(100.0)
-    duel, _ = await _open(db, owner, llm=llm, market=market)
-    did = duel["duel_id"]
-    market.price = 102.0
-    out = await arena.advance_duel(db, did, llm, market, now=2000)  # Brisa 100-40-12 = 48
-    market.price = 104.0
-    out = await arena.advance_duel(db, did, llm, market, now=3000)  # Brisa 48-40-12 -> 0
-    assert out["status"] == "finished" and out["result"] == "ko" and out["winner"] == "Atlas"
+async def test_knockout_finishes_the_live_duel_and_settles_elo(db, owner):
+    llm = ScriptedLLM(plan("up", 3), plan("down", 3))
+    market = FakeMarket(100.0)
+    duel, _ = await _open(db, owner, llm=llm, market=market, rounds=7)
+    did, now, price = duel["duel_id"], 1000, 100.0
+    out = duel
+    while out["status"] == "live":
+        price *= 1.02
+        market.set(price)
+        now += 1000
+        out = await arena.advance_duel(db, did, market, now=now)
+    assert out["result"] == "ko" and out["winner"] == "Atlas"
     assert out["fighters"][0]["rating_after"] == 1016 and out["fighters"][1]["rating_after"] == 984
     board = await arena.leaderboard(db)
-    assert [b["agent_id"] for b in board] == ["Atlas", "Brisa"]
-    assert board[0]["wins"] == 1 and board[0]["kos"] == 1 and board[0]["streak"] == 1
-    assert board[1]["losses"] == 1 and board[1]["streak"] == -1
-    # Nothing more happens to a finished duel.
-    assert (await arena.advance_duel(db, did, llm, market, now=9000))["status"] == "finished"
+    assert [b["agent_id"] for b in board] == ["Atlas", "Brisa"] and board[0]["streak"] == 1
+    assert (await arena.advance_duel(db, did, market, now=99999))["status"] == "finished"
 
 
-async def test_decision_and_draw_when_rounds_run_out(db, owner):
-    llm = ScriptedLLM(*([_pick("up", 1), _pick("up", 1)] * 3))
-    market = Market(100.0)
-    duel, _ = await _open(db, owner, llm=llm, market=market, rounds=3)
-    did = duel["duel_id"]
-    for i, price in enumerate((101.0, 102.0, 103.0), start=1):
-        market.price = price
-        out = await arena.advance_duel(db, did, llm, market, now=1000 + 1000 * i)
-    assert out["status"] == "finished" and out["result"] == "draw" and out["winner"] is None
-    board = {b["agent_id"]: b for b in await arena.leaderboard(db)}
-    assert board["Atlas"]["draws"] == 1 and board["Atlas"]["rating"] == 1000
+async def test_draw_when_both_land_the_same(db, owner):
+    llm = ScriptedLLM(plan("up", 1), plan("up", 1))
+    db.collection("agents")._docs["Brisa"].update({"level": 5, "total_events": 10})
+    duel, _ = await _open(db, owner, llm=llm, mode="instant", rounds=3,
+                          market=FakeMarket(steps=[0.00001] * 48))  # flat market: nobody lands
+    assert duel["result"] == "draw" and duel["winner"] is None
 
 
 async def test_model_failure_falls_back_to_momentum_and_says_so(db, owner):
     llm = ScriptedLLM(RuntimeError("down"), "not json at all")
-    market = Market(100.0)
+    market = FakeMarket(100.0)
     market.change = -3.0
     duel, _ = await _open(db, owner, llm=llm, market=market)
-    market.price = 99.0
-    out = await arena.advance_duel(db, duel["duel_id"], llm, market, now=2000)
-    picks = out["rounds"][0]["picks"]
-    assert all(p["fallback"] and p["direction"] == "down" and p["confidence"] == 1 for p in picks)
+    market.set(99.0)
+    out = await arena.advance_duel(db, duel["duel_id"], market, now=2000)
+    assert all(p["fallback"] and p["direction"] == "down" and p["confidence"] == 1 for p in out["rounds"][0]["picks"])
 
 
 async def test_resolution_lock_stops_a_double_settle(db, owner):
     duel, _ = await _open(db, owner)
-    ref = db.collection("arena_duels").document(duel["duel_id"])
-    await ref.update({"lock_until": 5000})
-    out = await arena.advance_duel(db, duel["duel_id"], ScriptedLLM(), Market(101.0), now=2000)
+    await db.collection("arena_duels").document(duel["duel_id"]).update({"lock_until": 5000})
+    out = await arena.advance_duel(db, duel["duel_id"], FakeMarket(101.0), now=2000)
     assert out["rounds"][0]["status"] == "sealed"
 
 
 async def test_tick_advances_only_due_duels(db, owner):
-    market = Market(100.0)
+    market = FakeMarket(100.0)
     d1, _ = await _open(db, owner, market=market, now=1000)
     d2, _ = await _open(db, owner, agent="Brisa", opponent="Atlas", market=market, now=1800)
-    market.price = 101.0
-    out = await arena.tick(db, ScriptedLLM(), market, now=2000)
-    assert out == {"live_due": 1, "advanced": 1, "failed": 0}
+    market.set(101.0)
+    assert await arena.tick(db, market, now=2000) == {"live_due": 1, "advanced": 1, "failed": 0}
     assert (await arena.get_duel(db, d1["duel_id"]))["rounds"][0]["status"] == "resolved"
     assert (await arena.get_duel(db, d2["duel_id"]))["rounds"][0]["status"] == "sealed"
 
@@ -246,26 +308,28 @@ async def client(db):
 
 async def test_arena_is_hidden_until_enabled(client, monkeypatch):
     monkeypatch.setenv("ARENA_ENABLED", "")
-    assert (await client.get("/api/v1/arena/config")).json()["enabled"] is False
+    cfg = (await client.get("/api/v1/arena/config")).json()
+    assert cfg["enabled"] is False and cfg["ai_calls_per_duel"] == 2
     assert (await client.get("/api/v1/arena/duels")).status_code == 404
     monkeypatch.setenv("ARENA_ENABLED", "true")
     assert (await client.get("/api/v1/arena/duels")).json() == {"duels": []}
 
 
-async def test_spectators_see_sealed_picks_and_tick_needs_the_scheduler(client, db, owner):
-    duel, _ = await _open(db, owner)
-    res = await client.get(f"/api/v1/arena/duels/{duel['duel_id']}")
-    assert res.status_code == 200
-    assert all(p["sealed"] for p in res.json()["rounds"][0]["picks"])
+async def test_spectators_never_see_plans_or_sealed_calls(client, db, owner):
+    duel, _ = await _open(db, owner, llm=ScriptedLLM(plan("up"), plan("down")))
+    res = (await client.get(f"/api/v1/arena/duels/{duel['duel_id']}")).json()
+    assert "plans" not in res and all(p["sealed"] for p in res["rounds"][0]["picks"])
     listed = (await client.get("/api/v1/arena/duels?status=live")).json()["duels"]
-    assert listed[0]["duel_id"] == duel["duel_id"] and "picks" not in listed[0]["rounds"][0]
+    assert listed[0]["duel_id"] == duel["duel_id"] and "picks" not in listed[0]["rounds"][0] and "plans" not in listed[0]
     assert (await client.post("/api/v1/arena/tick")).status_code == 401
 
 
 async def test_challenge_endpoint_validates_and_rate_limits(client, owner):
     body = {"owner": owner.address, "agent_id": "Atlas", "opponent_id": "Atlas"}
     assert (await client.post("/api/v1/arena/challenge", json=body)).status_code == 400
-    body["opponent_id"] = "Brisa"
-    for _ in range(9):
+    body.update(opponent_id="Brisa", mode="instant")
+    res = await client.post("/api/v1/arena/challenge", json=body)
+    assert res.status_code == 200 and "Mode: instant" in res.json()["message"] and res.json()["max_llm_calls"] == 2
+    for _ in range(8):
         assert (await client.post("/api/v1/arena/challenge", json=body)).status_code == 200
     assert (await client.post("/api/v1/arena/challenge", json=body)).status_code == 429

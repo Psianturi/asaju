@@ -9,13 +9,13 @@ describe('arena helpers', () => {
   it('replays a settled round as blows in pick order', () => {
     const r = round({
       picks: [
-        { agent_id: 'a', direction: 'up', confidence: 3, reasoning: '', cited: [], fallback: false, commit: 'x', result: 'hit', hit: 40, recoil: 0 },
+        { agent_id: 'a', direction: 'up', confidence: 3, reasoning: '', cited: [], fallback: false, commit: 'x', result: 'hit', hit: 40, recoil: 0, move: 'kick', crit: true },
         { agent_id: 'b', direction: 'down', confidence: 2, reasoning: '', cited: [], fallback: false, commit: 'y', result: 'miss', hit: 0, recoil: 6 },
       ],
     })
     expect(strikeSteps(r)).toEqual([
-      { actor: 0, target: 1, kind: 'hit', amount: 40 },
-      { actor: 1, target: 1, kind: 'recoil', amount: 6 },
+      { actor: 0, target: 1, kind: 'hit', amount: 40, move: 'kick', crit: true },
+      { actor: 1, target: 1, kind: 'recoil', amount: 6, move: 'stumble', crit: false },
     ])
     expect(strikeSteps(round({ status: 'sealed', picks: [{ agent_id: 'a', commit: 'x', sealed: true }, { agent_id: 'b', commit: 'y', sealed: true }] }))).toEqual([])
   })

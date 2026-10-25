@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, ArrowDown, ArrowUp, Crown, Fire, Lightning, LockKey, ShieldCheck, Sword, Trophy, Wallet, Eye,
+  ArrowLeft, ArrowDown, ArrowUp, Clock, Crown, Fire, Lightning, LockKey, ShieldCheck, Sword, Trophy, Wallet, Eye,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -16,8 +16,8 @@ import { fmtPrice, fmtTimeAgo } from '@/lib/format'
 import { mantleService } from '@/lib/blockchain/mantleService'
 import { arenaService } from '@/services/cloudRunService'
 import {
-  ARENA_DEFAULTS, HORIZON_LABEL, fmtCountdown, fmtMove, isSealed, resolvedCount, resultLine, shortAddr,
-  type ArenaConfig, type ArenaDuel, type ArenaRating, type Horizon, type RevealedPick,
+  ARENA_DEFAULTS, HORIZON_LABEL, MOVE_LABEL, fmtCountdown, fmtMove, isSealed, resolvedCount, resultLine, shortAddr,
+  type ArenaConfig, type ArenaDuel, type ArenaRating, type Horizon, type MatchType, type RevealedPick,
 } from '@/lib/arena'
 
 interface ArenaViewProps {
@@ -89,7 +89,7 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
             <ArrowLeft size={14} className="mr-1" /> All duels
           </Button>
           <p className="text-xs text-muted-foreground font-mono">
-            {selected.status === 'live' ? 'LIVE' : resultLine(selected)} · {HORIZON_LABEL[selected.horizon]} rounds · started {fmtTimeAgo(selected.created_at * 1000)}
+            {selected.mode === 'instant' ? 'INSTANT' : 'LIVE'} · {selected.status === 'live' ? 'in progress' : resultLine(selected)} · {HORIZON_LABEL[selected.horizon] ?? selected.horizon} rounds · {selected.ai_calls ?? 2} AI calls · started {fmtTimeAgo(selected.created_at * 1000)}
           </p>
         </div>
         <DuelStage duel={selected} startHp={config.start_hp} onAdvance={advance} />
@@ -228,7 +228,7 @@ function DuelCard({ duel, index, startHp, onOpen }: { duel: ArenaDuel; index: nu
         ) : (
           <span className="inline-flex items-center gap-1"><Trophy size={11} className="text-amber-300" /> {resultLine(duel)}</span>
         )}
-        <span className="font-mono">{duel.horizon}</span>
+        <span className="font-mono">{duel.mode === 'instant' ? 'instant' : `live · ${duel.horizon}`}</span>
       </p>
     </motion.button>
   )
@@ -275,6 +275,7 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
   const [opponent, setOpponent] = useState<string>('')
   const [rounds, setRounds] = useState(config.default_rounds)
   const [horizon, setHorizon] = useState<Horizon>(config.default_horizon)
+  const [mode, setMode] = useState<MatchType>(config.default_match_type ?? 'instant')
   const [openToAll, setOpenToAll] = useState(true)
   const [busy, setBusy] = useState(false)
   const [left, setLeft] = useState<number | null>(null)
@@ -303,7 +304,7 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
     if (!challenger || !opponent) return
     setBusy(true)
     try {
-      const ch = await arenaService.requestChallenge({ owner: walletAddress, agentId: challenger, opponentId: opponent, rounds, horizon, openToChallenges: openToAll })
+      const ch = await arenaService.requestChallenge({ owner: walletAddress, agentId: challenger, opponentId: opponent, rounds, mode, horizon, openToChallenges: openToAll })
       toast.info('Sign in your wallet to start the duel', { description: 'Signing costs no gas and cannot move funds.' })
       const signed = await mantleService.signMessage(ch.message)
       const duel = await arenaService.open(ch.nonce, signed.signature)
@@ -364,12 +365,27 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-muted-foreground">3 · Match type</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(['instant', 'live'] as MatchType[]).map(m => (
+                <button key={m} type="button" onClick={() => setMode(m)} aria-pressed={mode === m}
+                  className={cn('rounded-lg border px-2.5 py-2 text-left transition-all', mode === m ? 'border-primary/60 bg-primary/10' : 'border-border/50 hover:border-primary/30')}>
+                  <p className="text-xs font-semibold flex items-center gap-1">{m === 'instant' ? <Lightning size={12} weight="fill" className="text-amber-400" /> : <Clock size={12} className="text-primary" />}{m === 'instant' ? 'Instant' : 'Live'}</p>
+                  <p className="text-[10px] text-muted-foreground leading-snug">
+                    {m === 'instant' ? 'Plays now on the last 24h of 30-min candles.' : 'Rounds settle on real future prices.'}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={cn('grid gap-3', mode === 'live' ? 'grid-cols-2' : 'grid-cols-1')}>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between"><p className="text-[11px] text-muted-foreground">Rounds</p><span className="text-xs font-mono">{rounds}</span></div>
               <Slider min={config.min_rounds} max={config.max_rounds} step={1} value={[rounds]} onValueChange={([v]) => setRounds(v)} />
             </div>
-            <div className="space-y-1.5">
+            {mode === 'live' && <div className="space-y-1.5">
               <p className="text-[11px] text-muted-foreground">Each round</p>
               <div className="grid grid-cols-3 gap-1">
                 {config.horizons.map(h => (
@@ -379,7 +395,7 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
 
           <label className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
@@ -389,7 +405,8 @@ function ChallengePanel({ agents, walletAddress, walletConnected, onConnectWalle
 
           <p className="text-[11px] text-muted-foreground flex items-center gap-1">
             <Lightning size={12} weight="fill" className="text-amber-400" />
-            Up to {rounds * 2} AI calls. About {rounds} × {HORIZON_LABEL[horizon]}. Talk only — no trades, no signing.
+            {config.ai_calls_per_duel ?? 2} AI calls per duel, made once at the start to plan every round; the fight itself is computed.
+            {mode === 'live' ? ` About ${rounds} × ${HORIZON_LABEL[horizon]}.` : ' Result in seconds.'} No trades, no signing.
           </p>
 
           <Button className="w-full" disabled={!challenger || !opponent || busy} onClick={start}>
@@ -417,7 +434,7 @@ function RoundLog({ duel }: { duel: ArenaDuel }) {
           return (
             <div key={r.round} className="rounded-lg border border-border/40 bg-white/[0.02] p-3">
               <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
-                <span>Round {r.round} · {r.symbol}</span>
+                <span>Round {r.round} · {r.symbol}{duel.mode === 'instant' && ` · ${utcTime(r.opened_at)}–${utcTime(r.resolve_at)} UTC`}</span>
                 {r.status === 'resolved' ? (
                   <span className={cn((r.move ?? 0) >= 0 ? 'text-emerald-300' : 'text-red-300')}>{fmtPrice(r.open_price)} → {fmtPrice(r.close_price)} ({fmtMove(r.move)})</span>
                 ) : (
@@ -440,6 +457,8 @@ function RoundLog({ duel }: { duel: ArenaDuel }) {
   )
 }
 
+const utcTime = (t: number) => new Date(t * 1000).toISOString().slice(11, 16)
+
 function PickLine({ name, pick }: { name: string; pick: RevealedPick }) {
   const up = pick.direction === 'up'
   return (
@@ -449,7 +468,7 @@ function PickLine({ name, pick }: { name: string; pick: RevealedPick }) {
         {name}
         <span className="font-mono text-muted-foreground">c{pick.confidence}</span>
         <span className={cn('ml-auto font-mono', pick.result === 'hit' ? 'text-emerald-300' : pick.result === 'miss' ? 'text-red-300' : 'text-muted-foreground')}>
-          {pick.result === 'hit' ? `hit ${pick.hit}` : pick.result === 'miss' ? (pick.recoil ? `recoil ${pick.recoil}` : 'miss') : 'flat'}
+          {pick.result === 'hit' ? `${MOVE_LABEL[pick.move ?? 'slash']} ${pick.hit}${pick.crit ? ' · crit' : ''}` : pick.result === 'miss' ? (pick.recoil ? `recoil ${pick.recoil}` : 'miss') : 'flat'}
         </span>
       </p>
       <p className="text-muted-foreground leading-snug">{pick.reasoning || '—'}{pick.fallback && <span className="ml-1 uppercase text-[9px] tracking-wider">· momentum fallback</span>}</p>

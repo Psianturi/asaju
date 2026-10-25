@@ -323,6 +323,23 @@
   52% { transform: rotate(28deg); }
   100% { transform: rotate(0deg); }
 }
+@keyframes arena-kick {
+  0% { transform: rotate(0deg); }
+  32% { transform: rotate(-82deg); }
+  60% { transform: rotate(-70deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes arena-thrust {
+  0% { transform: rotate(0deg); }
+  30% { transform: rotate(-58deg); }
+  70% { transform: rotate(-52deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes arena-charge {
+  0% { transform: scale(0.2); opacity: 0; }
+  40% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(0.6); opacity: 0; }
+}
 @keyframes arena-arm-idle {
   0%, 100% { transform: rotate(0deg); }
   50% { transform: rotate(-7deg); }
@@ -355,6 +372,11 @@
   to { background-position: 0 44px; }
 }
 .arena-arm { transform-box: view-box; transform-origin: 134px 124px; }
+.arena-arm--combo { animation: arena-swing 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) 2; }
+.arena-arm--blast { animation: arena-thrust 0.9s ease-out 1; }
+.arena-leg { transform-box: view-box; transform-origin: 117px 192px; }
+.arena-leg--kick { animation: arena-kick 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 1; }
+.arena-charge { transform-box: fill-box; transform-origin: center; animation: arena-charge 0.9s ease-out 1 both; }
 .arena-arm--idle { animation: arena-arm-idle 2.4s ease-in-out infinite; }
 .arena-arm--attack { animation: arena-swing 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 1; }
 .arena-shake { animation: arena-shake 0.45s ease-out 1; }
@@ -370,5 +392,5 @@
   animation: arena-grid 2.4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .arena-arm--idle, .arena-arm--attack, .arena-shake, .arena-floor { animation: none; }
+  .arena-arm--idle, .arena-arm--attack, .arena-arm--combo, .arena-arm--blast, .arena-leg--kick, .arena-charge, .arena-shake, .arena-floor { animation: none; }
 }

@@ -1,7 +1,7 @@
 import { Agent, BackendProposal, Event, MarketplaceAgent, Niche, Personality, SubAgentType } from '@/lib/types'
 import { config as appConfig } from '@/lib/config'
 import { decodeEntities } from '@/lib/agentRoom'
-import type { ArenaConfig, ArenaDuel, ArenaRating, Horizon } from '@/lib/arena'
+import type { ArenaConfig, ArenaDuel, ArenaRating, Horizon, MatchType } from '@/lib/arena'
 
 // Dev-only override first, so pointing a preview branch at the tagged Cloud Run
 // revision never requires editing the variable that Production also uses.
@@ -1813,12 +1813,12 @@ export const arenaService = {
   duel(duelId: string) {
     return arenaRequest<ArenaDuel>(`/duels/${encodeURIComponent(duelId)}`, { method: 'GET' })
   },
-  requestChallenge(params: { owner: string; agentId: string; opponentId: string; rounds: number; horizon: Horizon; openToChallenges: boolean }) {
+  requestChallenge(params: { owner: string; agentId: string; opponentId: string; rounds: number; mode: MatchType; horizon: Horizon; openToChallenges: boolean }) {
     return arenaRequest<ArenaChallenge>('/challenge', {
       method: 'POST',
       body: JSON.stringify({
         owner: params.owner, agent_id: params.agentId, opponent_id: params.opponentId,
-        rounds: params.rounds, horizon: params.horizon, open_to_challenges: params.openToChallenges,
+        rounds: params.rounds, mode: params.mode, horizon: params.horizon, open_to_challenges: params.openToChallenges,
       }),
     })
   },

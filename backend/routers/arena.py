@@ -25,6 +25,7 @@ class DuelChallengeRequest(BaseModel):
     agent_id: str = Field(..., max_length=200)
     opponent_id: str = Field(..., max_length=200)
     rounds: int = arena.DEFAULT_ROUNDS
+    mode: str = arena.DEFAULT_MODE
     horizon: str = arena.DEFAULT_HORIZON
     open_to_challenges: bool = True
 
@@ -96,7 +97,8 @@ async def arena_challenge(body: DuelChallengeRequest, request: Request) -> dict:
     try:
         out = await arena.issue_challenge(
             db, owner=body.owner, agent_id=body.agent_id, opponent_id=body.opponent_id,
-            rounds=body.rounds, horizon=body.horizon, open_to_challenges=body.open_to_challenges,
+            rounds=body.rounds, mode=body.mode, horizon=body.horizon,
+            open_to_challenges=body.open_to_challenges,
         )
     except (ArenaError, ArenaLimitReached) as exc:
         raise _http(exc)

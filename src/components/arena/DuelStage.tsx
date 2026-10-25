@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { ArrowDown, ArrowUp, Lightning, LockKey, ArrowCounterClockwise } from '@phosphor-icons/react'
+import { ArrowDown, ArrowUp, Lightning, LockKey, ArrowCounterClockwise, FastForward } from '@phosphor-icons/react'
 import { Fighter, type FighterPose } from '@/components/arena/Fighter'
 import {
-  fighterLook, fmtCountdown, fmtMove, hpBefore, hpTone, isSealed, resolvedCount, strikeSteps,
-  type ArenaDuel, type ArenaRound, type RevealedPick,
+  MOVE_LABEL, fighterLook, fmtCountdown, fmtMove, hpBefore, hpTone, isSealed, resolvedCount, strikeSteps,
+  type ArenaDuel, type ArenaFighter, type ArenaRound, type RevealedPick,
 } from '@/lib/arena'
 import { fmtPrice } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -22,10 +22,12 @@ interface DuelStageProps {
   onAdvance?: () => Promise<unknown>
 }
 
-interface Floater { id: number; side: 0 | 1; text: string; kind: 'hit' | 'recoil' | 'flat' | 'miss' }
+interface Floater { id: number; side: 0 | 1 | 'center'; text: string; kind: 'hit' | 'recoil' | 'flat' | 'miss' | 'crit' | 'move' }
+interface Projectile { id: number; from: 0 | 1; color: string }
 interface Banner { text: string; sub?: string; sticky?: boolean }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+const ATTACKS: FighterPose[] = ['slash', 'kick', 'combo', 'blast']
 
 function prng(seed: number) {
   let a = seed >>> 0
@@ -99,7 +101,7 @@ function Backdrop({ seed, left, right }: { seed: string; left: string; right: st
   )
 }
 
-function HpBar({ name, rating, level, hp, max, side, accent }: { name: string; rating?: number; level: number; hp: number; max: number; side: 0 | 1; accent: string }) {
+function HpBar({ name, rating, level, hp, max, side, accent, stats }: { name: string; rating?: number; level: number; hp: number; max: number; side: 0 | 1; accent: string; stats?: ArenaFighter['stats'] }) {
   const pct = Math.max(0, Math.min(100, (hp / max) * 100))
   const tone = hpTone(hp, max)
   const fill = tone === 'high' ? `linear-gradient(90deg, ${accent}, #7CFFD4)` : tone === 'mid' ? 'linear-gradient(90deg, #FBBF24, #F59E0B)' : 'linear-gradient(90deg, #F87171, #DC2626)'
@@ -114,7 +116,14 @@ function HpBar({ name, rating, level, hp, max, side, accent }: { name: string; r
         <motion.div className="absolute inset-y-0 left-0" style={{ backgroundImage: fill }} animate={{ width: `${pct}%` }} transition={{ duration: 0.35, ease: 'easeOut' }} />
         <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 9%, rgba(0,0,0,.5) 9% 10%)' }} />
       </div>
-      <p className={cn('mt-0.5 text-[10px] font-mono text-white/80')}>{Math.max(0, Math.round(hp))} / {max}</p>
+      <div className={cn('mt-0.5 flex items-center gap-2 text-[10px] font-mono text-white/80', side === 1 && 'flex-row-reverse')}>
+        <span>{Math.max(0, Math.round(hp))} / {max}</span>
+        {stats && (
+          <span className="hidden sm:inline text-white/55" title="Power · Guard · Focus">
+            POW {stats.power} · GRD {stats.guard} · FOC {stats.focus}
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -157,7 +166,9 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
   const lookA = useMemo(() => fighterLook(a.agent_id, a.niche, a.avatar_seed ?? 0), [a.agent_id, a.niche, a.avatar_seed])
   const lookB = useMemo(() => fighterLook(b.agent_id, b.niche, b.avatar_seed ?? 0), [b.agent_id, b.niche, b.avatar_seed])
 
-  const initialPlayed = duel.status === 'finished' ? Math.max(0, resolvedCount(duel) - 1) : resolvedCount(duel)
+  // Instant duels replay from the bell; a live duel opens on its current round.
+  const instant = duel.mode === 'instant'
+  const initialPlayed = instant ? 0 : duel.status === 'finished' ? Math.max(0, resolvedCount(duel) - 1) : resolvedCount(duel)
   const [hp, setHp] = useState<[number, number]>(() => hpBefore(duel, initialPlayed, startHp))
   const [poses, setPoses] = useState<[FighterPose, FighterPose]>(['idle', 'idle'])
   const [reveal, setReveal] = useState<ArenaRound | null>(null)
@@ -167,6 +178,8 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
   const [now, setNow] = useState(() => Date.now() / 1000)
   const [replayKey, setReplayKey] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [projectile, setProjectile] = useState<Projectile | null>(null)
+  const [intro, setIntro] = useState(false)
 
   const duelRef = useRef(duel)
   duelRef.current = duel
@@ -175,6 +188,8 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
   const aliveRef = useRef(true)
   const floaterId = useRef(0)
   const advancingRef = useRef(0)
+  const fastRef = useRef(false)
+  const introRef = useRef(initialPlayed > 0)
 
   // StrictMode mounts twice; the flag must come back on the second mount.
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false } }, [])
@@ -183,51 +198,81 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
     return () => clearInterval(t)
   }, [])
 
-  const addFloater = useCallback((side: 0 | 1, text: string, kind: Floater['kind']) => {
+  const addFloater = useCallback((side: Floater['side'], text: string, kind: Floater['kind']) => {
     const id = ++floaterId.current
     setFloaters(f => [...f, { id, side, text, kind }])
     setTimeout(() => setFloaters(f => f.filter(x => x.id !== id)), 1500)
   }, [])
 
+  const pose = useCallback((side: 0 | 1, p: FighterPose) => {
+    setPoses(prev => { const n = [...prev] as [FighterPose, FighterPose]; n[side] = p; return n })
+  }, [])
+
+  const damage = useCallback((side: 0 | 1, amount: number) => {
+    setHp(h => { const n = [...h] as [number, number]; n[side] = Math.max(0, n[side] - amount); return n })
+  }, [])
+
   const playRound = useCallback(async (d: ArenaDuel, index: number) => {
     const r = d.rounds[index]
     if (!r || r.status !== 'resolved') return
-    const wait = (ms: number) => sleep(reduce ? Math.min(ms, 200) : ms)
+    const wait = (ms: number) => (fastRef.current ? Promise.resolve() : sleep(reduce ? Math.min(ms, 200) : ms))
     setBanner({ text: `ROUND ${r.round}`, sub: `${r.symbol} ${fmtMove(r.move)}` })
-    await wait(1000)
+    await wait(800)
     setBanner(null)
     setReveal(r)
-    await wait(2200)
+    await wait(1800)
     for (const step of strikeSteps(r)) {
       if (!aliveRef.current) return
+      const accent = step.actor === 0 ? lookA.accent : lookB.accent
       if (step.kind === 'hit') {
-        setPoses(p => { const n = [...p] as [FighterPose, FighterPose]; n[step.actor] = 'attack'; return n })
-        await wait(300)
-        setPoses(p => { const n = [...p] as [FighterPose, FighterPose]; n[step.target] = 'hit'; return n })
-        setShake(true)
-        addFloater(step.target, `-${step.amount}`, 'hit')
-        setHp(h => { const n = [...h] as [number, number]; n[step.target] = Math.max(0, n[step.target] - step.amount); return n })
-        await wait(750)
-        setShake(false)
+        pose(step.actor, ATTACKS.includes(step.move as FighterPose) ? (step.move as FighterPose) : 'slash')
+        addFloater(step.actor, `${MOVE_LABEL[step.move].toUpperCase()}!`, 'move')
+        const blows = step.move === 'combo' ? [Math.ceil(step.amount / 2), Math.floor(step.amount / 2)] : [step.amount]
+        if (step.move === 'blast') {
+          await wait(320)
+          setProjectile({ id: Date.now(), from: step.actor, color: accent })
+          await wait(550)
+          setProjectile(null)
+        } else {
+          await wait(step.move === 'kick' ? 320 : 290)
+        }
+        for (const [n, amount] of blows.entries()) {
+          pose(step.target, 'hit')
+          setShake(true)
+          if (step.crit && n === blows.length - 1) addFloater(step.target, 'CRITICAL!', 'crit')
+          addFloater(step.target, `-${amount}`, 'hit')
+          damage(step.target, amount)
+          await wait(step.move === 'combo' && n === 0 ? 380 : 700)
+          setShake(false)
+          if (step.move === 'combo' && n === 0) pose(step.target, 'guard')
+        }
       } else if (step.kind === 'recoil') {
-        setPoses(p => { const n = [...p] as [FighterPose, FighterPose]; n[step.actor] = 'hit'; return n })
+        pose(step.actor, 'stumble')
         addFloater(step.actor, `-${step.amount} recoil`, 'recoil')
-        setHp(h => { const n = [...h] as [number, number]; n[step.actor] = Math.max(0, n[step.actor] - step.amount); return n })
-        await wait(750)
+        damage(step.actor, step.amount)
+        await wait(700)
       } else if (step.kind === 'whiff') {
-        setPoses(p => { const n = [...p] as [FighterPose, FighterPose]; n[step.actor] = 'attack'; return n })
+        pose(step.actor, 'slash')
         await wait(300)
+        pose(step.target, 'guard')
         addFloater(step.target, 'MISS', 'miss')
         await wait(500)
       } else {
-        addFloater(step.actor, 'FLAT', 'flat')
-        await wait(500)
+        setPoses(['guard', 'guard'])
+        addFloater('center', 'CLASH', 'flat')
+        await wait(600)
       }
       setPoses(['idle', 'idle'])
       await wait(250)
     }
     setReveal(null)
-  }, [addFloater, reduce])
+  }, [addFloater, damage, lookA.accent, lookB.accent, pose, reduce])
+
+  const playIntro = useCallback(async () => {
+    setIntro(true)
+    await (fastRef.current ? Promise.resolve() : sleep(reduce ? 300 : 2600))
+    setIntro(false)
+  }, [reduce])
 
   const playEnd = useCallback(async (d: ArenaDuel) => {
     if (d.result === 'draw') {
@@ -248,6 +293,10 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
       busyRef.current = true
       setPlaying(true)
       try {
+        if (!introRef.current) {
+          introRef.current = true
+          await playIntro()
+        }
         while (aliveRef.current && playedRef.current < resolvedCount(duelRef.current)) {
           const idx = playedRef.current
           await playRound(duelRef.current, idx)
@@ -256,11 +305,12 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
         if (aliveRef.current && duelRef.current.status === 'finished') await playEnd(duelRef.current)
       } finally {
         busyRef.current = false
+        fastRef.current = false
         if (aliveRef.current) setPlaying(false)
       }
     }
     void run()
-  }, [duel, playRound, playEnd, replayKey])
+  }, [duel, playRound, playEnd, playIntro, replayKey])
 
   // Settle a due round: once right away, then every 20s while the server catches up.
   const sealed = duel.status === 'live' && duel.rounds[duel.rounds.length - 1]?.status === 'sealed' ? duel.rounds[duel.rounds.length - 1] : null
@@ -275,6 +325,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
   const replay = () => {
     if (busyRef.current) return
     playedRef.current = 0
+    introRef.current = false
     setHp([startHp, startHp])
     setPoses(['idle', 'idle'])
     setBanner(null)
@@ -300,14 +351,34 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
         <Fighter agentId={b.agent_id} name={b.name} niche={b.niche} seed={b.avatar_seed} side="right" pose={poses[1]} />
       </div>
 
+      {/* Energy blast */}
+      <AnimatePresence>
+        {projectile && (
+          <motion.div
+            key={projectile.id}
+            className="absolute top-[45%] h-12 w-12 -ml-6 rounded-full pointer-events-none"
+            style={{ background: `radial-gradient(circle, #fff 0%, ${projectile.color} 45%, transparent 72%)`, boxShadow: `0 0 34px 12px ${projectile.color}` }}
+            initial={{ left: projectile.from === 0 ? '30%' : '70%', scale: 0.4, opacity: 0 }}
+            animate={{ left: projectile.from === 0 ? '72%' : '28%', scale: [0.4, 1.3, 1], opacity: [0, 1, 1] }}
+            exit={{ scale: 2.4, opacity: 0 }}
+            transition={{ duration: 0.55, ease: 'easeIn' }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Damage numbers */}
       {floaters.map(f => (
         <div
           key={f.id}
           className={cn(
             'absolute top-[38%] arena-float pointer-events-none font-black tracking-tight drop-shadow-[0_2px_0_rgba(0,0,0,.8)]',
-            f.side === 0 ? 'left-[18%]' : 'right-[18%]',
-            f.kind === 'hit' ? 'text-4xl text-red-400' : f.kind === 'recoil' ? 'text-2xl text-orange-300' : 'text-xl text-white/70',
+            f.side === 'center' ? 'left-1/2 -translate-x-1/2' : f.side === 0 ? 'left-[18%]' : 'right-[18%]',
+            f.kind === 'move' && 'top-[30%]',
+            f.kind === 'crit' && 'top-[26%]',
+            f.kind === 'hit' ? 'text-4xl text-red-400'
+              : f.kind === 'crit' ? 'text-3xl italic text-amber-300 drop-shadow-[0_0_14px_rgba(252,211,77,.8)]'
+              : f.kind === 'move' ? 'text-lg italic text-white drop-shadow-[0_0_10px_rgba(0,243,255,.7)]'
+              : f.kind === 'recoil' ? 'text-2xl text-orange-300' : 'text-xl text-white/70',
           )}
         >
           {f.text}
@@ -316,7 +387,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
 
       {/* HUD */}
       <div className="absolute inset-x-0 top-0 p-3 sm:p-4 flex items-start gap-3 sm:gap-6 text-white">
-        <HpBar name={a.name} rating={a.rating_after ?? a.rating} level={a.level} hp={hp[0]} max={startHp} side={0} accent={lookA.accent} />
+        <HpBar name={a.name} rating={a.rating_after ?? a.rating} level={a.level} hp={hp[0]} max={startHp} side={0} accent={lookA.accent} stats={a.stats} />
         <div className="shrink-0 text-center min-w-[88px]">
           <p className="text-[10px] uppercase tracking-[0.25em] text-white/60">Round</p>
           <p className="text-2xl font-black leading-none">{roundNo}<span className="text-sm text-white/50">/{duel.rounds_total}</span></p>
@@ -326,7 +397,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
             ))}
           </div>
         </div>
-        <HpBar name={b.name} rating={b.rating_after ?? b.rating} level={b.level} hp={hp[1]} max={startHp} side={1} accent={lookB.accent} />
+        <HpBar name={b.name} rating={b.rating_after ?? b.rating} level={b.level} hp={hp[1]} max={startHp} side={1} accent={lookB.accent} stats={b.stats} />
       </div>
 
       {/* Round status */}
@@ -339,12 +410,39 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
             </p>
             <p className="text-[10px] text-white/60">open {fmtPrice(sealed.open_price)}</p>
           </div>
-        ) : duel.status === 'finished' && !playing ? (
+        ) : playing ? (
+          <button type="button" onClick={() => { fastRef.current = true }} className="pointer-events-auto inline-flex items-center gap-1 rounded-lg bg-black/55 backdrop-blur px-3 py-1.5 border border-white/10 text-xs hover:border-primary/50">
+            <FastForward size={13} /> Skip
+          </button>
+        ) : duel.status === 'finished' ? (
           <button type="button" onClick={replay} className="inline-flex items-center gap-1 rounded-lg bg-black/55 backdrop-blur px-3 py-1.5 border border-white/10 text-xs hover:border-primary/50">
             <ArrowCounterClockwise size={13} /> Replay
           </button>
         ) : null}
       </div>
+
+      {/* Pre-fight: each agent's scouting report (the one AI step). */}
+      <AnimatePresence>
+        {intro && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/45 backdrop-blur-[2px] px-4 text-white pointer-events-none">
+            <p className="arena-banner text-6xl sm:text-8xl font-black italic tracking-tighter drop-shadow-[0_0_24px_rgba(0,243,255,.6)]">VS</p>
+            <div className="grid grid-cols-2 gap-3 sm:gap-8 w-full max-w-3xl">
+              {[a, b].map((f, i) => (
+                <motion.div key={f.agent_id} initial={{ x: i === 0 ? -40 : 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.25 }}
+                  className={cn('rounded-lg border border-white/15 bg-black/55 px-3 py-2', i === 1 && 'text-right')}>
+                  <p className="text-sm font-bold" style={{ color: i === 0 ? lookA.accent : lookB.accent }}>{f.name}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-white/50">{f.style ?? 'fighter'}{f.stats && ` · POW ${f.stats.power} GRD ${f.stats.guard} FOC ${f.stats.focus}`}</p>
+                  {f.strategy && <p className="mt-1 text-[11px] sm:text-xs italic text-white/85 leading-snug">“{f.strategy}”</p>}
+                </motion.div>
+              ))}
+            </div>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">
+              {instant ? 'Instant duel · judged on the last 24h of candles' : `Live duel · ${duel.horizon} rounds on real prices`}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Banner */}
       <AnimatePresence>
