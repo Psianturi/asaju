@@ -24,9 +24,8 @@ function Home() {
   return <LandingPage />
 }
 
+// main.css imports theme.css and index.css; one entry so Tailwind is built once.
 import "./main.css"
-import "./styles/theme.css"
-import "./index.css"
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary FallbackComponent={ErrorFallback}>
