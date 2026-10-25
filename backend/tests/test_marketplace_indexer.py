@@ -480,3 +480,17 @@ async def test_poll_chain_narrows_the_window_for_a_strict_rpc():
     assert spans == [1250, 1250, 1250]
     saved = firestore.collection_docs["marketplace_indexer_state"]._docs["chain_97"].to_dict()["last_processed_block"]
     assert saved == 1000 + 3 * 1250
+
+
+async def test_pruned_history_window_is_skipped_not_retried():
+    """Sepolia's public RPC answers {'code': 4444, 'message': 'pruned history
+    unavailable'} for old ranges; production retried the same window every poll."""
+    calls = []
+
+    async def fetch(start, end):
+        calls.append((start, end))
+        raise ValueError({"code": 4444, "message": "pruned history unavailable"})
+
+    logs, end = await mi._fetch_window(fetch, 11155111, 11_785_819, 11_900_000, "ownership scan")
+    assert logs == [] and end == 11_785_819 + mi.LISTING_SCAN_CHUNK - 1
+    assert len(calls) == 1  # no halving loop for an unrecoverable range

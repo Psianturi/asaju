@@ -179,6 +179,14 @@ async def _fetch_window(fetch, chain_id: int, start: int, latest: int, label: st
         try:
             return await fetch(start, end), end
         except Exception as exc:
+            if _history_pruned(exc):
+                # No RPC will ever serve this range again; retrying it every
+                # poll only burns the poll budget. Skip it and move the watermark.
+                logger.warning(
+                    "marketplace_indexer: %s skipped pruned window chain %s [%s, %s]",
+                    label, chain_id, start, end,
+                )
+                return [], end
             if span <= LISTING_SCAN_MIN_CHUNK:
                 logger.warning(
                     "marketplace_indexer: %s failed chain %s [%s, %s]: %s: %s",
@@ -186,6 +194,11 @@ async def _fetch_window(fetch, chain_id: int, start: int, latest: int, label: st
                 )
                 raise
             span //= 2
+
+
+def _history_pruned(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "pruned" in text or "'code': 4444" in text or '"code": 4444' in text
 
 
 async def poll_chain(chain_id: int) -> dict[str, int]:
