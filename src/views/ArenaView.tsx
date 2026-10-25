@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, ArrowDown, ArrowUp, Clock, Crown, Fire, Lightning, LockKey, ShieldCheck, Sword, Trophy, Wallet, Eye,
+  ArrowLeft, ArrowDown, ArrowUp, Clock, Crown, Fire, Lightning, LockKey, ShieldCheck, Sword, Trophy, Wallet, Eye, Question, Play,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,9 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { NicheAvatar } from '@/components/NicheAvatar'
 import { DuelStage } from '@/components/arena/DuelStage'
+import { ArenaGuide } from '@/components/arena/ArenaGuide'
+import { demoDuel, isDemoDuel } from '@/lib/arenaDemo'
+import { useLocalStorage } from '@/hooks/useLocalStorage'
 import { Agent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { fmtPrice, fmtTimeAgo } from '@/lib/format'
@@ -39,6 +42,10 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
   const [open, setOpen] = useState<ArenaRating[]>([])
   const [selected, setSelected] = useState<ArenaDuel | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [guideDismissed, setGuideDismissed] = useLocalStorage('asaju.arena.guide.v1', false)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const demo = isDemoDuel(selected)
+  const openDemo = () => setSelected(demoDuel())
 
   const refreshLists = useCallback(async () => {
     try {
@@ -61,7 +68,7 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
 
   // The open duel polls itself; settlements come from the stage's countdown.
   useEffect(() => {
-    if (!selected || selected.status !== 'live') return
+    if (!selected || selected.status !== 'live' || isDemoDuel(selected)) return
     const id = selected.duel_id
     const t = setInterval(async () => {
       if (document.visibilityState !== 'visible') return
@@ -71,7 +78,7 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
   }, [selected?.duel_id, selected?.status])
 
   const advance = useCallback(async () => {
-    if (!selected) return
+    if (!selected || isDemoDuel(selected)) return
     try {
       const d = await arenaService.advance(selected.duel_id)
       setSelected(d)
@@ -89,10 +96,13 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
             <ArrowLeft size={14} className="mr-1" /> All duels
           </Button>
           <p className="text-xs text-muted-foreground font-mono">
-            {selected.mode === 'instant' ? 'INSTANT' : 'LIVE'} · {selected.status === 'live' ? 'in progress' : resultLine(selected)} · {HORIZON_LABEL[selected.horizon] ?? selected.horizon} rounds · {selected.ai_calls ?? 2} AI calls · started {fmtTimeAgo(selected.created_at * 1000)}
+            {demo
+              ? 'DEMO · scripted sample fight · no AI calls · your agents are not involved'
+              : `${selected.mode === 'instant' ? 'INSTANT' : 'LIVE'} · ${selected.status === 'live' ? 'in progress' : resultLine(selected)} · ${HORIZON_LABEL[selected.horizon] ?? selected.horizon} rounds · ${selected.ai_calls ?? 2} AI calls · started ${fmtTimeAgo(selected.created_at * 1000)}`}
           </p>
         </div>
-        <DuelStage duel={selected} startHp={config.start_hp} onAdvance={advance} />
+        <DuelStage duel={selected} startHp={config.start_hp} onAdvance={advance} demo={demo} />
+        {selected.status === 'finished' && <DuelSummary duel={selected} />}
         <RoundLog duel={selected} />
       </div>
     )
@@ -100,7 +110,10 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
 
   return (
     <div className="space-y-5">
-      <SeasonStrip live={live.length} board={board} />
+      <SeasonStrip live={live.length} board={board} onHelp={() => setGuideOpen(true)} />
+      {(!guideDismissed || guideOpen) && (
+        <ArenaGuide onDemo={openDemo} onDismiss={() => { setGuideDismissed(true); setGuideOpen(false) }} />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
         <div className="space-y-5">
@@ -113,7 +126,10 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
               <span className="text-xs font-mono text-muted-foreground">{live.length}</span>
             </div>
             {live.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{loaded ? 'No duel is running right now. Start one on the right.' : 'Loading…'}</p>
+              <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
+                <span>{loaded ? 'No duel is running right now. Start one on the right, or' : 'Loading…'}</span>
+                {loaded && <Button size="sm" variant="outline" onClick={openDemo}><Play size={12} weight="fill" className="mr-1" /> watch a demo duel</Button>}
+              </div>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2">
                 {live.map((d, i) => <DuelCard key={d.duel_id} duel={d} index={i} startHp={config.start_hp} onOpen={() => setSelected(d)} />)}
@@ -147,7 +163,7 @@ export function ArenaView({ agents, walletAddress, walletConnected, onConnectWal
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
-function SeasonStrip({ live, board }: { live: number; board: ArenaRating[] }) {
+function SeasonStrip({ live, board, onHelp }: { live: number; board: ArenaRating[]; onHelp: () => void }) {
   const top = board[0]
   return (
     <div className="glass-card rounded-2xl p-4 sm:p-5 grid gap-4 md:grid-cols-[1fr_auto] items-center">
@@ -155,6 +171,9 @@ function SeasonStrip({ live, board }: { live: number; board: ArenaRating[] }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-mono uppercase tracking-[0.2em] rounded border border-primary/40 text-primary px-2 py-0.5">Season 0 · Preseason</span>
           <span className="text-[10px] font-mono uppercase tracking-[0.2em] rounded border border-border/60 text-muted-foreground px-2 py-0.5">Mode · Agent Duel</span>
+          <button type="button" onClick={onHelp} className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-[0.2em] rounded border border-primary/40 text-primary px-2 py-0.5 hover:bg-primary/10">
+            <Question size={11} weight="bold" /> How it works
+          </button>
         </div>
         <p className="text-sm text-muted-foreground max-w-2xl">
           Two agents, one market. Each round both seal a call on where an asset goes next; when the clock runs out the real move
@@ -468,6 +487,43 @@ function RoundLog({ duel }: { duel: ArenaDuel }) {
 }
 
 const utcTime = (t: number) => new Date(t * 1000).toISOString().slice(11, 16)
+
+function DuelSummary({ duel }: { duel: ArenaDuel }) {
+  const [a, b] = duel.fighters
+  const winner = duel.fighters.find(f => f.agent_id === duel.winner)
+  let best: { name: string; amount: number; move?: string; crit?: boolean } | null = null
+  duel.rounds.forEach(r => (r.picks || []).forEach((p, i) => {
+    if (!isSealed(p) && (p.hit || 0) > (best?.amount ?? 0)) best = { name: duel.fighters[i].name, amount: p.hit || 0, move: p.move, crit: p.crit }
+  }))
+  const delta = (f: ArenaFighterLike) => (f.rating_after !== undefined && f.rating_before !== undefined ? f.rating_after - f.rating_before : null)
+  const stat = (label: string, value: string, tone?: string) => (
+    <div className="rounded-lg border border-border/40 bg-white/[0.02] px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={cn('text-sm font-bold', tone)}>{value}</p>
+    </div>
+  )
+  return (
+    <Card className="glass-card p-4 sm:p-5 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-base font-bold flex items-center gap-2">
+          <Trophy size={18} weight="fill" className="text-amber-300" />
+          {duel.result === 'draw' ? 'Draw' : `${winner?.name ?? 'Winner'} wins by ${duel.result === 'ko' ? 'K.O.' : 'decision'}`}
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          {duel.result === 'ko' ? 'One fighter ran out of HP.' : duel.result === 'draw' ? 'Equal HP after the final round.' : 'All rounds played; higher HP takes it.'}
+        </p>
+      </div>
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
+        {stat('Final HP', `${a.name} ${a.hp} · ${b.name} ${b.hp}`)}
+        {stat('Rating', [a, b].map(f => { const d = delta(f); return `${f.name} ${d === null ? '—' : d >= 0 ? `+${d}` : d}` }).join(' · '))}
+        {stat('Biggest blow', best ? `${(best as { name: string }).name} · ${MOVE_LABEL[((best as { move?: string }).move as keyof typeof MOVE_LABEL) ?? 'slash']} ${(best as { amount: number }).amount}${(best as { crit?: boolean }).crit ? ' (crit)' : ''}` : '—', 'text-red-300')}
+        {stat('Cost', `${duel.rounds.length} rounds · ${duel.ai_calls ?? 2} AI calls`)}
+      </div>
+    </Card>
+  )
+}
+
+type ArenaFighterLike = { rating_before?: number; rating_after?: number }
 
 function PickLine({ name, pick }: { name: string; pick: RevealedPick }) {
   const up = pick.direction === 'up'

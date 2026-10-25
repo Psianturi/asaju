@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { ArrowDown, ArrowUp, Lightning, LockKey, ArrowCounterClockwise, FastForward } from '@phosphor-icons/react'
+import { ArrowDown, ArrowUp, Lightning, LockKey, ArrowCounterClockwise, FastForward, Question, X, Megaphone } from '@phosphor-icons/react'
+import { RULES } from '@/components/arena/ArenaGuide'
 import { Fighter, type FighterPose } from '@/components/arena/Fighter'
 import {
   MOVE_LABEL, fighterLook, fmtCountdown, fmtMove, hpBefore, hpTone, isSealed, resolvedCount, strikeSteps,
@@ -18,6 +19,8 @@ import { cn } from '@/lib/utils'
 interface DuelStageProps {
   duel: ArenaDuel
   startHp?: number
+  /** A scripted sample: labelled as such, never settled. */
+  demo?: boolean
   /** Ask the server to settle a due round. Called once the countdown hits zero. */
   onAdvance?: () => Promise<unknown>
 }
@@ -160,7 +163,7 @@ function PickCard({ pick, name, side }: { pick: RevealedPick | undefined; name: 
   )
 }
 
-export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
+export function DuelStage({ duel, startHp = 100, onAdvance, demo = false }: DuelStageProps) {
   const reduce = !!useReducedMotion()
   const [a, b] = duel.fighters
   const lookA = useMemo(() => fighterLook(a.agent_id, a.niche, a.avatar_seed ?? 0), [a.agent_id, a.niche, a.avatar_seed])
@@ -180,6 +183,9 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
   const [playing, setPlaying] = useState(false)
   const [projectile, setProjectile] = useState<Projectile | null>(null)
   const [intro, setIntro] = useState(false)
+  // One-line commentary so a newcomer can follow what each beat means.
+  const [caption, setCaption] = useState<string | null>(null)
+  const [rulesOpen, setRulesOpen] = useState(false)
 
   const duelRef = useRef(duel)
   duelRef.current = duel
@@ -220,6 +226,10 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
     await wait(800)
     setBanner(null)
     setReveal(r)
+    const [pa, pb] = (r.picks || []).filter(p => !isSealed(p)) as RevealedPick[]
+    if (pa && pb) {
+      setCaption(`${d.fighters[0].name} called ${pa.direction.toUpperCase()} (c${pa.confidence}), ${d.fighters[1].name} called ${pb.direction.toUpperCase()} (c${pb.confidence}). ${r.symbol} moved ${fmtMove(r.move)}.`)
+    }
     await wait(1800)
     for (const step of strikeSteps(r)) {
       if (!aliveRef.current) return
@@ -227,6 +237,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
       if (step.kind === 'hit') {
         pose(step.actor, ATTACKS.includes(step.move as FighterPose) ? (step.move as FighterPose) : 'slash')
         addFloater(step.actor, `${MOVE_LABEL[step.move].toUpperCase()}!`, 'move')
+        setCaption(`${d.fighters[step.actor].name} called it right: ${MOVE_LABEL[step.move]} for ${step.amount}${step.crit ? ' — critical hit!' : ''}.`)
         const blows = step.move === 'combo' ? [Math.ceil(step.amount / 2), Math.floor(step.amount / 2)] : [step.amount]
         if (step.move === 'blast') {
           await wait(320)
@@ -249,6 +260,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
       } else if (step.kind === 'recoil') {
         pose(step.actor, 'stumble')
         addFloater(step.actor, `-${step.amount} recoil`, 'recoil')
+        setCaption(`${d.fighters[step.actor].name} called it wrong at high confidence and takes ${step.amount} recoil.`)
         damage(step.actor, step.amount)
         await wait(700)
       } else if (step.kind === 'whiff') {
@@ -256,10 +268,12 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
         await wait(300)
         pose(step.target, 'guard')
         addFloater(step.target, 'MISS', 'miss')
+        setCaption(`${d.fighters[step.actor].name} called it wrong — confidence 1, so no damage either way.`)
         await wait(500)
       } else {
         setPoses(['guard', 'guard'])
         addFloater('center', 'CLASH', 'flat')
+        setCaption('The price barely moved, so nobody lands a blow.')
         await wait(600)
       }
       setPoses(['idle', 'idle'])
@@ -270,6 +284,7 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
 
   const playIntro = useCallback(async () => {
     setIntro(true)
+    setCaption(null)
     await (fastRef.current ? Promise.resolve() : sleep(reduce ? 300 : 2600))
     setIntro(false)
   }, [reduce])
@@ -278,12 +293,17 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
     if (d.result === 'draw') {
       setPoses(['guard', 'guard'])
       setBanner({ text: 'DRAW', sub: 'Even on HP after the final round', sticky: true })
+      setCaption('Draw: both fighters finish on the same HP.')
       return
     }
     const w = d.winner === d.fighters[0].agent_id ? 0 : 1
     setPoses(w === 0 ? ['win', 'ko'] : ['ko', 'win'])
     await sleep(reduce ? 100 : 500)
     setBanner({ text: d.result === 'ko' ? 'K.O.' : 'DECISION', sub: `${d.fighters[w].name} wins`, sticky: true })
+    const l = d.fighters[1 - w]
+    setCaption(d.result === 'ko'
+      ? `${d.fighters[w].name} wins by K.O. — ${l.name} is out of HP.`
+      : `${d.fighters[w].name} wins by decision, ${d.fighters[0].hp}–${d.fighters[1].hp} on HP.`)
   }, [reduce])
 
   // Replay every settled round the stage has not shown yet, in order.
@@ -455,6 +475,42 @@ export function DuelStage({ duel, startHp = 100, onAdvance }: DuelStageProps) {
             <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">
               {instant ? 'Instant duel · judged on the last 24h of candles' : `Live duel · ${duel.horizon} rounds on real prices`}
             </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Commentary */}
+      <AnimatePresence mode="wait">
+        {caption && !intro && !rulesOpen && (
+          <motion.div key={caption} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="absolute left-1/2 -translate-x-1/2 top-[30%] sm:top-[33%] max-w-[88%] sm:max-w-[60%] pointer-events-none">
+            <p className="inline-flex items-start gap-1.5 rounded-lg bg-black/60 backdrop-blur px-3 py-1.5 text-[11px] sm:text-xs text-white/90 leading-snug border border-white/10">
+              <Megaphone size={13} className="mt-0.5 shrink-0 text-primary" />
+              <span>{demo && <span className="mr-1 rounded border border-amber-300/50 px-1 text-[9px] font-mono text-amber-300">DEMO</span>}{caption}</span>
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Rules */}
+      <button type="button" onClick={() => setRulesOpen(o => !o)} aria-label="How the duel works"
+        className="absolute right-3 sm:right-4 top-[21%] sm:top-[19%] inline-flex items-center gap-1 rounded-md bg-black/55 backdrop-blur px-2 py-1 text-[10px] text-white/80 border border-white/10 hover:border-primary/50">
+        <Question size={12} weight="bold" /> Rules
+      </button>
+      <AnimatePresence>
+        {rulesOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 backdrop-blur-[2px] p-4 text-white">
+            <div className="relative max-w-xl w-full rounded-xl border border-white/15 bg-[#0B1030]/95 p-4 sm:p-5 space-y-3 max-h-full overflow-y-auto">
+              <button type="button" onClick={() => setRulesOpen(false)} aria-label="Close" className="absolute right-2 top-2 rounded-md p-1 text-white/60 hover:text-white"><X size={16} /></button>
+              <p className="text-sm font-bold">How a duel works</p>
+              <ol className="space-y-1.5 text-[11px] sm:text-xs text-white/85 leading-snug list-decimal pl-4">
+                {RULES.map(r => <li key={r}>{r}</li>)}
+              </ol>
+              <p className="text-[10px] text-white/50">
+                {duel.mode === 'instant' ? 'This duel is Instant: judged on the last 24 hours of 30-minute candles after the plan was made.' : `This duel is Live: each round waits ${duel.horizon} for real prices.`}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
