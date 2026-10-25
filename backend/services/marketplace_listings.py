@@ -24,6 +24,7 @@ Listings are keyed by agent_id (the same hashed id the agents collection uses)
 so there is at most one row per agent.
 """
 
+import asyncio
 import logging
 import time
 
@@ -193,6 +194,27 @@ async def reconcile_active_listings(chain_id: int | None = None) -> dict[str, in
     return summary
 
 
+# The agent wallet's balance goes to the buyer with the agent, so the board
+# shows it live. Short cache: the board is public and polled.
+BALANCE_TTL_SECONDS = 60
+BALANCE_READ_TIMEOUT = 4.0
+_balance_cache: dict[tuple[int, str], tuple[float, float]] = {}
+
+
+async def _live_balance(wallet: str, chain_id: int) -> float | None:
+    key = (chain_id, wallet.lower())
+    hit = _balance_cache.get(key)
+    if hit and time.time() - hit[1] < BALANCE_TTL_SECONDS:
+        return hit[0]
+    try:
+        bal = await asyncio.wait_for(web3_service.get_native_balance(wallet, chain_id), BALANCE_READ_TIMEOUT)
+    except Exception as exc:
+        logger.debug("listing balance read failed for %s on %s: %s", wallet, chain_id, exc.__class__.__name__)
+        return hit[0] if hit else None
+    _balance_cache[key] = (bal, time.time())
+    return bal
+
+
 async def get_active_listings(chain_id: int | None = None) -> list[dict]:
     """Return active listings, optionally filtered to one chain."""
     db = get_db()
@@ -203,4 +225,15 @@ async def get_active_listings(chain_id: int | None = None) -> list[dict]:
             continue
         out.append(data)
     out.sort(key=lambda d: d.get("created_at", 0), reverse=True)
+    balances = await asyncio.gather(*(
+        _live_balance(d.get("agent_wallet") or "", int(d.get("chain_id") or 0)) if d.get("agent_wallet") else _none()
+        for d in out
+    ))
+    for d, bal in zip(out, balances):
+        # Unknown stays None: the UI shows "—" rather than a fake zero.
+        d["agent_gas_balance"] = bal
     return out
+
+
+async def _none() -> None:
+    return None

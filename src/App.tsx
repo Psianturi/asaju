@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, startTransition } from 'react'
+﻿import { useState, useEffect, useCallback, useMemo, startTransition } from 'react'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -299,8 +299,17 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (mainView === 'marketplace') refreshMarketplaceListings()
+    if (mainView === 'marketplace' || mainView === 'my-agents') refreshMarketplaceListings()
   }, [mainView, refreshMarketplaceListings])
+  // My agents that are on the escrow right now, for the "For sale" badge.
+  const myListings = useMemo(() => {
+    const me = walletAddress?.toLowerCase()
+    const out: Record<string, { price: number; chainId?: number }> = {}
+    for (const l of marketplaceAgents) {
+      if (me && l.sellerAddress?.toLowerCase() === me) out[l.id] = { price: l.price, chainId: l.chainId }
+    }
+    return out
+  }, [marketplaceAgents, walletAddress])
   const [breedingDialogOpen, setBreedingDialogOpen] = useState(false)
   const [proposalModalAgent, setProposalModalAgent] = useState<Agent | null>(null)
   const [proposalCounts, setProposalCounts] = useState<Record<string, number>>({})
@@ -1337,6 +1346,7 @@ function App() {
               onToggleAutoReplenish={handleToggleAutoReplenish}
               onOpenProposals={(agent) => setProposalModalAgent(agent)}
               onListMarketplace={(agent) => setListingDialogAgent(agent)}
+              listings={myListings}
               onDeleteAgent={handleDeleteAgent}
               onRetrySpawn={handleRetrySpawn}
               onTopUpGas={(a) => { setSelectedAgentForTopUp(a); setTopUpDialogOpen(true) }}
@@ -1423,7 +1433,7 @@ function App() {
           onOpenChange={(o) => { if (!o) setListingDialogAgent(null) }}
           agent={listingDialogAgent}
           sellerWallet={walletAddress}
-          onChanged={() => { refreshMarketplaceListings(); setListingDialogAgent(null) }}
+          onChanged={refreshMarketplaceListings}
         />
       )}
 

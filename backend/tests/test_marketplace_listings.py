@@ -142,6 +142,7 @@ def env():
     fs = FakeFirestore()
     chain = FakeChain()
     chain.owners[AGENT_WALLET] = OWNER
+    ml._balance_cache.clear()
     with patch("services.marketplace_listings.get_db", return_value=fs), \
          patch("services.marketplace_listings.web3_service", chain):
         yield fs, chain
@@ -302,3 +303,27 @@ async def test_get_active_listings_filters_chain(env):
     await sync_listing("hash_eth")
     assert len(await get_active_listings()) == 2
     assert [l["agent_id"] for l in await get_active_listings(chain_id=97)] == ["hash_bnb"]
+
+
+async def test_listings_carry_the_live_wallet_balance(env):
+    """The agent's wallet goes to the buyer, so the board shows it live, not the
+    stale Firestore copy (which was None → rendered as 0.000)."""
+    fs, chain = env
+    _seed_agent(fs, "hash_bal")
+    chain.listings[AGENT_WALLET] = {"seller": OWNER, "price_wei": 10**18, "active": True}
+    await sync_listing("hash_bal")
+
+    async def balance(wallet, chain_id):
+        return 0.0112
+
+    chain.get_native_balance = balance
+    assert (await get_active_listings())[0]["agent_gas_balance"] == 0.0112
+
+    async def down(wallet, chain_id):
+        raise ConnectionError("rpc down")
+
+    chain.get_native_balance = down
+    # Cached value survives a later RPC failure within the TTL.
+    assert (await get_active_listings())[0]["agent_gas_balance"] == 0.0112
+    ml._balance_cache.clear()
+    assert (await get_active_listings())[0]["agent_gas_balance"] is None

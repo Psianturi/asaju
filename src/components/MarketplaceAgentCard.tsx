@@ -76,7 +76,9 @@ export function MarketplaceAgentCard({ agent, onPurchased }: MarketplaceAgentCar
   const rarityLabel = getRarityLabel(rarityTier)
   const isSpecialRarity = rarityTier !== 'common'
 
-  const walletBalance = agent.agentGasBalance ?? 0
+  // Unknown (chain unreadable) shows as a dash, never as a fake zero.
+  const walletBalance = agent.agentGasBalance
+  const fmtBalance = walletBalance == null ? '—' : walletBalance.toFixed(3)
   const heritageScore = agent.wisdomHeritageScore ?? 0
   const autoSigs = agent.autonomousSignatures ?? 0
   // Settlement currency follows the chain's marketplace: native coin on BNB and
@@ -236,7 +238,7 @@ export function MarketplaceAgentCard({ agent, onPurchased }: MarketplaceAgentCar
               <ValueRow
                 icon={<Fire size={11} className="text-orange-400" weight="fill" />}
                 label="Wallet Balance"
-                value={`${walletBalance.toFixed(3)} ${gasSymbol}`}
+                value={`${fmtBalance} ${gasSymbol}`}
                 verified
                 highlight
               />
@@ -367,7 +369,7 @@ value={`${(agent.gasSpent ?? 0).toFixed(3)} ${gasSymbol} spent`}
               </div>
               <div className="text-right">
                 <p className="text-[10px] text-muted-foreground">Wallet incl.</p>
-                <p className="text-sm font-bold text-orange-400 font-mono">{walletBalance.toFixed(3)} {gasSymbol}</p>
+                <p className="text-sm font-bold text-orange-400 font-mono">{fmtBalance} {gasSymbol}</p>
               </div>
             </div>
 

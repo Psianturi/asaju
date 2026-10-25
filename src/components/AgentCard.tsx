@@ -13,7 +13,7 @@ import {
 } from '@phosphor-icons/react'
 import { cn, calculateRarityTier, getRarityStyles, getRarityLabel, isAgentAutoScouting, WISDOM_UNLOCK_THRESHOLD } from '@/lib/utils'
 import { ChainBadge } from './ChainBadge'
-import { DEFAULT_CHAIN_ID, autoReplenish, getChain, supportsMarketplace } from '@/lib/blockchain/chains'
+import { DEFAULT_CHAIN_ID, autoReplenish, getChain, marketplaceCurrency, supportsMarketplace } from '@/lib/blockchain/chains'
 import { NicheAvatar } from './NicheAvatar'
 import { useGasStatus } from '@/hooks/useGasStatus'
 import { monitoringService } from '@/services/monitoringService'
@@ -31,6 +31,8 @@ interface AgentCardProps {
   onViewEvolution?: (agent: Agent) => void
   onTopUpGas?: (agent: Agent) => void
   onListMarketplace?: (agent: Agent) => void
+  /** Price when this agent is listed on the escrow. */
+  forSalePrice?: number
   onToggleAutoReplenish?: (agent: Agent, enabled: boolean) => void
   pendingProposalCount?: number
   onOpenProposals?: (agent: Agent) => void
@@ -82,7 +84,7 @@ function Stat({ label, short, value, unit, tone }: { label: string; short?: stri
  * One agent in My Agents: who it is, what needs the owner, how far it has
  * grown, and the next step. Everything deeper lives in the agent workspace.
  */
-export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, onChat, onViewEvolution, onTopUpGas, onListMarketplace, onToggleAutoReplenish, pendingProposalCount, onOpenProposals, onDeleteAgent, onRetrySpawn }: AgentCardProps) {
+export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, onChat, onViewEvolution, onTopUpGas, onListMarketplace, forSalePrice, onToggleAutoReplenish, pendingProposalCount, onOpenProposals, onDeleteAgent, onRetrySpawn }: AgentCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [walletCopied, setWalletCopied] = useState(false)
   const videosAnalyzed = videosAnalyzedActual ?? agent.eventsAttended ?? 0
@@ -160,6 +162,11 @@ export function AgentCard({ agent, videosAnalyzedActual, onClick, onConfigure, o
                 <Badge className={cn('text-[10px] font-bold px-1.5 py-0 border-0', rarityStyles.badgeClass)}>{getRarityLabel(rarityTier)}</Badge>
               )}
               {agent.isGenesis && <Crown size={14} weight="fill" className="text-amber-400" aria-label="Genesis agent" />}
+              {forSalePrice !== undefined && (
+                <span className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                  For sale · {forSalePrice} {marketplaceCurrency(chainId) || ''}
+                </span>
+              )}
               {(agent.generation ?? 1) > 1 && (
                 <span className="rounded-md border border-violet-500/30 px-1.5 py-0.5 text-[10px] font-mono text-violet-300">GEN-{agent.generation}</span>
               )}

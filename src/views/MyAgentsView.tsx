@@ -32,6 +32,8 @@ interface MyAgentsViewProps {
   onTopUpGas?: (agent: Agent) => void
   onOpenProposals: (agent: Agent) => void
   onListMarketplace?: (agent: Agent) => void
+  /** Agents of this owner listed on the escrow, by agent id. */
+  listings?: Record<string, { price: number; chainId?: number }>
   onDeleteAgent: (agent: Agent) => void
   onRetrySpawn: (agent: Agent) => void
   proposalCounts: Record<string, number>
@@ -85,6 +87,7 @@ export function MyAgentsView({
   onTopUpGas,
   onOpenProposals,
   onListMarketplace,
+  listings,
   onDeleteAgent,
   onRetrySpawn,
   proposalCounts,
@@ -271,6 +274,7 @@ export function MyAgentsView({
                     pendingProposalCount={proposalCounts[agent.id] ?? 0}
                     onOpenProposals={onOpenProposals}
                     onListMarketplace={onListMarketplace}
+                    forSalePrice={listings?.[agent.id]?.price}
                     onDeleteAgent={onDeleteAgent}
                     onRetrySpawn={onRetrySpawn}
                   />
